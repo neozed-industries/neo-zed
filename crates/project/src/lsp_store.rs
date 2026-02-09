@@ -1086,6 +1086,7 @@ impl LocalLspStore {
                     let mut cx = cx.clone();
                     async move {
                         this.update(&mut cx, |this, cx| {
+                            this.invalidate_code_lens();
                             cx.emit(LspStoreEvent::RefreshCodeLens);
                             this.downstream_client.as_ref().map(|(client, project_id)| {
                                 client.send(proto::RefreshCodeLens {
@@ -5421,7 +5422,7 @@ impl LspStore {
     pub fn apply_code_action(
         &self,
         buffer_handle: Entity<Buffer>,
-        mut action: CodeAction,
+        action: &mut CodeAction,
         push_to_history: bool,
         cx: &mut Context<Self>,
     ) -> Task<Result<ProjectTransaction>> {
@@ -5429,7 +5430,7 @@ impl LspStore {
             let request = proto::ApplyCodeAction {
                 project_id,
                 buffer_id: buffer_handle.read(cx).remote_id().into(),
-                action: Some(Self::serialize_code_action(&action)),
+                action: Some(Self::serialize_code_action(action)),
             };
             let buffer_store = self.buffer_store();
             cx.spawn(async move |_, cx| {
@@ -5456,25 +5457,26 @@ impl LspStore {
                 return Task::ready(Ok(ProjectTransaction::default()));
             };
 
+            let mut action = action.clone();
             cx.spawn(async move |this, cx| {
                 LocalLspStore::try_resolve_code_action(&lang_server, &mut action, request_timeout)
                     .await
                     .context("resolving a code action")?;
                 if let Some(edit) = action.lsp_action.edit()
-                    && (edit.changes.is_some() || edit.document_changes.is_some()) {
-                        return LocalLspStore::deserialize_workspace_edit(
-                            this.upgrade().context("no app present")?,
-                            edit.clone(),
-                            push_to_history,
-
-                            lang_server.clone(),
-                            cx,
-                        )
-                        .await;
-                    }
+                    && (edit.changes.is_some() || edit.document_changes.is_some())
+                {
+                    return LocalLspStore::deserialize_workspace_edit(
+                        this.upgrade().context("no app present")?,
+                        edit.clone(),
+                        push_to_history,
+                        lang_server.clone(),
+                        cx,
+                    )
+                    .await;
+                }
 
                 let Some(command) = action.lsp_action.command() else {
-                    return Ok(ProjectTransaction::default())
+                    return Ok(ProjectTransaction::default());
                 };
 
                 let server_capabilities = lang_server.capabilities();
@@ -5485,15 +5487,17 @@ impl LspStore {
                     .unwrap_or_default();
 
                 if !available_commands.contains(&command.command) {
-                    log::warn!("Cannot execute a command {} not listed in the language server capabilities", command.command);
-                    return Ok(ProjectTransaction::default())
+                    log::warn!(
+                        "Executing command {} not listed in the language server capabilities",
+                        command.command
+                    );
                 }
 
-                let request_timeout = cx.update(|app|
+                let request_timeout = cx.update(|app| {
                     ProjectSettings::get_global(app)
-                    .global_lsp_settings
-                    .get_request_timeout()
-                );
+                        .global_lsp_settings
+                        .get_request_timeout()
+                });
 
                 this.update(cx, |this, _| {
                     this.as_local_mut()
@@ -5503,12 +5507,16 @@ impl LspStore {
                 })?;
 
                 let _result = lang_server
-                    .request::<lsp::request::ExecuteCommand>(lsp::ExecuteCommandParams {
-                        command: command.command.clone(),
-                        arguments: command.arguments.clone().unwrap_or_default(),
-                        ..lsp::ExecuteCommandParams::default()
-                    }, request_timeout)
-                    .await.into_response()
+                    .request::<lsp::request::ExecuteCommand>(
+                        lsp::ExecuteCommandParams {
+                            command: command.command.clone(),
+                            arguments: command.arguments.clone().unwrap_or_default(),
+                            ..lsp::ExecuteCommandParams::default()
+                        },
+                        request_timeout,
+                    )
+                    .await
+                    .into_response()
                     .context("execute command")?;
 
                 return this.update(cx, |this, _| {
@@ -9321,12 +9329,12 @@ impl LspStore {
         mut cx: AsyncApp,
     ) -> Result<proto::ApplyCodeActionResponse> {
         let sender_id = envelope.original_sender_id().unwrap_or_default();
-        let action =
+        let mut action =
             Self::deserialize_code_action(envelope.payload.action.context("invalid action")?)?;
         let apply_code_action = this.update(&mut cx, |this, cx| {
             let buffer_id = BufferId::new(envelope.payload.buffer_id)?;
             let buffer = this.buffer_store.read(cx).get_existing(buffer_id)?;
-            anyhow::Ok(this.apply_code_action(buffer, action, false, cx))
+            anyhow::Ok(this.apply_code_action(buffer, &mut action, false, cx))
         })?;
 
         let project_transaction = apply_code_action.await?;

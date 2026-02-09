@@ -72,7 +72,7 @@ use std::{
     sync::{Arc, LazyLock},
 };
 use syntax_map::{QueryCursorHandle, SyntaxSnapshot};
-use task::RunnableTag;
+use task::{RunnableTag, TaskTemplate};
 pub use task_context::{ContextLocation, ContextProvider, RunnableRange};
 pub use text_diff::{
     DiffOptions, apply_diff_patch, apply_reversed_diff_patch, char_diff, line_diff, text_diff,
@@ -202,6 +202,19 @@ pub static PLAIN_TEXT: LazyLock<Arc<Language>> = LazyLock::new(|| {
         None,
     ))
 });
+
+/// Commands that the client (editor) handles locally rather than forwarding
+/// to the language server. Servers embed these in code lens and code action
+/// responses when they want the editor to perform a well-known UI action.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClientCommand {
+    /// Open a location list (references panel / peek view).
+    ShowLocations,
+    /// Schedule a task from a server-specific command. The adapter's
+    /// [`LspAdapter::command_to_task`] method converts the raw command
+    /// arguments into a [`TaskTemplate`].
+    ScheduleTask,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Location {
@@ -556,6 +569,21 @@ pub trait LspAdapter: 'static + Send + Sync + DynLspInstaller {
         Ok(original)
     }
 
+    /// Maps a command name received from the language server to a client-side
+    /// command kind. Language-specific adapters can override this to add their
+    /// own mappings (call [`default_client_command`] as a fallback).
+    fn client_command(&self, command_name: &str) -> Option<ClientCommand> {
+        default_client_command(command_name)
+    }
+
+    /// Converts a language-server command (typically from a code lens or code
+    /// action) into a [`TaskTemplate`] that the editor can schedule. Called
+    /// when [`client_command`](Self::client_command) returns
+    /// [`ClientCommand::ScheduleTask`].
+    fn command_to_task(&self, _command: &lsp::Command) -> Option<TaskTemplate> {
+        None
+    }
+
     /// Method only implemented by the default JSON language server adapter.
     /// Used to provide dynamic reloading of the JSON schemas used to
     /// provide autocompletion and diagnostics in Zed setting and keybind
@@ -573,6 +601,17 @@ pub trait LspAdapter: 'static + Send + Sync + DynLspInstaller {
     /// This allows adapters to intercept preference selections (like "Always" or "Never")
     /// for settings that should be persisted to Zed's settings file.
     fn process_prompt_response(&self, _context: &PromptResponseContext, _cx: &mut AsyncApp) {}
+}
+
+/// Default mapping of command names to [`ClientCommand`] kinds.
+/// Recognises the standard VSCode `editor.action.*` family.
+pub fn default_client_command(command_name: &str) -> Option<ClientCommand> {
+    match command_name {
+        "editor.action.showReferences"
+        | "editor.action.goToLocations"
+        | "editor.action.peekLocations" => Some(ClientCommand::ShowLocations),
+        _ => None,
+    }
 }
 
 pub trait LspInstaller {

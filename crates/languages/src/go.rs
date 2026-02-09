@@ -203,6 +203,91 @@ impl LspAdapter for GoLspAdapter {
         Self::SERVER_NAME
     }
 
+    fn client_command(&self, command_name: &str) -> Option<ClientCommand> {
+        match command_name {
+            "gopls.run_tests" => Some(ClientCommand::ScheduleTask),
+            _ => default_client_command(command_name),
+        }
+    }
+
+    fn command_to_task(&self, command: &lsp::Command) -> Option<TaskTemplate> {
+        use serde::Deserialize;
+
+        if command.command != "gopls.run_tests" {
+            return None;
+        }
+
+        #[derive(Deserialize)]
+        struct RunTestsArgs {
+            #[serde(rename = "URI")]
+            uri: String,
+            #[serde(rename = "Tests", default)]
+            tests: Vec<String>,
+            #[serde(rename = "Benchmarks", default)]
+            benchmarks: Vec<String>,
+        }
+
+        let first_arg = command.arguments.as_ref()?.first()?;
+        let args = serde_json::from_value::<RunTestsArgs>(first_arg.clone()).ok()?;
+        let uri = args.uri.parse::<lsp::Uri>().ok()?;
+        let file_path = uri.to_file_path().ok()?;
+        let directory = file_path.parent()?;
+        let cwd = directory.to_string_lossy().to_string();
+
+        let (test_args, label) = if !args.tests.is_empty() {
+            let pattern = if args.tests.len() == 1 {
+                format!("^{}$", args.tests[0])
+            } else {
+                format!("^({})$", args.tests.join("|"))
+            };
+            let label = if args.tests.len() == 1 {
+                format!("go test -run {}", args.tests[0])
+            } else {
+                format!("go test -run ({})", args.tests.join("|"))
+            };
+            (vec!["-run".to_string(), pattern, ".".to_string()], label)
+        } else if !args.benchmarks.is_empty() {
+            let pattern = if args.benchmarks.len() == 1 {
+                format!("^{}$", args.benchmarks[0])
+            } else {
+                format!("^({})$", args.benchmarks.join("|"))
+            };
+            let label = if args.benchmarks.len() == 1 {
+                format!("go test -bench {}", args.benchmarks[0])
+            } else {
+                format!("go test -bench ({})", args.benchmarks.join("|"))
+            };
+            (
+                vec![
+                    "-benchmem".to_string(),
+                    "-run=^$".to_string(),
+                    "-bench".to_string(),
+                    pattern,
+                    ".".to_string(),
+                ],
+                label,
+            )
+        } else {
+            return None;
+        };
+
+        let mut full_args = vec![
+            "test".to_string(),
+            "-test.fullpath=true".to_string(),
+            "-timeout".to_string(),
+            "30s".to_string(),
+        ];
+        full_args.extend(test_args);
+
+        Some(TaskTemplate {
+            label,
+            command: "go".to_string(),
+            args: full_args,
+            cwd: Some(cwd),
+            ..TaskTemplate::default()
+        })
+    }
+
     async fn initialization_options(
         self: Arc<Self>,
         delegate: &Arc<dyn LspAdapterDelegate>,
@@ -225,7 +310,10 @@ impl LspAdapter for GoLspAdapter {
                 "parameterNames": true,
                 "rangeVariableTypes": true
             },
-            "semanticTokens": semantic_tokens_enabled
+            "semanticTokens": semantic_tokens_enabled,
+            "codelenses": {
+                "test": true,
+            }
         });
 
         let project_initialization_options = cx.update(|cx| {

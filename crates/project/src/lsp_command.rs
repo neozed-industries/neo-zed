@@ -7,6 +7,7 @@ use crate::{
     LocationLink, LspAction, LspPullDiagnostics, MarkupContent, PrepareRenameResponse,
     ProjectTransaction, PulledDiagnostics, ResolveState,
     lsp_store::{LocalLspStore, LspFoldingRange, LspStore},
+    project_settings::ProjectSettings,
 };
 use anyhow::{Context as _, Result};
 use async_trait::async_trait;
@@ -33,6 +34,7 @@ use lsp::{
     OneOf, RenameOptions, ServerCapabilities,
 };
 use serde_json::Value;
+use settings::Settings as _;
 use signature_help::{lsp_to_proto_signature, proto_to_lsp_signature};
 use std::{
     cmp::Reverse, collections::hash_map, mem, ops::Range, path::Path, str::FromStr, sync::Arc,
@@ -308,6 +310,71 @@ impl GetCodeLens {
             .as_ref()
             .and_then(|code_lens_options| code_lens_options.resolve_provider)
             .unwrap_or(false)
+    }
+
+    /// After resolving code lenses, some may still have `command = None` (e.g. vtsls returns
+    /// no command for "0 implementations"). Synthesize a decorative title for these by
+    /// extracting the type word from resolved lenses that share the same `data.id`.
+    fn fill_unresolved_lens_titles(code_lenses: &mut [lsp::CodeLens]) {
+        let mut type_names_by_id: HashMap<i64, String> = HashMap::default();
+        for lens in code_lenses.iter() {
+            if let (Some(cmd), Some(data)) = (&lens.command, &lens.data) {
+                if let Some(id) = data.get("id").and_then(|v| v.as_i64()) {
+                    type_names_by_id.entry(id).or_insert_with(|| {
+                        Self::extract_type_word(&cmd.title)
+                            .unwrap_or_default()
+                            .to_string()
+                    });
+                }
+            }
+        }
+
+        for lens in code_lenses.iter_mut() {
+            if lens.command.is_some() {
+                continue;
+            }
+            let Some(data) = &lens.data else {
+                continue;
+            };
+            let Some(id) = data.get("id").and_then(|v| v.as_i64()) else {
+                continue;
+            };
+            let type_name = type_names_by_id
+                .get(&id)
+                .map(|s| s.as_str())
+                .filter(|s| !s.is_empty())
+                .or_else(|| Self::well_known_lens_type(id));
+            let Some(word) = type_name else {
+                continue;
+            };
+            let title = format!("0 {word}");
+            lens.command = Some(lsp::Command {
+                title,
+                command: String::new(),
+                arguments: None,
+            });
+        }
+    }
+
+    /// Well-known code lens type ids used by TypeScript language servers (vtsls/tsserver).
+    fn well_known_lens_type(id: i64) -> Option<&'static str> {
+        match id {
+            1 => Some("references"),
+            2 => Some("implementations"),
+            _ => None,
+        }
+    }
+
+    /// Extract the type word from a title like "3 references" → "references".
+    fn extract_type_word(title: &str) -> Option<&str> {
+        let title = title.trim();
+        let space_idx = title.find(' ')?;
+        let (count_part, rest) = title.split_at(space_idx);
+        if count_part.parse::<u64>().is_ok() {
+            Some(rest.trim())
+        } else {
+            None
+        }
     }
 }
 
@@ -3865,31 +3932,46 @@ impl LspCommand for GetCodeLens {
                     format!("Missing the language server that just returned a response {server_id}")
                 })
         })?;
-        let server_capabilities = language_server.capabilities();
-        let available_commands = server_capabilities
-            .execute_command_provider
-            .as_ref()
-            .map(|options| options.commands.as_slice())
-            .unwrap_or_default();
-        Ok(message
-            .unwrap_or_default()
+
+        let can_resolve = Self::can_resolve_lens(&language_server.capabilities());
+        let mut code_lenses = message.unwrap_or_default();
+
+        if can_resolve {
+            let request_timeout = cx.update(|cx| {
+                ProjectSettings::get_global(cx)
+                    .global_lsp_settings
+                    .get_request_timeout()
+            });
+
+            for lens in &mut code_lenses {
+                if lens.command.is_none() {
+                    match language_server
+                        .request::<lsp::request::CodeLensResolve>(lens.clone(), request_timeout)
+                        .await
+                        .into_response()
+                    {
+                        Ok(resolved) => *lens = resolved,
+                        Err(e) => log::warn!("Failed to resolve code lens: {e:#}"),
+                    }
+                }
+            }
+
+            Self::fill_unresolved_lens_titles(&mut code_lenses);
+        }
+
+        Ok(code_lenses
             .into_iter()
-            .filter(|code_lens| {
-                code_lens
-                    .command
-                    .as_ref()
-                    .is_none_or(|command| available_commands.contains(&command.command))
-            })
             .map(|code_lens| {
                 let code_lens_range = range_from_lsp(code_lens.range);
                 let start = snapshot.clip_point_utf16(code_lens_range.start, Bias::Left);
                 let end = snapshot.clip_point_utf16(code_lens_range.end, Bias::Right);
                 let range = snapshot.anchor_before(start)..snapshot.anchor_after(end);
+                let resolved = code_lens.command.is_some();
                 CodeAction {
                     server_id,
                     range,
                     lsp_action: LspAction::CodeLens(code_lens),
-                    resolved: false,
+                    resolved,
                 }
             })
             .collect())
