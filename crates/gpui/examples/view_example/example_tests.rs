@@ -3,7 +3,7 @@
 //! These use GPUI's test infrastructure which requires the `test-support` feature:
 //!
 //! ```sh
-//! cargo test --example text_views -p gpui --features test-support
+//! cargo test --example view_example -p gpui --features test-support
 //! ```
 
 #[cfg(test)]
@@ -13,19 +13,25 @@ mod tests {
     use gpui::{Context, Entity, KeyBinding, TestAppContext, Window, prelude::*};
 
     use crate::example_editor::ExampleEditor;
-    use crate::example_input::ExampleInput;
+    use crate::example_input::{ExampleInput, ExampleInputState};
     use crate::example_render_log::RenderLog;
     use crate::example_text_area::ExampleTextArea;
     use crate::{Backspace, Delete, End, Enter, Home, Left, Right};
 
     struct InputWrapper {
-        editor: Entity<ExampleEditor>,
+        input_state: Entity<ExampleInputState>,
         render_log: Entity<RenderLog>,
+    }
+
+    impl InputWrapper {
+        fn editor(&self, cx: &gpui::App) -> Entity<ExampleEditor> {
+            self.input_state.read(cx).editor.clone()
+        }
     }
 
     impl Render for InputWrapper {
         fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-            ExampleInput::new(self.editor.clone(), self.render_log.clone())
+            ExampleInput::new(self.input_state.clone(), self.render_log.clone())
         }
     }
 
@@ -60,12 +66,15 @@ mod tests {
         bind_keys(cx);
 
         let (wrapper, cx) = cx.add_window_view(|window, cx| {
-            let editor = cx.new(|cx| ExampleEditor::new(window, cx));
             let render_log = cx.new(|cx| RenderLog::new(cx));
-            InputWrapper { editor, render_log }
+            let input_state = cx.new(|cx| ExampleInputState::new(render_log.clone(), window, cx));
+            InputWrapper {
+                input_state,
+                render_log,
+            }
         });
 
-        let editor = cx.read_entity(&wrapper, |wrapper, _cx| wrapper.editor.clone());
+        let editor = cx.read_entity(&wrapper, |wrapper, cx| wrapper.editor(cx));
 
         cx.update(|window, cx| {
             let focus_handle = editor.read(cx).focus_handle.clone();
@@ -155,23 +164,34 @@ mod tests {
     fn test_cursor_blink(cx: &mut TestAppContext) {
         let (editor, cx) = init_input(cx);
 
+        // Typing calls reset_blink(), which makes cursor visible and
+        // restarts the blink timer.
+        cx.simulate_input("a");
+
         cx.read_entity(&editor, |editor, _cx| {
-            assert!(editor.cursor_visible);
+            assert!(
+                editor.cursor_visible,
+                "cursor should be visible after typing"
+            );
         });
 
+        // After 500ms the blink task toggles it off.
         cx.background_executor
             .advance_clock(Duration::from_millis(500));
         cx.run_until_parked();
 
         cx.read_entity(&editor, |editor, _cx| {
-            assert!(!editor.cursor_visible);
+            assert!(!editor.cursor_visible, "cursor should have blinked off");
         });
 
-        // Typing resets the blink.
-        cx.simulate_input("a");
+        // Typing again resets the blink.
+        cx.simulate_input("b");
 
         cx.read_entity(&editor, |editor, _cx| {
-            assert!(editor.cursor_visible);
+            assert!(
+                editor.cursor_visible,
+                "cursor should be visible after typing again"
+            );
         });
     }
 
