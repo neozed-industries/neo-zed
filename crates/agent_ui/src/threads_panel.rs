@@ -507,7 +507,7 @@ impl ThreadsPanel {
         self.focused_thread = active_workspace
             .as_ref()
             .and_then(|ws| ws.read(cx).drawer::<AgentPanel>())
-            .and_then(|panel| panel.read(cx).active_connection_view().cloned())
+            .and_then(|panel| panel.read(cx).active_conversation().cloned())
             .and_then(|cv| cv.read(cx).parent_id(cx));
 
         let mut threads_by_paths: HashMap<PathList, Vec<ThreadMetadata>> = HashMap::new();
