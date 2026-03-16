@@ -58,7 +58,6 @@ For each thread started via this new worktree option, a corresponding thread ent
 > [!NOTE]
 > Worktrees without threads will not show up in the Threads Panel, only their original repository will be shown.
 
-
 Q: What about worktrees made outside of Zed? How do I get them into the Threads Panel?
 A: Simply open each folder, like you would any other folder, and then click the agent panel and start typing. The new thread with the worktree chip will appear automatically in the Threads Panel once you submit your prompt.
 
