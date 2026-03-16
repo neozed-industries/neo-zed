@@ -980,9 +980,15 @@ impl Room {
                             participant_id: participant.peer_id,
                         });
                         if let Some(live_kit) = self.live_kit.as_ref() {
-                            let stream = live_kit.room.play_remote_audio_track(&track, cx)?;
-                            participant.audio_tracks.insert(track_id, (track, stream));
-                            participant.muted = publication.is_muted();
+                            // Don't replace an existing stream for this track. During livekit
+                            // reconnect, TrackSubscribed fires again for already-subscribed tracks.
+                            // Replacing triggers concurrent add_sink/remove_sink on the same audio
+                            // track's C++ mutex, deadlocking when the signaling thread is busy.
+                            if !participant.audio_tracks.contains_key(&track_id) {
+                                let stream = live_kit.room.play_remote_audio_track(&track, cx)?;
+                                participant.audio_tracks.insert(track_id, (track, stream));
+                                participant.muted = publication.is_muted();
+                            }
                         }
                     }
                     livekit_client::RemoteTrack::Video(track) => {

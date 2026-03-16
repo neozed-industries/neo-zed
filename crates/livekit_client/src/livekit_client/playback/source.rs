@@ -40,15 +40,18 @@ impl LiveKitStream {
             (CHANNEL_COUNT, SAMPLE_RATE)
         };
 
-        let mut stream = NativeAudioStream::new(
-            track.rtc_track(),
-            sample_rate.get() as i32,
-            channel_count.get().into(),
-        );
         let (queue_input, queue_output) = rodio::queue::queue(true);
         // spawn rtc stream
         let receiver_task = executor.spawn_with_priority(gpui::Priority::RealtimeAudio, {
+            let rtc_track = track.rtc_track();
+            let sample_rate_i32 = sample_rate.get() as i32;
+            let channel_count_i32 = channel_count.get().into();
             async move {
+                // NativeAudioStream::new calls AudioTrack::add_sink which blocks on the WebRTC
+                // signaling thread. Doing this inside the background task avoids blocking the
+                // main thread when the signaling thread is busy (e.g. during reconnection).
+                let mut stream =
+                    NativeAudioStream::new(rtc_track, sample_rate_i32, channel_count_i32);
                 while let Some(frame) = stream.next().await {
                     let samples = frame_to_samplesbuffer(frame);
                     queue_input.append(samples);

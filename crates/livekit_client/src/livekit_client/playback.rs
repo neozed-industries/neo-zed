@@ -105,15 +105,16 @@ impl AudioStack {
         };
         self.mixer.lock().add_source(source.clone());
 
-        let mut stream = NativeAudioStream::new(
-            track.rtc_track(),
-            source.sample_rate as i32,
-            source.num_channels as i32,
-        );
-
         let receive_task = self.executor.spawn_with_priority(Priority::RealtimeAudio, {
             let source = source.clone();
+            let rtc_track = track.rtc_track();
+            let sample_rate = source.sample_rate as i32;
+            let num_channels = source.num_channels as i32;
             async move {
+                // NativeAudioStream::new calls AudioTrack::add_sink which blocks on the WebRTC
+                // signaling thread. Doing this inside the background task avoids blocking the
+                // main thread when the signaling thread is busy (e.g. during reconnection).
+                let mut stream = NativeAudioStream::new(rtc_track, sample_rate, num_channels);
                 while let Some(frame) = stream.next().await {
                     source.receive(frame);
                 }
