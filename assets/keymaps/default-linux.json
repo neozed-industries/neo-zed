@@ -671,14 +671,15 @@
     }
   },
   {
-    "context": "WorkspaceSidebar",
+    "context": "ThreadsSidebar",
     "use_key_equivalents": true,
     "bindings": {
       "ctrl-n": "multi_workspace::NewWorkspaceInWindow",
       "left": "agents_sidebar::CollapseSelectedEntry",
       "right": "agents_sidebar::ExpandSelectedEntry",
-      "enter": "menu::Confirm"
-    }
+      "enter": "menu::Confirm",
+      "shift-backspace": "agent::RemoveSelectedThread",
+    },
   },
   {
     "context": "Workspace && debugger_running",

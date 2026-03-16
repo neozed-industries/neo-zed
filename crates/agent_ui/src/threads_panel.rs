@@ -1,5 +1,5 @@
 use crate::threads_archive_view::{ThreadsArchiveView, ThreadsArchiveViewEvent};
-use crate::{Agent, AgentPanel, AgentPanelEvent, NewThread};
+use crate::{Agent, AgentPanel, AgentPanelEvent, NewThread, RemoveSelectedThread};
 use acp_thread::ThreadStatus;
 use action_log::DiffStats;
 use agent::ThreadStore;
@@ -87,6 +87,7 @@ struct ActiveThreadInfo {
     icon: IconName,
     icon_from_external_svg: Option<SharedString>,
     is_background: bool,
+    is_title_generating: bool,
     diff_stats: DiffStats,
 }
 
@@ -119,6 +120,7 @@ struct ThreadEntry {
     workspace: ThreadEntryWorkspace,
     is_live: bool,
     is_background: bool,
+    is_title_generating: bool,
     highlight_positions: Vec<usize>,
     worktree_name: Option<SharedString>,
     worktree_highlight_positions: Vec<usize>,
@@ -247,6 +249,7 @@ pub struct ThreadsPanel {
     selection: Option<usize>,
     focused_thread: Option<acp::SessionId>,
     active_entry_index: Option<usize>,
+    hovered_thread_index: Option<usize>,
     collapsed_groups: HashSet<PathList>,
     expanded_groups: HashMap<PathList, usize>,
     view: SidebarView,
@@ -366,6 +369,7 @@ impl ThreadsPanel {
             selection: None,
             focused_thread: None,
             active_entry_index: None,
+            hovered_thread_index: None,
             collapsed_groups: HashSet::new(),
             expanded_groups: HashMap::new(),
             view: SidebarView::default(),
@@ -472,6 +476,8 @@ impl ThreadsPanel {
                 let icon = thread_view_ref.agent_icon;
                 let icon_from_external_svg = thread_view_ref.agent_icon_from_external_svg.clone();
                 let title = thread.title();
+                let is_native = thread_view_ref.as_native_thread(cx).is_some();
+                let is_title_generating = is_native && thread.has_provisional_title();
                 let session_id = thread.session_id().clone();
                 let is_background = agent_panel_ref.is_background_thread(&session_id);
 
@@ -495,6 +501,7 @@ impl ThreadsPanel {
                     icon,
                     icon_from_external_svg,
                     is_background,
+                    is_title_generating,
                     diff_stats,
                 }
             })
@@ -612,6 +619,7 @@ impl ThreadsPanel {
                             workspace: ThreadEntryWorkspace::Open(workspace.clone()),
                             is_live: false,
                             is_background: false,
+                            is_title_generating: false,
                             highlight_positions: Vec::new(),
                             worktree_name: None,
                             worktree_highlight_positions: Vec::new(),
@@ -665,6 +673,7 @@ impl ThreadsPanel {
                                 workspace: target_workspace.clone(),
                                 is_live: false,
                                 is_background: false,
+                                is_title_generating: false,
                                 highlight_positions: Vec::new(),
                                 worktree_name: Some(worktree_name.clone()),
                                 worktree_highlight_positions: Vec::new(),
@@ -695,6 +704,7 @@ impl ThreadsPanel {
                         thread.icon_from_external_svg = info.icon_from_external_svg.clone();
                         thread.is_live = true;
                         thread.is_background = info.is_background;
+                        thread.is_title_generating = info.is_title_generating;
                         thread.diff_stats = info.diff_stats;
                     }
                 }
@@ -1049,6 +1059,7 @@ impl ThreadsPanel {
             .end_hover_gradient_overlay(true)
             .end_hover_slot(
                 h_flex()
+                    .gap_1()
                     .when(workspace_count > 1, |this| {
                         this.child(
                             IconButton::new(
@@ -1603,11 +1614,41 @@ impl ThreadsPanel {
         }
     }
 
+    fn delete_thread(&mut self, session_id: &acp::SessionId, cx: &mut Context<Self>) {
+        let Some(thread_store) = ThreadStore::try_global(cx) else {
+            return;
+        };
+        thread_store.update(cx, |store, cx| {
+            store
+                .delete_thread(session_id.clone(), cx)
+                .detach_and_log_err(cx);
+        });
+    }
+
+    fn remove_selected_thread(
+        &mut self,
+        _: &RemoveSelectedThread,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(ix) = self.selection else {
+            return;
+        };
+        let Some(ListEntry::Thread(thread)) = self.contents.entries.get(ix) else {
+            return;
+        };
+        if thread.agent != Agent::NativeAgent {
+            return;
+        }
+        let session_id = thread.session_info.session_id.clone();
+        self.delete_thread(&session_id, cx);
+    }
+
     fn render_thread(
         &self,
         ix: usize,
         thread: &ThreadEntry,
-        is_selected: bool,
+        is_focused: bool,
         docked_right: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
@@ -1622,6 +1663,12 @@ impl ThreadsPanel {
             .unwrap_or_else(|| "Untitled".into());
         let session_info = thread.session_info.clone();
         let thread_workspace = thread.workspace.clone();
+
+        let is_hovered = self.hovered_thread_index == Some(ix);
+        let is_selected = self.focused_thread.as_ref() == Some(&session_info.session_id);
+        let can_delete = thread.agent == Agent::NativeAgent;
+        let session_id_for_delete = thread.session_info.session_id.clone();
+        let focus_handle = self.focus_handle.clone();
 
         let id = SharedString::from(format!("thread-entry-{}", ix));
 
@@ -1662,6 +1709,7 @@ impl ThreadsPanel {
             .when_some(timestamp, |this, ts| this.timestamp(ts))
             .highlight_positions(thread.highlight_positions.to_vec())
             .status(thread.status)
+            .generating_title(thread.is_title_generating)
             .notified(has_notification)
             .when(thread.diff_stats.lines_added > 0, |this| {
                 this.added(thread.diff_stats.lines_added as usize)
@@ -1669,9 +1717,43 @@ impl ThreadsPanel {
             .when(thread.diff_stats.lines_removed > 0, |this| {
                 this.removed(thread.diff_stats.lines_removed as usize)
             })
-            .selected(self.focused_thread.as_ref() == Some(&session_info.session_id))
-            .focused(is_selected)
+            .selected(is_selected)
+            .focused(is_focused)
             .docked_right(docked_right)
+            .hovered(is_hovered)
+            .on_hover(cx.listener(move |this, is_hovered: &bool, _window, cx| {
+                if *is_hovered {
+                    this.hovered_thread_index = Some(ix);
+                } else if this.hovered_thread_index == Some(ix) {
+                    this.hovered_thread_index = None;
+                }
+                cx.notify();
+            }))
+            .when(is_hovered && can_delete, |this| {
+                this.action_slot(
+                    IconButton::new("delete-thread", IconName::Trash)
+                        .icon_size(IconSize::Small)
+                        .icon_color(Color::Muted)
+                        .tooltip({
+                            let focus_handle = focus_handle.clone();
+                            move |_window, cx| {
+                                Tooltip::for_action_in(
+                                    "Delete Thread",
+                                    &RemoveSelectedThread,
+                                    &focus_handle,
+                                    cx,
+                                )
+                            }
+                        })
+                        .on_click({
+                            let session_id = session_id_for_delete.clone();
+                            cx.listener(move |this, _, _window, cx| {
+                                this.delete_thread(&session_id, cx);
+                                cx.stop_propagation();
+                            })
+                        }),
+                )
+            })
             .on_click({
                 let agent = thread.agent.clone();
                 cx.listener(move |this, _, window, cx| {
@@ -1810,8 +1892,13 @@ impl ThreadsPanel {
             .into_any_element()
     }
 
-    fn render_thread_list_header(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_thread_list_header(
+        &self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let has_query = self.has_filter_query(cx);
+        let docked_right = self.position(window, cx) == DockPosition::Right;
 
         h_flex()
             .h(Tab::container_height(cx))
@@ -1821,37 +1908,29 @@ impl ThreadsPanel {
             .border_b_1()
             .border_color(cx.theme().colors().border)
             .child(self.render_filter_input())
-            .when(has_query, |this| {
-                this.child(
-                    IconButton::new("clear_filter", IconName::Close)
-                        .shape(IconButtonShape::Square)
-                        .tooltip(Tooltip::text("Clear Search"))
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            this.reset_filter_editor_text(window, cx);
-                            this.update_entries(cx);
-                        })),
-                )
-            })
-    }
-
-    fn render_thread_list_footer(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        h_flex()
-            .p_1p5()
-            .border_t_1()
-            .border_color(cx.theme().colors().border_variant)
             .child(
-                Button::new("view-archive", "Archive")
-                    .full_width()
-                    .label_size(LabelSize::Small)
-                    .style(ButtonStyle::Outlined)
-                    .start_icon(
-                        Icon::new(IconName::Archive)
-                            .size(IconSize::XSmall)
-                            .color(Color::Muted),
-                    )
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.show_archive(window, cx);
-                    })),
+                h_flex()
+                    .gap_0p5()
+                    .when(!docked_right, |this| this.pr_1p5())
+                    .when(has_query, |this| {
+                        this.child(
+                            IconButton::new("clear_filter", IconName::Close)
+                                .shape(IconButtonShape::Square)
+                                .tooltip(Tooltip::text("Clear Search"))
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.reset_filter_editor_text(window, cx);
+                                    this.update_entries(cx);
+                                })),
+                        )
+                    })
+                    .child(
+                        IconButton::new("archive", IconName::Archive)
+                            .icon_size(IconSize::Small)
+                            .tooltip(Tooltip::text("Archive"))
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.show_archive(window, cx);
+                            })),
+                    ),
             )
     }
 }
@@ -2064,7 +2143,7 @@ impl Render for ThreadsPanel {
 
         v_flex()
             .id("workspace-sidebar")
-            .key_context("WorkspaceSidebar")
+            .key_context("ThreadsSidebar")
             .track_focus(&self.focus_handle)
             .on_action(cx.listener(Self::select_next))
             .on_action(cx.listener(Self::select_previous))
@@ -2076,12 +2155,13 @@ impl Render for ThreadsPanel {
             .on_action(cx.listener(Self::expand_selected_entry))
             .on_action(cx.listener(Self::collapse_selected_entry))
             .on_action(cx.listener(Self::cancel))
+            .on_action(cx.listener(Self::remove_selected_thread))
             .font(ui_font)
             .size_full()
             .bg(cx.theme().colors().surface_background)
             .map(|this| match self.view {
                 SidebarView::ThreadList => this
-                    .child(self.render_thread_list_header(cx))
+                    .child(self.render_thread_list_header(window, cx))
                     .child(
                         v_flex()
                             .relative()
@@ -2097,8 +2177,7 @@ impl Render for ThreadsPanel {
                             )
                             .when_some(sticky_header, |this, header| this.child(header))
                             .vertical_scrollbar_for(&self.list_state, window, cx),
-                    )
-                    .child(self.render_thread_list_footer(cx)),
+                    ),
                 SidebarView::Archive => {
                     if let Some(archive_view) = &self.archive_view {
                         this.child(archive_view.clone())
@@ -2643,6 +2722,7 @@ mod tests {
                     workspace: ThreadEntryWorkspace::Open(workspace.clone()),
                     is_live: false,
                     is_background: false,
+                    is_title_generating: false,
                     highlight_positions: Vec::new(),
                     worktree_name: None,
                     worktree_highlight_positions: Vec::new(),
@@ -2665,6 +2745,7 @@ mod tests {
                     workspace: ThreadEntryWorkspace::Open(workspace.clone()),
                     is_live: true,
                     is_background: false,
+                    is_title_generating: false,
                     highlight_positions: Vec::new(),
                     worktree_name: None,
                     worktree_highlight_positions: Vec::new(),
@@ -2687,6 +2768,7 @@ mod tests {
                     workspace: ThreadEntryWorkspace::Open(workspace.clone()),
                     is_live: true,
                     is_background: false,
+                    is_title_generating: false,
                     highlight_positions: Vec::new(),
                     worktree_name: None,
                     worktree_highlight_positions: Vec::new(),
@@ -2709,6 +2791,7 @@ mod tests {
                     workspace: ThreadEntryWorkspace::Open(workspace.clone()),
                     is_live: false,
                     is_background: false,
+                    is_title_generating: false,
                     highlight_positions: Vec::new(),
                     worktree_name: None,
                     worktree_highlight_positions: Vec::new(),
@@ -2731,6 +2814,7 @@ mod tests {
                     workspace: ThreadEntryWorkspace::Open(workspace.clone()),
                     is_live: true,
                     is_background: true,
+                    is_title_generating: false,
                     highlight_positions: Vec::new(),
                     worktree_name: None,
                     worktree_highlight_positions: Vec::new(),

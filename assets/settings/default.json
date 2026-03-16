@@ -898,6 +898,14 @@
     // Choices: label_color, icon
     // Default: icon
     "status_style": "icon",
+    // Whether to show file icons in the git panel.
+    //
+    // Default: false
+    "file_icons": false,
+    // Whether to show folder icons or chevrons for directories in the git panel.
+    //
+    // Default: true
+    "folder_icons": true,
     // What branch name to use if `init.defaultBranch` is not set
     //
     // Default: main
@@ -1083,6 +1091,10 @@
         "tools": {},
       },
     },
+    // Whether to start a new thread in the current local project or in a new Git worktree.
+    //
+    // Default: local_project
+    "new_thread_location": "local_project",
     // Where to show notifications when the agent has either completed
     // its response, or else needs confirmation before it can run a
     // tool action.

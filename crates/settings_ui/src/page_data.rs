@@ -1,3 +1,4 @@
+use feature_flags::{AgentV2FeatureFlag, FeatureFlagAppExt as _};
 use gpui::{Action as _, App};
 use itertools::Itertools as _;
 use settings::{
@@ -74,7 +75,7 @@ pub(crate) fn settings_data(cx: &App) -> Vec<SettingsPage> {
         terminal_page(),
         version_control_page(),
         collaboration_page(),
-        ai_page(),
+        ai_page(cx),
         network_page(),
     ]
 }
@@ -5047,7 +5048,7 @@ fn panels_page() -> SettingsPage {
         ]
     }
 
-    fn git_panel_section() -> [SettingsPageItem; 11] {
+    fn git_panel_section() -> [SettingsPageItem; 13] {
         [
             SettingsPageItem::SectionHeader("Git Panel"),
             SettingsPageItem::SettingItem(SettingItem {
@@ -5184,6 +5185,42 @@ fn panels_page() -> SettingsPage {
                     },
                     write: |settings_content, value| {
                         settings_content.git_panel.get_or_insert_default().tree_view = value;
+                    },
+                }),
+                metadata: None,
+                files: USER,
+            }),
+            SettingsPageItem::SettingItem(SettingItem {
+                title: "File Icons",
+                description: "Show file icons next to the Git status icon.",
+                field: Box::new(SettingField {
+                    json_path: Some("git_panel.file_icons"),
+                    pick: |settings_content| {
+                        settings_content.git_panel.as_ref()?.file_icons.as_ref()
+                    },
+                    write: |settings_content, value| {
+                        settings_content
+                            .git_panel
+                            .get_or_insert_default()
+                            .file_icons = value;
+                    },
+                }),
+                metadata: None,
+                files: USER,
+            }),
+            SettingsPageItem::SettingItem(SettingItem {
+                title: "Folder Icons",
+                description: "Whether to show folder icons or chevrons for directories in the git panel.",
+                field: Box::new(SettingField {
+                    json_path: Some("git_panel.folder_icons"),
+                    pick: |settings_content| {
+                        settings_content.git_panel.as_ref()?.folder_icons.as_ref()
+                    },
+                    write: |settings_content, value| {
+                        settings_content
+                            .git_panel
+                            .get_or_insert_default()
+                            .folder_icons = value;
                     },
                 }),
                 metadata: None,
@@ -6978,7 +7015,7 @@ fn collaboration_page() -> SettingsPage {
     }
 }
 
-fn ai_page() -> SettingsPage {
+fn ai_page(cx: &App) -> SettingsPage {
     fn general_section() -> [SettingsPageItem; 2] {
         [
             SettingsPageItem::SectionHeader("General"),
@@ -6998,8 +7035,8 @@ fn ai_page() -> SettingsPage {
         ]
     }
 
-    fn agent_configuration_section() -> [SettingsPageItem; 13] {
-        [
+    fn agent_configuration_section(cx: &App) -> Box<[SettingsPageItem]> {
+        let mut items = vec![
             SettingsPageItem::SectionHeader("Agent Configuration"),
             SettingsPageItem::SubPageLink(SubPageLink {
                 title: "Tool Permissions".into(),
@@ -7010,11 +7047,14 @@ fn ai_page() -> SettingsPage {
                 files: USER,
                 render: render_tool_permissions_setup_page,
             }),
-            SettingsPageItem::SettingItem(SettingItem {
+        ];
+
+        if cx.has_flag::<AgentV2FeatureFlag>() {
+            items.push(SettingsPageItem::SettingItem(SettingItem {
                 title: "New Thread Location",
                 description: "Whether to start a new thread in the current local project or in a new Git worktree.",
                 field: Box::new(SettingField {
-                    json_path: Some("agent.default_start_thread_in"),
+                    json_path: Some("agent.new_thread_location"),
                     pick: |settings_content| {
                         settings_content
                             .agent
@@ -7031,7 +7071,10 @@ fn ai_page() -> SettingsPage {
                 }),
                 metadata: None,
                 files: USER,
-            }),
+            }));
+        }
+
+        items.extend([
             SettingsPageItem::SettingItem(SettingItem {
                 title: "Single File Review",
                 description: "When enabled, agent edits will also be displayed in single-file buffers for review.",
@@ -7236,7 +7279,9 @@ fn ai_page() -> SettingsPage {
                 metadata: None,
                 files: USER,
             }),
-        ]
+        ]);
+
+        items.into_boxed_slice()
     }
 
     fn context_servers_section() -> [SettingsPageItem; 2] {
@@ -7321,7 +7366,7 @@ fn ai_page() -> SettingsPage {
         title: "AI",
         items: concat_sections![
             general_section(),
-            agent_configuration_section(),
+            agent_configuration_section(cx),
             context_servers_section(),
             edit_prediction_language_settings_section(),
             edit_prediction_display_sub_section()

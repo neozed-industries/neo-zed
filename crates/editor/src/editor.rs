@@ -6481,6 +6481,7 @@ impl Editor {
             .selections
             .all::<MultiBufferOffset>(&self.display_snapshot(cx));
         let mut ranges = Vec::new();
+        let mut all_commit_ranges = Vec::new();
         let mut linked_edits = LinkedEdits::new();
 
         let text: Arc<str> = new_text.clone().into();
@@ -6506,10 +6507,12 @@ impl Editor {
 
             ranges.push(range.clone());
 
+            let start_anchor = snapshot.anchor_before(range.start);
+            let end_anchor = snapshot.anchor_after(range.end);
+            let anchor_range = start_anchor.text_anchor..end_anchor.text_anchor;
+            all_commit_ranges.push(anchor_range.clone());
+
             if !self.linked_edit_ranges.is_empty() {
-                let start_anchor = snapshot.anchor_before(range.start);
-                let end_anchor = snapshot.anchor_after(range.end);
-                let anchor_range = start_anchor.text_anchor..end_anchor.text_anchor;
                 linked_edits.push(&self, anchor_range, text.clone(), cx);
             }
         }
@@ -6596,6 +6599,7 @@ impl Editor {
             completions_menu.completions.clone(),
             candidate_id,
             true,
+            all_commit_ranges,
             cx,
         );
 
@@ -7804,7 +7808,11 @@ impl Editor {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<()> {
-        let provider = self.edit_prediction_provider()?;
+        if self.leader_id.is_some() {
+            self.discard_edit_prediction(EditPredictionDiscardReason::Ignored, cx);
+            return None;
+        }
+
         let cursor = self.selections.newest_anchor().head();
         let (buffer, cursor_buffer_position) =
             self.buffer.read(cx).text_anchor_for_position(cursor, cx)?;
@@ -7829,7 +7837,8 @@ impl Editor {
             return None;
         }
 
-        provider.refresh(buffer, cursor_buffer_position, debounce, cx);
+        self.edit_prediction_provider()?
+            .refresh(buffer, cursor_buffer_position, debounce, cx);
         Some(())
     }
 
@@ -7954,7 +7963,7 @@ impl Editor {
         cx: &App,
     ) -> bool {
         maybe!({
-            if self.read_only(cx) {
+            if self.read_only(cx) || self.leader_id.is_some() {
                 return Some(false);
             }
             let provider = self.edit_prediction_provider()?;
@@ -26570,6 +26579,7 @@ pub trait CompletionProvider {
         _completions: Rc<RefCell<Box<[Completion]>>>,
         _completion_index: usize,
         _push_to_history: bool,
+        _all_commit_ranges: Vec<Range<language::Anchor>>,
         _cx: &mut Context<Editor>,
     ) -> Task<Result<Option<language::Transaction>>> {
         Task::ready(Ok(None))
@@ -26938,6 +26948,7 @@ impl CompletionProvider for Entity<Project> {
         completions: Rc<RefCell<Box<[Completion]>>>,
         completion_index: usize,
         push_to_history: bool,
+        all_commit_ranges: Vec<Range<language::Anchor>>,
         cx: &mut Context<Editor>,
     ) -> Task<Result<Option<language::Transaction>>> {
         self.update(cx, |project, cx| {
@@ -26947,6 +26958,7 @@ impl CompletionProvider for Entity<Project> {
                     completions,
                     completion_index,
                     push_to_history,
+                    all_commit_ranges,
                     cx,
                 )
             })
