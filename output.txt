@@ -1,0 +1,1195 @@
+    Blocking waiting for file lock on artifact directory
+   Compiling agent_ui v0.1.0 (/Users/max/code/zed/crates/agent_ui)
+warning: unused variable: `window`
+   --> crates/agent_ui/src/slash_command_picker.rs:262:21
+    |
+262 |     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+    |                     ^^^^^^ help: if this is intentional, prefix it with an underscore: `_window`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `delegate`
+   --> crates/agent_ui/src/slash_command_picker.rs:322:13
+    |
+322 |         let delegate = SlashCommandDelegate {
+    |             ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_delegate`
+
+warning: `agent_ui` (lib test) generated 2 warnings (run `cargo fix --lib -p agent_ui --tests` to apply 2 suggestions)
+      Timing report saved to /Users/max/code/zed/target/cargo-timings/cargo-timing-20260316T161229.056504Z.html
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 13.67s
+     Running unittests src/agent_ui.rs (target/debug/deps/agent_ui-312efca0eb4585dc)
+
+running 1 test
+defer called:    0: std::backtrace_rs::backtrace::libunwind::trace
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/../../backtrace/src/backtrace/libunwind.rs:117:9
+   1: std::backtrace_rs::backtrace::trace_unsynchronized
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/../../backtrace/src/backtrace/mod.rs:66:14
+   2: std::backtrace::Backtrace::create
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/backtrace.rs:331:13
+   3: <gpui::app::App>::defer::<<gpui::app::App>::observe_global<settings::settings_store::SettingsStore, theme::init::{closure#0}>::{closure#1}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:1630:13
+   4: <gpui::app::App>::observe_global::<settings::settings_store::SettingsStore, theme::init::{closure#0}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:1731:14
+   5: theme::init
+             at /Users/max/code/zed/crates/theme/src/theme.rs:141:8
+   6: agent_ui::connection_view::tests::init_test::{closure#0}
+             at ./src/connection_view.rs:4429:13
+   7: <gpui::app::App>::update::<(), agent_ui::connection_view::tests::init_test::{closure#0}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:862:22
+   8: <gpui::app::test_context::TestAppContext>::update::<(), agent_ui::connection_view::tests::init_test::{closure#0}>
+             at /Users/max/code/zed/crates/gpui/src/app/test_context.rs:205:12
+   9: agent_ui::connection_view::tests::init_test
+             at ./src/connection_view.rs:4426:12
+  10: agent_ui::agent_panel::tests::test_new_text_thread_action_handler::__test_new_text_thread_action_handler::{closure#0}
+             at ./src/agent_panel.rs:5110:9
+  11: <gpui::executor::ForegroundExecutor>::block_test::<(), agent_ui::agent_panel::tests::test_new_text_thread_action_handler::__test_new_text_thread_action_handler::{closure#0}>::{closure#0}
+             at /Users/max/code/zed/crates/gpui/src/executor.rs:440:36
+  12: <scheduler::test_scheduler::TestScheduler as scheduler::Scheduler>::block
+             at /Users/max/code/zed/crates/scheduler/src/test_scheduler.rs:538:35
+  13: <gpui::executor::ForegroundExecutor>::block_test::<(), agent_ui::agent_panel::tests::test_new_text_thread_action_handler::__test_new_text_thread_action_handler::{closure#0}>
+             at /Users/max/code/zed/crates/gpui/src/executor.rs:447:19
+  14: agent_ui::agent_panel::tests::test_new_text_thread_action_handler::{closure#0}
+             at ./src/agent_panel.rs:5108:5
+  15: gpui::test::run_test::{closure#0}
+             at /Users/max/code/zed/crates/gpui/src/test.rs:88:17
+  16: std::panicking::catch_unwind::do_call::<gpui::test::run_test::{closure#0}, ()>
+             at /Users/max/.rustup/toolchains/1.93-aarch64-apple-darwin/lib/rustlib/src/rust/library/std/src/panicking.rs:581:40
+  17: ___rust_try
+  18: std::panicking::catch_unwind::<(), gpui::test::run_test::{closure#0}>
+             at /Users/max/.rustup/toolchains/1.93-aarch64-apple-darwin/lib/rustlib/src/rust/library/std/src/panicking.rs:544:19
+  19: std::panic::catch_unwind::<gpui::test::run_test::{closure#0}, ()>
+             at /Users/max/.rustup/toolchains/1.93-aarch64-apple-darwin/lib/rustlib/src/rust/library/std/src/panic.rs:359:14
+  20: gpui::test::run_test
+             at /Users/max/code/zed/crates/gpui/src/test.rs:85:26
+  21: agent_ui::agent_panel::tests::test_new_text_thread_action_handler
+             at ./src/agent_panel.rs:5108:5
+  22: agent_ui::agent_panel::tests::test_new_text_thread_action_handler::{closure#0}
+             at ./src/agent_panel.rs:5108:18
+  23: <agent_ui::agent_panel::tests::test_new_text_thread_action_handler::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /Users/max/.rustup/toolchains/1.93-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/ops/function.rs:250:5
+  24: core::ops::function::FnOnce::call_once
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/core/src/ops/function.rs:250:5
+  25: test::__rust_begin_short_backtrace
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/test/src/lib.rs:663:18
+  26: test::run_test_in_process::{{closure}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/test/src/lib.rs:686:74
+  27: <core::panic::unwind_safe::AssertUnwindSafe<F> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/core/src/panic/unwind_safe.rs:274:9
+  28: std::panicking::catch_unwind::do_call
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panicking.rs:581:40
+  29: std::panicking::catch_unwind
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panicking.rs:544:19
+  30: std::panic::catch_unwind
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panic.rs:359:14
+  31: test::run_test_in_process
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/test/src/lib.rs:686:27
+  32: test::run_test::{{closure}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/test/src/lib.rs:607:43
+  33: test::run_test::{{closure}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/test/src/lib.rs:637:41
+  34: std::sys::backtrace::__rust_begin_short_backtrace
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/sys/backtrace.rs:160:18
+  35: std::thread::lifecycle::spawn_unchecked::{{closure}}::{{closure}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/thread/lifecycle.rs:92:13
+  36: <core::panic::unwind_safe::AssertUnwindSafe<F> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/core/src/panic/unwind_safe.rs:274:9
+  37: std::panicking::catch_unwind::do_call
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panicking.rs:581:40
+  38: std::panicking::catch_unwind
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panicking.rs:544:19
+  39: std::panic::catch_unwind
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panic.rs:359:14
+  40: std::thread::lifecycle::spawn_unchecked::{{closure}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/thread/lifecycle.rs:90:26
+  41: core::ops::function::FnOnce::call_once{{vtable.shim}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/core/src/ops/function.rs:250:5
+  42: <alloc::boxed::Box<F,A> as core::ops::function::FnOnce<Args>>::call_once
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/alloc/src/boxed.rs:2206:9
+  43: std::sys::thread::unix::Thread::new::thread_start
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/sys/thread/unix.rs:118:17
+  44: __pthread_cond_wait
+
+defer called:    0: std::backtrace_rs::backtrace::libunwind::trace
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/../../backtrace/src/backtrace/libunwind.rs:117:9
+   1: std::backtrace_rs::backtrace::trace_unsynchronized
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/../../backtrace/src/backtrace/mod.rs:66:14
+   2: std::backtrace::Backtrace::create
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/backtrace.rs:331:13
+   3: <gpui::app::App>::defer::<<gpui::app::App>::observe_global<settings::settings_store::SettingsStore, <client::telemetry::Telemetry>::new::{closure#1}>::{closure#1}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:1630:13
+   4: <gpui::app::App>::observe_global::<settings::settings_store::SettingsStore, <client::telemetry::Telemetry>::new::{closure#1}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:1731:14
+   5: <client::telemetry::Telemetry>::new
+             at /Users/max/code/zed/crates/client/src/telemetry.rs:229:12
+   6: <client::Client>::new
+             at /Users/max/code/zed/crates/client/src/client.rs:535:24
+   7: <project::Project>::test_project::<[&std::path::Path; 0]>::{closure#0}::{closure#0}
+             at /Users/max/code/zed/crates/project/src/project.rs:2021:37
+   8: <gpui::app::App>::update::<alloc::sync::Arc<client::Client>, <project::Project>::test_project<[&std::path::Path; 0]>::{closure#0}::{closure#0}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:862:22
+   9: <gpui::app::test_context::TestAppContext>::update::<alloc::sync::Arc<client::Client>, <project::Project>::test_project<[&std::path::Path; 0]>::{closure#0}::{closure#0}>
+             at /Users/max/code/zed/crates/gpui/src/app/test_context.rs:205:12
+  10: <project::Project>::test_project::<[&std::path::Path; 0]>::{closure#0}
+             at /Users/max/code/zed/crates/project/src/project.rs:2021:25
+  11: <project::Project>::test::<[&std::path::Path; 0]>::{closure#0}
+             at /Users/max/code/zed/crates/project/src/project.rs:1997:55
+  12: agent_ui::agent_panel::tests::test_new_text_thread_action_handler::__test_new_text_thread_action_handler::{closure#0}
+             at ./src/agent_panel.rs:5125:57
+  13: <gpui::executor::ForegroundExecutor>::block_test::<(), agent_ui::agent_panel::tests::test_new_text_thread_action_handler::__test_new_text_thread_action_handler::{closure#0}>::{closure#0}
+             at /Users/max/code/zed/crates/gpui/src/executor.rs:440:36
+  14: <scheduler::test_scheduler::TestScheduler as scheduler::Scheduler>::block
+             at /Users/max/code/zed/crates/scheduler/src/test_scheduler.rs:538:35
+  15: <gpui::executor::ForegroundExecutor>::block_test::<(), agent_ui::agent_panel::tests::test_new_text_thread_action_handler::__test_new_text_thread_action_handler::{closure#0}>
+             at /Users/max/code/zed/crates/gpui/src/executor.rs:447:19
+  16: agent_ui::agent_panel::tests::test_new_text_thread_action_handler::{closure#0}
+             at ./src/agent_panel.rs:5108:5
+  17: gpui::test::run_test::{closure#0}
+             at /Users/max/code/zed/crates/gpui/src/test.rs:88:17
+  18: std::panicking::catch_unwind::do_call::<gpui::test::run_test::{closure#0}, ()>
+             at /Users/max/.rustup/toolchains/1.93-aarch64-apple-darwin/lib/rustlib/src/rust/library/std/src/panicking.rs:581:40
+  19: ___rust_try
+  20: std::panicking::catch_unwind::<(), gpui::test::run_test::{closure#0}>
+             at /Users/max/.rustup/toolchains/1.93-aarch64-apple-darwin/lib/rustlib/src/rust/library/std/src/panicking.rs:544:19
+  21: std::panic::catch_unwind::<gpui::test::run_test::{closure#0}, ()>
+             at /Users/max/.rustup/toolchains/1.93-aarch64-apple-darwin/lib/rustlib/src/rust/library/std/src/panic.rs:359:14
+  22: gpui::test::run_test
+             at /Users/max/code/zed/crates/gpui/src/test.rs:85:26
+  23: agent_ui::agent_panel::tests::test_new_text_thread_action_handler
+             at ./src/agent_panel.rs:5108:5
+  24: agent_ui::agent_panel::tests::test_new_text_thread_action_handler::{closure#0}
+             at ./src/agent_panel.rs:5108:18
+  25: <agent_ui::agent_panel::tests::test_new_text_thread_action_handler::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /Users/max/.rustup/toolchains/1.93-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/ops/function.rs:250:5
+  26: core::ops::function::FnOnce::call_once
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/core/src/ops/function.rs:250:5
+  27: test::__rust_begin_short_backtrace
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/test/src/lib.rs:663:18
+  28: test::run_test_in_process::{{closure}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/test/src/lib.rs:686:74
+  29: <core::panic::unwind_safe::AssertUnwindSafe<F> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/core/src/panic/unwind_safe.rs:274:9
+  30: std::panicking::catch_unwind::do_call
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panicking.rs:581:40
+  31: std::panicking::catch_unwind
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panicking.rs:544:19
+  32: std::panic::catch_unwind
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panic.rs:359:14
+  33: test::run_test_in_process
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/test/src/lib.rs:686:27
+  34: test::run_test::{{closure}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/test/src/lib.rs:607:43
+  35: test::run_test::{{closure}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/test/src/lib.rs:637:41
+  36: std::sys::backtrace::__rust_begin_short_backtrace
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/sys/backtrace.rs:160:18
+  37: std::thread::lifecycle::spawn_unchecked::{{closure}}::{{closure}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/thread/lifecycle.rs:92:13
+  38: <core::panic::unwind_safe::AssertUnwindSafe<F> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/core/src/panic/unwind_safe.rs:274:9
+  39: std::panicking::catch_unwind::do_call
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panicking.rs:581:40
+  40: std::panicking::catch_unwind
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panicking.rs:544:19
+  41: std::panic::catch_unwind
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panic.rs:359:14
+  42: std::thread::lifecycle::spawn_unchecked::{{closure}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/thread/lifecycle.rs:90:26
+  43: core::ops::function::FnOnce::call_once{{vtable.shim}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/core/src/ops/function.rs:250:5
+  44: <alloc::boxed::Box<F,A> as core::ops::function::FnOnce<Args>>::call_once
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/alloc/src/boxed.rs:2206:9
+  45: std::sys::thread::unix::Thread::new::thread_start
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/sys/thread/unix.rs:118:17
+  46: __pthread_cond_wait
+
+defer called:    0: std::backtrace_rs::backtrace::libunwind::trace
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/../../backtrace/src/backtrace/libunwind.rs:117:9
+   1: std::backtrace_rs::backtrace::trace_unsynchronized
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/../../backtrace/src/backtrace/mod.rs:66:14
+   2: std::backtrace::Backtrace::create
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/backtrace.rs:331:13
+   3: <gpui::app::App>::defer::<<gpui::app::App>::new_subscription::{closure#0}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:1630:13
+   4: <gpui::app::App>::new_subscription
+             at /Users/max/code/zed/crates/gpui/src/app.rs:989:14
+   5: <gpui::app::App>::subscribe_internal::<project::worktree_store::WorktreeStore, project::worktree_store::WorktreeStoreEvent, <gpui::app::context::Context<project::Project>>::subscribe<project::worktree_store::WorktreeStore, project::worktree_store::WorktreeStoreEvent, <project::Project>::on_worktree_store_event>::{closure#0}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:1003:14
+   6: <gpui::app::context::Context<project::Project>>::subscribe::<project::worktree_store::WorktreeStore, project::worktree_store::WorktreeStoreEvent, <project::Project>::on_worktree_store_event>
+             at /Users/max/code/zed/crates/gpui/src/app/context.rs:109:18
+   7: <project::Project>::local::{closure#0}
+             at /Users/max/code/zed/crates/project/src/project.rs:1165:16
+   8: <gpui::app::App as gpui::AppContext>::new::<project::Project, <project::Project>::local::{closure#0}>::{closure#0}
+             at /Users/max/code/zed/crates/gpui/src/app.rs:2332:26
+   9: <gpui::app::App>::update::<gpui::app::entity_map::Entity<project::Project>, <gpui::app::App as gpui::AppContext>::new<project::Project, <project::Project>::local::{closure#0}>::{closure#0}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:862:22
+  10: <gpui::app::App as gpui::AppContext>::new::<project::Project, <project::Project>::local::{closure#0}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:2329:14
+  11: <project::Project>::local
+             at /Users/max/code/zed/crates/project/src/project.rs:1149:12
+  12: <project::Project>::test_project::<[&std::path::Path; 0]>::{closure#0}::{closure#2}
+             at /Users/max/code/zed/crates/project/src/project.rs:2024:13
+  13: <gpui::app::App>::update::<gpui::app::entity_map::Entity<project::Project>, <project::Project>::test_project<[&std::path::Path; 0]>::{closure#0}::{closure#2}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:862:22
+  14: <gpui::app::test_context::TestAppContext>::update::<gpui::app::entity_map::Entity<project::Project>, <project::Project>::test_project<[&std::path::Path; 0]>::{closure#0}::{closure#2}>
+             at /Users/max/code/zed/crates/gpui/src/app/test_context.rs:205:12
+  15: <project::Project>::test_project::<[&std::path::Path; 0]>::{closure#0}
+             at /Users/max/code/zed/crates/project/src/project.rs:2023:26
+  16: <project::Project>::test::<[&std::path::Path; 0]>::{closure#0}
+             at /Users/max/code/zed/crates/project/src/project.rs:1997:55
+  17: agent_ui::agent_panel::tests::test_new_text_thread_action_handler::__test_new_text_thread_action_handler::{closure#0}
+             at ./src/agent_panel.rs:5125:57
+  18: <gpui::executor::ForegroundExecutor>::block_test::<(), agent_ui::agent_panel::tests::test_new_text_thread_action_handler::__test_new_text_thread_action_handler::{closure#0}>::{closure#0}
+             at /Users/max/code/zed/crates/gpui/src/executor.rs:440:36
+  19: <scheduler::test_scheduler::TestScheduler as scheduler::Scheduler>::block
+             at /Users/max/code/zed/crates/scheduler/src/test_scheduler.rs:538:35
+  20: <gpui::executor::ForegroundExecutor>::block_test::<(), agent_ui::agent_panel::tests::test_new_text_thread_action_handler::__test_new_text_thread_action_handler::{closure#0}>
+             at /Users/max/code/zed/crates/gpui/src/executor.rs:447:19
+  21: agent_ui::agent_panel::tests::test_new_text_thread_action_handler::{closure#0}
+             at ./src/agent_panel.rs:5108:5
+  22: gpui::test::run_test::{closure#0}
+             at /Users/max/code/zed/crates/gpui/src/test.rs:88:17
+  23: std::panicking::catch_unwind::do_call::<gpui::test::run_test::{closure#0}, ()>
+             at /Users/max/.rustup/toolchains/1.93-aarch64-apple-darwin/lib/rustlib/src/rust/library/std/src/panicking.rs:581:40
+  24: ___rust_try
+  25: std::panicking::catch_unwind::<(), gpui::test::run_test::{closure#0}>
+             at /Users/max/.rustup/toolchains/1.93-aarch64-apple-darwin/lib/rustlib/src/rust/library/std/src/panicking.rs:544:19
+  26: std::panic::catch_unwind::<gpui::test::run_test::{closure#0}, ()>
+             at /Users/max/.rustup/toolchains/1.93-aarch64-apple-darwin/lib/rustlib/src/rust/library/std/src/panic.rs:359:14
+  27: gpui::test::run_test
+             at /Users/max/code/zed/crates/gpui/src/test.rs:85:26
+  28: agent_ui::agent_panel::tests::test_new_text_thread_action_handler
+             at ./src/agent_panel.rs:5108:5
+  29: agent_ui::agent_panel::tests::test_new_text_thread_action_handler::{closure#0}
+             at ./src/agent_panel.rs:5108:18
+  30: <agent_ui::agent_panel::tests::test_new_text_thread_action_handler::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /Users/max/.rustup/toolchains/1.93-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/ops/function.rs:250:5
+  31: core::ops::function::FnOnce::call_once
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/core/src/ops/function.rs:250:5
+  32: test::__rust_begin_short_backtrace
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/test/src/lib.rs:663:18
+  33: test::run_test_in_process::{{closure}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/test/src/lib.rs:686:74
+  34: <core::panic::unwind_safe::AssertUnwindSafe<F> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/core/src/panic/unwind_safe.rs:274:9
+  35: std::panicking::catch_unwind::do_call
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panicking.rs:581:40
+  36: std::panicking::catch_unwind
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panicking.rs:544:19
+  37: std::panic::catch_unwind
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panic.rs:359:14
+  38: test::run_test_in_process
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/test/src/lib.rs:686:27
+  39: test::run_test::{{closure}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/test/src/lib.rs:607:43
+  40: test::run_test::{{closure}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/test/src/lib.rs:637:41
+  41: std::sys::backtrace::__rust_begin_short_backtrace
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/sys/backtrace.rs:160:18
+  42: std::thread::lifecycle::spawn_unchecked::{{closure}}::{{closure}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/thread/lifecycle.rs:92:13
+  43: <core::panic::unwind_safe::AssertUnwindSafe<F> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/core/src/panic/unwind_safe.rs:274:9
+  44: std::panicking::catch_unwind::do_call
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panicking.rs:581:40
+  45: std::panicking::catch_unwind
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panicking.rs:544:19
+  46: std::panic::catch_unwind
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panic.rs:359:14
+  47: std::thread::lifecycle::spawn_unchecked::{{closure}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/thread/lifecycle.rs:90:26
+  48: core::ops::function::FnOnce::call_once{{vtable.shim}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/core/src/ops/function.rs:250:5
+  49: <alloc::boxed::Box<F,A> as core::ops::function::FnOnce<Args>>::call_once
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/alloc/src/boxed.rs:2206:9
+  50: std::sys::thread::unix::Thread::new::thread_start
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/sys/thread/unix.rs:118:17
+  51: __pthread_cond_wait
+
+defer called:    0: std::backtrace_rs::backtrace::libunwind::trace
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/../../backtrace/src/backtrace/libunwind.rs:117:9
+   1: std::backtrace_rs::backtrace::trace_unsynchronized
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/../../backtrace/src/backtrace/mod.rs:66:14
+   2: std::backtrace::Backtrace::create
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/backtrace.rs:331:13
+   3: <gpui::app::App>::defer::<<gpui::app::context::Context<project::context_server_store::ContextServerStore>>::observe_global<settings::settings_store::SettingsStore, <project::context_server_store::ContextServerStore>::new_internal::{closure#1}>::{closure#1}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:1630:13
+   4: <gpui::app::context::Context<project::context_server_store::ContextServerStore>>::observe_global::<settings::settings_store::SettingsStore, <project::context_server_store::ContextServerStore>::new_internal::{closure#1}>
+             at /Users/max/code/zed/crates/gpui/src/app/context.rs:188:14
+   5: <project::context_server_store::ContextServerStore>::new_internal
+             at /Users/max/code/zed/crates/project/src/context_server_store.rs:380:41
+   6: <project::context_server_store::ContextServerStore>::local
+             at /Users/max/code/zed/crates/project/src/context_server_store.rs:243:9
+   7: <project::Project>::local::{closure#0}::{closure#2}
+             at /Users/max/code/zed/crates/project/src/project.rs:1170:17
+   8: <gpui::app::App as gpui::AppContext>::new::<project::context_server_store::ContextServerStore, <project::Project>::local::{closure#0}::{closure#2}>::{closure#0}
+             at /Users/max/code/zed/crates/gpui/src/app.rs:2332:26
+   9: <gpui::app::App>::update::<gpui::app::entity_map::Entity<project::context_server_store::ContextServerStore>, <gpui::app::App as gpui::AppContext>::new<project::context_server_store::ContextServerStore, <project::Project>::local::{closure#0}::{closure#2}>::{closure#0}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:862:22
+  10: <gpui::app::App as gpui::AppContext>::new::<project::context_server_store::ContextServerStore, <project::Project>::local::{closure#0}::{closure#2}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:2329:14
+  11: <gpui::app::context::Context<project::Project> as gpui::AppContext>::new::<project::context_server_store::ContextServerStore, <project::Project>::local::{closure#0}::{closure#2}>
+             at /Users/max/code/zed/crates/gpui/src/app/context.rs:770:18
+  12: <project::Project>::local::{closure#0}
+             at /Users/max/code/zed/crates/project/src/project.rs:1169:43
+  13: <gpui::app::App as gpui::AppContext>::new::<project::Project, <project::Project>::local::{closure#0}>::{closure#0}
+             at /Users/max/code/zed/crates/gpui/src/app.rs:2332:26
+  14: <gpui::app::App>::update::<gpui::app::entity_map::Entity<project::Project>, <gpui::app::App as gpui::AppContext>::new<project::Project, <project::Project>::local::{closure#0}>::{closure#0}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:862:22
+  15: <gpui::app::App as gpui::AppContext>::new::<project::Project, <project::Project>::local::{closure#0}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:2329:14
+  16: <project::Project>::local
+             at /Users/max/code/zed/crates/project/src/project.rs:1149:12
+  17: <project::Project>::test_project::<[&std::path::Path; 0]>::{closure#0}::{closure#2}
+             at /Users/max/code/zed/crates/project/src/project.rs:2024:13
+  18: <gpui::app::App>::update::<gpui::app::entity_map::Entity<project::Project>, <project::Project>::test_project<[&std::path::Path; 0]>::{closure#0}::{closure#2}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:862:22
+  19: <gpui::app::test_context::TestAppContext>::update::<gpui::app::entity_map::Entity<project::Project>, <project::Project>::test_project<[&std::path::Path; 0]>::{closure#0}::{closure#2}>
+             at /Users/max/code/zed/crates/gpui/src/app/test_context.rs:205:12
+  20: <project::Project>::test_project::<[&std::path::Path; 0]>::{closure#0}
+             at /Users/max/code/zed/crates/project/src/project.rs:2023:26
+  21: <project::Project>::test::<[&std::path::Path; 0]>::{closure#0}
+             at /Users/max/code/zed/crates/project/src/project.rs:1997:55
+  22: agent_ui::agent_panel::tests::test_new_text_thread_action_handler::__test_new_text_thread_action_handler::{closure#0}
+             at ./src/agent_panel.rs:5125:57
+  23: <gpui::executor::ForegroundExecutor>::block_test::<(), agent_ui::agent_panel::tests::test_new_text_thread_action_handler::__test_new_text_thread_action_handler::{closure#0}>::{closure#0}
+             at /Users/max/code/zed/crates/gpui/src/executor.rs:440:36
+  24: <scheduler::test_scheduler::TestScheduler as scheduler::Scheduler>::block
+             at /Users/max/code/zed/crates/scheduler/src/test_scheduler.rs:538:35
+  25: <gpui::executor::ForegroundExecutor>::block_test::<(), agent_ui::agent_panel::tests::test_new_text_thread_action_handler::__test_new_text_thread_action_handler::{closure#0}>
+             at /Users/max/code/zed/crates/gpui/src/executor.rs:447:19
+  26: agent_ui::agent_panel::tests::test_new_text_thread_action_handler::{closure#0}
+             at ./src/agent_panel.rs:5108:5
+  27: gpui::test::run_test::{closure#0}
+             at /Users/max/code/zed/crates/gpui/src/test.rs:88:17
+  28: std::panicking::catch_unwind::do_call::<gpui::test::run_test::{closure#0}, ()>
+             at /Users/max/.rustup/toolchains/1.93-aarch64-apple-darwin/lib/rustlib/src/rust/library/std/src/panicking.rs:581:40
+  29: ___rust_try
+  30: std::panicking::catch_unwind::<(), gpui::test::run_test::{closure#0}>
+             at /Users/max/.rustup/toolchains/1.93-aarch64-apple-darwin/lib/rustlib/src/rust/library/std/src/panicking.rs:544:19
+  31: std::panic::catch_unwind::<gpui::test::run_test::{closure#0}, ()>
+             at /Users/max/.rustup/toolchains/1.93-aarch64-apple-darwin/lib/rustlib/src/rust/library/std/src/panic.rs:359:14
+  32: gpui::test::run_test
+             at /Users/max/code/zed/crates/gpui/src/test.rs:85:26
+  33: agent_ui::agent_panel::tests::test_new_text_thread_action_handler
+             at ./src/agent_panel.rs:5108:5
+  34: agent_ui::agent_panel::tests::test_new_text_thread_action_handler::{closure#0}
+             at ./src/agent_panel.rs:5108:18
+  35: <agent_ui::agent_panel::tests::test_new_text_thread_action_handler::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /Users/max/.rustup/toolchains/1.93-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/ops/function.rs:250:5
+  36: core::ops::function::FnOnce::call_once
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/core/src/ops/function.rs:250:5
+  37: test::__rust_begin_short_backtrace
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/test/src/lib.rs:663:18
+  38: test::run_test_in_process::{{closure}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/test/src/lib.rs:686:74
+  39: <core::panic::unwind_safe::AssertUnwindSafe<F> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/core/src/panic/unwind_safe.rs:274:9
+  40: std::panicking::catch_unwind::do_call
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panicking.rs:581:40
+  41: std::panicking::catch_unwind
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panicking.rs:544:19
+  42: std::panic::catch_unwind
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panic.rs:359:14
+  43: test::run_test_in_process
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/test/src/lib.rs:686:27
+  44: test::run_test::{{closure}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/test/src/lib.rs:607:43
+  45: test::run_test::{{closure}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/test/src/lib.rs:637:41
+  46: std::sys::backtrace::__rust_begin_short_backtrace
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/sys/backtrace.rs:160:18
+  47: std::thread::lifecycle::spawn_unchecked::{{closure}}::{{closure}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/thread/lifecycle.rs:92:13
+  48: <core::panic::unwind_safe::AssertUnwindSafe<F> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/core/src/panic/unwind_safe.rs:274:9
+  49: std::panicking::catch_unwind::do_call
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panicking.rs:581:40
+  50: std::panicking::catch_unwind
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panicking.rs:544:19
+  51: std::panic::catch_unwind
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panic.rs:359:14
+  52: std::thread::lifecycle::spawn_unchecked::{{closure}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/thread/lifecycle.rs:90:26
+  53: core::ops::function::FnOnce::call_once{{vtable.shim}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/core/src/ops/function.rs:250:5
+  54: <alloc::boxed::Box<F,A> as core::ops::function::FnOnce<Args>>::call_once
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/alloc/src/boxed.rs:2206:9
+  55: std::sys::thread::unix::Thread::new::thread_start
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/sys/thread/unix.rs:118:17
+  56: __pthread_cond_wait
+
+defer called:    0: std::backtrace_rs::backtrace::libunwind::trace
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/../../backtrace/src/backtrace/libunwind.rs:117:9
+   1: std::backtrace_rs::backtrace::trace_unsynchronized
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/../../backtrace/src/backtrace/mod.rs:66:14
+   2: std::backtrace::Backtrace::create
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/backtrace.rs:331:13
+   3: <gpui::app::App>::defer::<<gpui::app::App>::new_observer::{closure#0}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:1630:13
+   4: <gpui::app::App>::new_observer
+             at /Users/max/code/zed/crates/gpui/src/app.rs:940:14
+   5: <gpui::app::App>::observe_internal::<project::context_server_store::registry::ContextServerDescriptorRegistry, <gpui::app::context::Context<project::context_server_store::ContextServerStore>>::observe<project::context_server_store::registry::ContextServerDescriptorRegistry, <project::context_server_store::ContextServerStore>::new_internal::{closure#0}>::{closure#0}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:954:14
+   6: <gpui::app::context::Context<project::context_server_store::ContextServerStore>>::observe::<project::context_server_store::registry::ContextServerDescriptorRegistry, <project::context_server_store::ContextServerStore>::new_internal::{closure#0}>
+             at /Users/max/code/zed/crates/gpui/src/app/context.rs:73:18
+   7: <project::context_server_store::ContextServerStore>::new_internal
+             at /Users/max/code/zed/crates/project/src/context_server_store.rs:409:35
+   8: <project::context_server_store::ContextServerStore>::local
+             at /Users/max/code/zed/crates/project/src/context_server_store.rs:243:9
+   9: <project::Project>::local::{closure#0}::{closure#2}
+             at /Users/max/code/zed/crates/project/src/project.rs:1170:17
+  10: <gpui::app::App as gpui::AppContext>::new::<project::context_server_store::ContextServerStore, <project::Project>::local::{closure#0}::{closure#2}>::{closure#0}
+             at /Users/max/code/zed/crates/gpui/src/app.rs:2332:26
+  11: <gpui::app::App>::update::<gpui::app::entity_map::Entity<project::context_server_store::ContextServerStore>, <gpui::app::App as gpui::AppContext>::new<project::context_server_store::ContextServerStore, <project::Project>::local::{closure#0}::{closure#2}>::{closure#0}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:862:22
+  12: <gpui::app::App as gpui::AppContext>::new::<project::context_server_store::ContextServerStore, <project::Project>::local::{closure#0}::{closure#2}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:2329:14
+  13: <gpui::app::context::Context<project::Project> as gpui::AppContext>::new::<project::context_server_store::ContextServerStore, <project::Project>::local::{closure#0}::{closure#2}>
+             at /Users/max/code/zed/crates/gpui/src/app/context.rs:770:18
+  14: <project::Project>::local::{closure#0}
+             at /Users/max/code/zed/crates/project/src/project.rs:1169:43
+  15: <gpui::app::App as gpui::AppContext>::new::<project::Project, <project::Project>::local::{closure#0}>::{closure#0}
+             at /Users/max/code/zed/crates/gpui/src/app.rs:2332:26
+  16: <gpui::app::App>::update::<gpui::app::entity_map::Entity<project::Project>, <gpui::app::App as gpui::AppContext>::new<project::Project, <project::Project>::local::{closure#0}>::{closure#0}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:862:22
+  17: <gpui::app::App as gpui::AppContext>::new::<project::Project, <project::Project>::local::{closure#0}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:2329:14
+  18: <project::Project>::local
+             at /Users/max/code/zed/crates/project/src/project.rs:1149:12
+  19: <project::Project>::test_project::<[&std::path::Path; 0]>::{closure#0}::{closure#2}
+             at /Users/max/code/zed/crates/project/src/project.rs:2024:13
+  20: <gpui::app::App>::update::<gpui::app::entity_map::Entity<project::Project>, <project::Project>::test_project<[&std::path::Path; 0]>::{closure#0}::{closure#2}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:862:22
+  21: <gpui::app::test_context::TestAppContext>::update::<gpui::app::entity_map::Entity<project::Project>, <project::Project>::test_project<[&std::path::Path; 0]>::{closure#0}::{closure#2}>
+             at /Users/max/code/zed/crates/gpui/src/app/test_context.rs:205:12
+  22: <project::Project>::test_project::<[&std::path::Path; 0]>::{closure#0}
+             at /Users/max/code/zed/crates/project/src/project.rs:2023:26
+  23: <project::Project>::test::<[&std::path::Path; 0]>::{closure#0}
+             at /Users/max/code/zed/crates/project/src/project.rs:1997:55
+  24: agent_ui::agent_panel::tests::test_new_text_thread_action_handler::__test_new_text_thread_action_handler::{closure#0}
+             at ./src/agent_panel.rs:5125:57
+  25: <gpui::executor::ForegroundExecutor>::block_test::<(), agent_ui::agent_panel::tests::test_new_text_thread_action_handler::__test_new_text_thread_action_handler::{closure#0}>::{closure#0}
+             at /Users/max/code/zed/crates/gpui/src/executor.rs:440:36
+  26: <scheduler::test_scheduler::TestScheduler as scheduler::Scheduler>::block
+             at /Users/max/code/zed/crates/scheduler/src/test_scheduler.rs:538:35
+  27: <gpui::executor::ForegroundExecutor>::block_test::<(), agent_ui::agent_panel::tests::test_new_text_thread_action_handler::__test_new_text_thread_action_handler::{closure#0}>
+             at /Users/max/code/zed/crates/gpui/src/executor.rs:447:19
+  28: agent_ui::agent_panel::tests::test_new_text_thread_action_handler::{closure#0}
+             at ./src/agent_panel.rs:5108:5
+  29: gpui::test::run_test::{closure#0}
+             at /Users/max/code/zed/crates/gpui/src/test.rs:88:17
+  30: std::panicking::catch_unwind::do_call::<gpui::test::run_test::{closure#0}, ()>
+             at /Users/max/.rustup/toolchains/1.93-aarch64-apple-darwin/lib/rustlib/src/rust/library/std/src/panicking.rs:581:40
+  31: ___rust_try
+  32: std::panicking::catch_unwind::<(), gpui::test::run_test::{closure#0}>
+             at /Users/max/.rustup/toolchains/1.93-aarch64-apple-darwin/lib/rustlib/src/rust/library/std/src/panicking.rs:544:19
+  33: std::panic::catch_unwind::<gpui::test::run_test::{closure#0}, ()>
+             at /Users/max/.rustup/toolchains/1.93-aarch64-apple-darwin/lib/rustlib/src/rust/library/std/src/panic.rs:359:14
+  34: gpui::test::run_test
+             at /Users/max/code/zed/crates/gpui/src/test.rs:85:26
+  35: agent_ui::agent_panel::tests::test_new_text_thread_action_handler
+             at ./src/agent_panel.rs:5108:5
+  36: agent_ui::agent_panel::tests::test_new_text_thread_action_handler::{closure#0}
+             at ./src/agent_panel.rs:5108:18
+  37: <agent_ui::agent_panel::tests::test_new_text_thread_action_handler::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /Users/max/.rustup/toolchains/1.93-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/ops/function.rs:250:5
+  38: core::ops::function::FnOnce::call_once
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/core/src/ops/function.rs:250:5
+  39: test::__rust_begin_short_backtrace
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/test/src/lib.rs:663:18
+  40: test::run_test_in_process::{{closure}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/test/src/lib.rs:686:74
+  41: <core::panic::unwind_safe::AssertUnwindSafe<F> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/core/src/panic/unwind_safe.rs:274:9
+  42: std::panicking::catch_unwind::do_call
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panicking.rs:581:40
+  43: std::panicking::catch_unwind
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panicking.rs:544:19
+  44: std::panic::catch_unwind
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panic.rs:359:14
+  45: test::run_test_in_process
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/test/src/lib.rs:686:27
+  46: test::run_test::{{closure}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/test/src/lib.rs:607:43
+  47: test::run_test::{{closure}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/test/src/lib.rs:637:41
+  48: std::sys::backtrace::__rust_begin_short_backtrace
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/sys/backtrace.rs:160:18
+  49: std::thread::lifecycle::spawn_unchecked::{{closure}}::{{closure}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/thread/lifecycle.rs:92:13
+  50: <core::panic::unwind_safe::AssertUnwindSafe<F> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/core/src/panic/unwind_safe.rs:274:9
+  51: std::panicking::catch_unwind::do_call
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panicking.rs:581:40
+  52: std::panicking::catch_unwind
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panicking.rs:544:19
+  53: std::panic::catch_unwind
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panic.rs:359:14
+  54: std::thread::lifecycle::spawn_unchecked::{{closure}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/thread/lifecycle.rs:90:26
+  55: core::ops::function::FnOnce::call_once{{vtable.shim}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/core/src/ops/function.rs:250:5
+  56: <alloc::boxed::Box<F,A> as core::ops::function::FnOnce<Args>>::call_once
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/alloc/src/boxed.rs:2206:9
+  57: std::sys::thread::unix::Thread::new::thread_start
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/sys/thread/unix.rs:118:17
+  58: __pthread_cond_wait
+
+defer called:    0: std::backtrace_rs::backtrace::libunwind::trace
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/../../backtrace/src/backtrace/libunwind.rs:117:9
+   1: std::backtrace_rs::backtrace::trace_unsynchronized
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/../../backtrace/src/backtrace/mod.rs:66:14
+   2: std::backtrace::Backtrace::create
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/backtrace.rs:331:13
+   3: <gpui::app::App>::defer::<<gpui::app::App>::new_subscription::{closure#0}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:1630:13
+   4: <gpui::app::App>::new_subscription
+             at /Users/max/code/zed/crates/gpui/src/app.rs:989:14
+   5: <gpui::app::App>::subscribe_internal::<project::worktree_store::WorktreeStore, project::worktree_store::WorktreeStoreEvent, <gpui::app::context::Context<project::manifest_tree::ManifestTree>>::subscribe<project::worktree_store::WorktreeStore, project::worktree_store::WorktreeStoreEvent, <project::manifest_tree::ManifestTree>::on_worktree_store_event>::{closure#0}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:1003:14
+   6: <gpui::app::context::Context<project::manifest_tree::ManifestTree>>::subscribe::<project::worktree_store::WorktreeStore, project::worktree_store::WorktreeStoreEvent, <project::manifest_tree::ManifestTree>::on_worktree_store_event>
+             at /Users/max/code/zed/crates/gpui/src/app/context.rs:109:18
+   7: <project::manifest_tree::ManifestTree>::new::{closure#0}
+             at /Users/max/code/zed/crates/project/src/manifest_tree.rs:79:20
+   8: <gpui::app::App as gpui::AppContext>::new::<project::manifest_tree::ManifestTree, <project::manifest_tree::ManifestTree>::new::{closure#0}>::{closure#0}
+             at /Users/max/code/zed/crates/gpui/src/app.rs:2332:26
+   9: <gpui::app::App>::update::<gpui::app::entity_map::Entity<project::manifest_tree::ManifestTree>, <gpui::app::App as gpui::AppContext>::new<project::manifest_tree::ManifestTree, <project::manifest_tree::ManifestTree>::new::{closure#0}>::{closure#0}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:862:22
+  10: <gpui::app::App as gpui::AppContext>::new::<project::manifest_tree::ManifestTree, <project::manifest_tree::ManifestTree>::new::{closure#0}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:2329:14
+  11: <project::manifest_tree::ManifestTree>::new
+             at /Users/max/code/zed/crates/project/src/manifest_tree.rs:76:12
+  12: <project::Project>::local::{closure#0}
+             at /Users/max/code/zed/crates/project/src/project.rs:1181:33
+  13: <gpui::app::App as gpui::AppContext>::new::<project::Project, <project::Project>::local::{closure#0}>::{closure#0}
+             at /Users/max/code/zed/crates/gpui/src/app.rs:2332:26
+  14: <gpui::app::App>::update::<gpui::app::entity_map::Entity<project::Project>, <gpui::app::App as gpui::AppContext>::new<project::Project, <project::Project>::local::{closure#0}>::{closure#0}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:862:22
+  15: <gpui::app::App as gpui::AppContext>::new::<project::Project, <project::Project>::local::{closure#0}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:2329:14
+  16: <project::Project>::local
+             at /Users/max/code/zed/crates/project/src/project.rs:1149:12
+  17: <project::Project>::test_project::<[&std::path::Path; 0]>::{closure#0}::{closure#2}
+             at /Users/max/code/zed/crates/project/src/project.rs:2024:13
+  18: <gpui::app::App>::update::<gpui::app::entity_map::Entity<project::Project>, <project::Project>::test_project<[&std::path::Path; 0]>::{closure#0}::{closure#2}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:862:22
+  19: <gpui::app::test_context::TestAppContext>::update::<gpui::app::entity_map::Entity<project::Project>, <project::Project>::test_project<[&std::path::Path; 0]>::{closure#0}::{closure#2}>
+             at /Users/max/code/zed/crates/gpui/src/app/test_context.rs:205:12
+  20: <project::Project>::test_project::<[&std::path::Path; 0]>::{closure#0}
+             at /Users/max/code/zed/crates/project/src/project.rs:2023:26
+  21: <project::Project>::test::<[&std::path::Path; 0]>::{closure#0}
+             at /Users/max/code/zed/crates/project/src/project.rs:1997:55
+  22: agent_ui::agent_panel::tests::test_new_text_thread_action_handler::__test_new_text_thread_action_handler::{closure#0}
+             at ./src/agent_panel.rs:5125:57
+  23: <gpui::executor::ForegroundExecutor>::block_test::<(), agent_ui::agent_panel::tests::test_new_text_thread_action_handler::__test_new_text_thread_action_handler::{closure#0}>::{closure#0}
+             at /Users/max/code/zed/crates/gpui/src/executor.rs:440:36
+  24: <scheduler::test_scheduler::TestScheduler as scheduler::Scheduler>::block
+             at /Users/max/code/zed/crates/scheduler/src/test_scheduler.rs:538:35
+  25: <gpui::executor::ForegroundExecutor>::block_test::<(), agent_ui::agent_panel::tests::test_new_text_thread_action_handler::__test_new_text_thread_action_handler::{closure#0}>
+             at /Users/max/code/zed/crates/gpui/src/executor.rs:447:19
+  26: agent_ui::agent_panel::tests::test_new_text_thread_action_handler::{closure#0}
+             at ./src/agent_panel.rs:5108:5
+  27: gpui::test::run_test::{closure#0}
+             at /Users/max/code/zed/crates/gpui/src/test.rs:88:17
+  28: std::panicking::catch_unwind::do_call::<gpui::test::run_test::{closure#0}, ()>
+             at /Users/max/.rustup/toolchains/1.93-aarch64-apple-darwin/lib/rustlib/src/rust/library/std/src/panicking.rs:581:40
+  29: ___rust_try
+  30: std::panicking::catch_unwind::<(), gpui::test::run_test::{closure#0}>
+             at /Users/max/.rustup/toolchains/1.93-aarch64-apple-darwin/lib/rustlib/src/rust/library/std/src/panicking.rs:544:19
+  31: std::panic::catch_unwind::<gpui::test::run_test::{closure#0}, ()>
+             at /Users/max/.rustup/toolchains/1.93-aarch64-apple-darwin/lib/rustlib/src/rust/library/std/src/panic.rs:359:14
+  32: gpui::test::run_test
+             at /Users/max/code/zed/crates/gpui/src/test.rs:85:26
+  33: agent_ui::agent_panel::tests::test_new_text_thread_action_handler
+             at ./src/agent_panel.rs:5108:5
+  34: agent_ui::agent_panel::tests::test_new_text_thread_action_handler::{closure#0}
+             at ./src/agent_panel.rs:5108:18
+  35: <agent_ui::agent_panel::tests::test_new_text_thread_action_handler::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /Users/max/.rustup/toolchains/1.93-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/ops/function.rs:250:5
+  36: core::ops::function::FnOnce::call_once
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/core/src/ops/function.rs:250:5
+  37: test::__rust_begin_short_backtrace
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/test/src/lib.rs:663:18
+  38: test::run_test_in_process::{{closure}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/test/src/lib.rs:686:74
+  39: <core::panic::unwind_safe::AssertUnwindSafe<F> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/core/src/panic/unwind_safe.rs:274:9
+  40: std::panicking::catch_unwind::do_call
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panicking.rs:581:40
+  41: std::panicking::catch_unwind
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panicking.rs:544:19
+  42: std::panic::catch_unwind
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panic.rs:359:14
+  43: test::run_test_in_process
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/test/src/lib.rs:686:27
+  44: test::run_test::{{closure}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/test/src/lib.rs:607:43
+  45: test::run_test::{{closure}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/test/src/lib.rs:637:41
+  46: std::sys::backtrace::__rust_begin_short_backtrace
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/sys/backtrace.rs:160:18
+  47: std::thread::lifecycle::spawn_unchecked::{{closure}}::{{closure}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/thread/lifecycle.rs:92:13
+  48: <core::panic::unwind_safe::AssertUnwindSafe<F> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/core/src/panic/unwind_safe.rs:274:9
+  49: std::panicking::catch_unwind::do_call
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panicking.rs:581:40
+  50: std::panicking::catch_unwind
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panicking.rs:544:19
+  51: std::panic::catch_unwind
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panic.rs:359:14
+  52: std::thread::lifecycle::spawn_unchecked::{{closure}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/thread/lifecycle.rs:90:26
+  53: core::ops::function::FnOnce::call_once{{vtable.shim}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/core/src/ops/function.rs:250:5
+  54: <alloc::boxed::Box<F,A> as core::ops::function::FnOnce<Args>>::call_once
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/alloc/src/boxed.rs:2206:9
+  55: std::sys::thread::unix::Thread::new::thread_start
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/sys/thread/unix.rs:118:17
+  56: __pthread_cond_wait
+
+defer called:    0: std::backtrace_rs::backtrace::libunwind::trace
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/../../backtrace/src/backtrace/libunwind.rs:117:9
+   1: std::backtrace_rs::backtrace::trace_unsynchronized
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/../../backtrace/src/backtrace/mod.rs:66:14
+   2: std::backtrace::Backtrace::create
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/backtrace.rs:331:13
+   3: <gpui::app::App>::defer::<<gpui::app::context::Context<project::manifest_tree::ManifestTree>>::observe_global<settings::settings_store::SettingsStore, <project::manifest_tree::ManifestTree>::new::{closure#0}::{closure#0}>::{closure#1}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:1630:13
+   4: <gpui::app::context::Context<project::manifest_tree::ManifestTree>>::observe_global::<settings::settings_store::SettingsStore, <project::manifest_tree::ManifestTree>::new::{closure#0}::{closure#0}>
+             at /Users/max/code/zed/crates/gpui/src/app/context.rs:188:14
+   5: <project::manifest_tree::ManifestTree>::new::{closure#0}
+             at /Users/max/code/zed/crates/project/src/manifest_tree.rs:80:20
+   6: <gpui::app::App as gpui::AppContext>::new::<project::manifest_tree::ManifestTree, <project::manifest_tree::ManifestTree>::new::{closure#0}>::{closure#0}
+             at /Users/max/code/zed/crates/gpui/src/app.rs:2332:26
+   7: <gpui::app::App>::update::<gpui::app::entity_map::Entity<project::manifest_tree::ManifestTree>, <gpui::app::App as gpui::AppContext>::new<project::manifest_tree::ManifestTree, <project::manifest_tree::ManifestTree>::new::{closure#0}>::{closure#0}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:862:22
+   8: <gpui::app::App as gpui::AppContext>::new::<project::manifest_tree::ManifestTree, <project::manifest_tree::ManifestTree>::new::{closure#0}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:2329:14
+   9: <project::manifest_tree::ManifestTree>::new
+             at /Users/max/code/zed/crates/project/src/manifest_tree.rs:76:12
+  10: <project::Project>::local::{closure#0}
+             at /Users/max/code/zed/crates/project/src/project.rs:1181:33
+  11: <gpui::app::App as gpui::AppContext>::new::<project::Project, <project::Project>::local::{closure#0}>::{closure#0}
+             at /Users/max/code/zed/crates/gpui/src/app.rs:2332:26
+  12: <gpui::app::App>::update::<gpui::app::entity_map::Entity<project::Project>, <gpui::app::App as gpui::AppContext>::new<project::Project, <project::Project>::local::{closure#0}>::{closure#0}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:862:22
+  13: <gpui::app::App as gpui::AppContext>::new::<project::Project, <project::Project>::local::{closure#0}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:2329:14
+  14: <project::Project>::local
+             at /Users/max/code/zed/crates/project/src/project.rs:1149:12
+  15: <project::Project>::test_project::<[&std::path::Path; 0]>::{closure#0}::{closure#2}
+             at /Users/max/code/zed/crates/project/src/project.rs:2024:13
+  16: <gpui::app::App>::update::<gpui::app::entity_map::Entity<project::Project>, <project::Project>::test_project<[&std::path::Path; 0]>::{closure#0}::{closure#2}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:862:22
+  17: <gpui::app::test_context::TestAppContext>::update::<gpui::app::entity_map::Entity<project::Project>, <project::Project>::test_project<[&std::path::Path; 0]>::{closure#0}::{closure#2}>
+             at /Users/max/code/zed/crates/gpui/src/app/test_context.rs:205:12
+  18: <project::Project>::test_project::<[&std::path::Path; 0]>::{closure#0}
+             at /Users/max/code/zed/crates/project/src/project.rs:2023:26
+  19: <project::Project>::test::<[&std::path::Path; 0]>::{closure#0}
+             at /Users/max/code/zed/crates/project/src/project.rs:1997:55
+  20: agent_ui::agent_panel::tests::test_new_text_thread_action_handler::__test_new_text_thread_action_handler::{closure#0}
+             at ./src/agent_panel.rs:5125:57
+  21: <gpui::executor::ForegroundExecutor>::block_test::<(), agent_ui::agent_panel::tests::test_new_text_thread_action_handler::__test_new_text_thread_action_handler::{closure#0}>::{closure#0}
+             at /Users/max/code/zed/crates/gpui/src/executor.rs:440:36
+  22: <scheduler::test_scheduler::TestScheduler as scheduler::Scheduler>::block
+             at /Users/max/code/zed/crates/scheduler/src/test_scheduler.rs:538:35
+  23: <gpui::executor::ForegroundExecutor>::block_test::<(), agent_ui::agent_panel::tests::test_new_text_thread_action_handler::__test_new_text_thread_action_handler::{closure#0}>
+             at /Users/max/code/zed/crates/gpui/src/executor.rs:447:19
+  24: agent_ui::agent_panel::tests::test_new_text_thread_action_handler::{closure#0}
+             at ./src/agent_panel.rs:5108:5
+  25: gpui::test::run_test::{closure#0}
+             at /Users/max/code/zed/crates/gpui/src/test.rs:88:17
+  26: std::panicking::catch_unwind::do_call::<gpui::test::run_test::{closure#0}, ()>
+             at /Users/max/.rustup/toolchains/1.93-aarch64-apple-darwin/lib/rustlib/src/rust/library/std/src/panicking.rs:581:40
+  27: ___rust_try
+  28: std::panicking::catch_unwind::<(), gpui::test::run_test::{closure#0}>
+             at /Users/max/.rustup/toolchains/1.93-aarch64-apple-darwin/lib/rustlib/src/rust/library/std/src/panicking.rs:544:19
+  29: std::panic::catch_unwind::<gpui::test::run_test::{closure#0}, ()>
+             at /Users/max/.rustup/toolchains/1.93-aarch64-apple-darwin/lib/rustlib/src/rust/library/std/src/panic.rs:359:14
+  30: gpui::test::run_test
+             at /Users/max/code/zed/crates/gpui/src/test.rs:85:26
+  31: agent_ui::agent_panel::tests::test_new_text_thread_action_handler
+             at ./src/agent_panel.rs:5108:5
+  32: agent_ui::agent_panel::tests::test_new_text_thread_action_handler::{closure#0}
+             at ./src/agent_panel.rs:5108:18
+  33: <agent_ui::agent_panel::tests::test_new_text_thread_action_handler::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /Users/max/.rustup/toolchains/1.93-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/ops/function.rs:250:5
+  34: core::ops::function::FnOnce::call_once
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/core/src/ops/function.rs:250:5
+  35: test::__rust_begin_short_backtrace
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/test/src/lib.rs:663:18
+  36: test::run_test_in_process::{{closure}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/test/src/lib.rs:686:74
+  37: <core::panic::unwind_safe::AssertUnwindSafe<F> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/core/src/panic/unwind_safe.rs:274:9
+  38: std::panicking::catch_unwind::do_call
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panicking.rs:581:40
+  39: std::panicking::catch_unwind
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panicking.rs:544:19
+  40: std::panic::catch_unwind
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panic.rs:359:14
+  41: test::run_test_in_process
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/test/src/lib.rs:686:27
+  42: test::run_test::{{closure}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/test/src/lib.rs:607:43
+  43: test::run_test::{{closure}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/test/src/lib.rs:637:41
+  44: std::sys::backtrace::__rust_begin_short_backtrace
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/sys/backtrace.rs:160:18
+  45: std::thread::lifecycle::spawn_unchecked::{{closure}}::{{closure}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/thread/lifecycle.rs:92:13
+  46: <core::panic::unwind_safe::AssertUnwindSafe<F> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/core/src/panic/unwind_safe.rs:274:9
+  47: std::panicking::catch_unwind::do_call
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panicking.rs:581:40
+  48: std::panicking::catch_unwind
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panicking.rs:544:19
+  49: std::panic::catch_unwind
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panic.rs:359:14
+  50: std::thread::lifecycle::spawn_unchecked::{{closure}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/thread/lifecycle.rs:90:26
+  51: core::ops::function::FnOnce::call_once{{vtable.shim}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/core/src/ops/function.rs:250:5
+  52: <alloc::boxed::Box<F,A> as core::ops::function::FnOnce<Args>>::call_once
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/alloc/src/boxed.rs:2206:9
+  53: std::sys::thread::unix::Thread::new::thread_start
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/sys/thread/unix.rs:118:17
+  54: __pthread_cond_wait
+
+defer called:    0: std::backtrace_rs::backtrace::libunwind::trace
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/../../backtrace/src/backtrace/libunwind.rs:117:9
+   1: std::backtrace_rs::backtrace::trace_unsynchronized
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/../../backtrace/src/backtrace/mod.rs:66:14
+   2: std::backtrace::Backtrace::create
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/backtrace.rs:331:13
+   3: <gpui::app::App>::defer::<<gpui::app::App>::new_subscription::{closure#0}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:1630:13
+   4: <gpui::app::App>::new_subscription
+             at /Users/max/code/zed/crates/gpui/src/app.rs:989:14
+   5: <gpui::app::App>::subscribe_internal::<project::toolchain_store::LocalToolchainStore, project::toolchain_store::ToolchainStoreEvent, <gpui::app::context::Context<project::toolchain_store::ToolchainStore>>::subscribe<project::toolchain_store::LocalToolchainStore, project::toolchain_store::ToolchainStoreEvent, <project::toolchain_store::ToolchainStore>::local::{closure#1}>::{closure#0}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:1003:14
+   6: <gpui::app::context::Context<project::toolchain_store::ToolchainStore>>::subscribe::<project::toolchain_store::LocalToolchainStore, project::toolchain_store::ToolchainStoreEvent, <project::toolchain_store::ToolchainStore>::local::{closure#1}>
+             at /Users/max/code/zed/crates/gpui/src/app/context.rs:109:18
+   7: <project::toolchain_store::ToolchainStore>::local
+             at /Users/max/code/zed/crates/project/src/toolchain_store.rs:76:23
+   8: <project::Project>::local::{closure#0}::{closure#4}
+             at /Users/max/code/zed/crates/project/src/project.rs:1183:17
+   9: <gpui::app::App as gpui::AppContext>::new::<project::toolchain_store::ToolchainStore, <project::Project>::local::{closure#0}::{closure#4}>::{closure#0}
+             at /Users/max/code/zed/crates/gpui/src/app.rs:2332:26
+  10: <gpui::app::App>::update::<gpui::app::entity_map::Entity<project::toolchain_store::ToolchainStore>, <gpui::app::App as gpui::AppContext>::new<project::toolchain_store::ToolchainStore, <project::Project>::local::{closure#0}::{closure#4}>::{closure#0}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:862:22
+  11: <gpui::app::App as gpui::AppContext>::new::<project::toolchain_store::ToolchainStore, <project::Project>::local::{closure#0}::{closure#4}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:2329:14
+  12: <gpui::app::context::Context<project::Project> as gpui::AppContext>::new::<project::toolchain_store::ToolchainStore, <project::Project>::local::{closure#0}::{closure#4}>
+             at /Users/max/code/zed/crates/gpui/src/app/context.rs:770:18
+  13: <project::Project>::local::{closure#0}
+             at /Users/max/code/zed/crates/project/src/project.rs:1182:38
+  14: <gpui::app::App as gpui::AppContext>::new::<project::Project, <project::Project>::local::{closure#0}>::{closure#0}
+             at /Users/max/code/zed/crates/gpui/src/app.rs:2332:26
+  15: <gpui::app::App>::update::<gpui::app::entity_map::Entity<project::Project>, <gpui::app::App as gpui::AppContext>::new<project::Project, <project::Project>::local::{closure#0}>::{closure#0}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:862:22
+  16: <gpui::app::App as gpui::AppContext>::new::<project::Project, <project::Project>::local::{closure#0}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:2329:14
+  17: <project::Project>::local
+             at /Users/max/code/zed/crates/project/src/project.rs:1149:12
+  18: <project::Project>::test_project::<[&std::path::Path; 0]>::{closure#0}::{closure#2}
+             at /Users/max/code/zed/crates/project/src/project.rs:2024:13
+  19: <gpui::app::App>::update::<gpui::app::entity_map::Entity<project::Project>, <project::Project>::test_project<[&std::path::Path; 0]>::{closure#0}::{closure#2}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:862:22
+  20: <gpui::app::test_context::TestAppContext>::update::<gpui::app::entity_map::Entity<project::Project>, <project::Project>::test_project<[&std::path::Path; 0]>::{closure#0}::{closure#2}>
+             at /Users/max/code/zed/crates/gpui/src/app/test_context.rs:205:12
+  21: <project::Project>::test_project::<[&std::path::Path; 0]>::{closure#0}
+             at /Users/max/code/zed/crates/project/src/project.rs:2023:26
+  22: <project::Project>::test::<[&std::path::Path; 0]>::{closure#0}
+             at /Users/max/code/zed/crates/project/src/project.rs:1997:55
+  23: agent_ui::agent_panel::tests::test_new_text_thread_action_handler::__test_new_text_thread_action_handler::{closure#0}
+             at ./src/agent_panel.rs:5125:57
+  24: <gpui::executor::ForegroundExecutor>::block_test::<(), agent_ui::agent_panel::tests::test_new_text_thread_action_handler::__test_new_text_thread_action_handler::{closure#0}>::{closure#0}
+             at /Users/max/code/zed/crates/gpui/src/executor.rs:440:36
+  25: <scheduler::test_scheduler::TestScheduler as scheduler::Scheduler>::block
+             at /Users/max/code/zed/crates/scheduler/src/test_scheduler.rs:538:35
+  26: <gpui::executor::ForegroundExecutor>::block_test::<(), agent_ui::agent_panel::tests::test_new_text_thread_action_handler::__test_new_text_thread_action_handler::{closure#0}>
+             at /Users/max/code/zed/crates/gpui/src/executor.rs:447:19
+  27: agent_ui::agent_panel::tests::test_new_text_thread_action_handler::{closure#0}
+             at ./src/agent_panel.rs:5108:5
+  28: gpui::test::run_test::{closure#0}
+             at /Users/max/code/zed/crates/gpui/src/test.rs:88:17
+  29: std::panicking::catch_unwind::do_call::<gpui::test::run_test::{closure#0}, ()>
+             at /Users/max/.rustup/toolchains/1.93-aarch64-apple-darwin/lib/rustlib/src/rust/library/std/src/panicking.rs:581:40
+  30: ___rust_try
+  31: std::panicking::catch_unwind::<(), gpui::test::run_test::{closure#0}>
+             at /Users/max/.rustup/toolchains/1.93-aarch64-apple-darwin/lib/rustlib/src/rust/library/std/src/panicking.rs:544:19
+  32: std::panic::catch_unwind::<gpui::test::run_test::{closure#0}, ()>
+             at /Users/max/.rustup/toolchains/1.93-aarch64-apple-darwin/lib/rustlib/src/rust/library/std/src/panic.rs:359:14
+  33: gpui::test::run_test
+             at /Users/max/code/zed/crates/gpui/src/test.rs:85:26
+  34: agent_ui::agent_panel::tests::test_new_text_thread_action_handler
+             at ./src/agent_panel.rs:5108:5
+  35: agent_ui::agent_panel::tests::test_new_text_thread_action_handler::{closure#0}
+             at ./src/agent_panel.rs:5108:18
+  36: <agent_ui::agent_panel::tests::test_new_text_thread_action_handler::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /Users/max/.rustup/toolchains/1.93-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/ops/function.rs:250:5
+  37: core::ops::function::FnOnce::call_once
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/core/src/ops/function.rs:250:5
+  38: test::__rust_begin_short_backtrace
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/test/src/lib.rs:663:18
+  39: test::run_test_in_process::{{closure}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/test/src/lib.rs:686:74
+  40: <core::panic::unwind_safe::AssertUnwindSafe<F> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/core/src/panic/unwind_safe.rs:274:9
+  41: std::panicking::catch_unwind::do_call
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panicking.rs:581:40
+  42: std::panicking::catch_unwind
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panicking.rs:544:19
+  43: std::panic::catch_unwind
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panic.rs:359:14
+  44: test::run_test_in_process
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/test/src/lib.rs:686:27
+  45: test::run_test::{{closure}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/test/src/lib.rs:607:43
+  46: test::run_test::{{closure}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/test/src/lib.rs:637:41
+  47: std::sys::backtrace::__rust_begin_short_backtrace
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/sys/backtrace.rs:160:18
+  48: std::thread::lifecycle::spawn_unchecked::{{closure}}::{{closure}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/thread/lifecycle.rs:92:13
+  49: <core::panic::unwind_safe::AssertUnwindSafe<F> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/core/src/panic/unwind_safe.rs:274:9
+  50: std::panicking::catch_unwind::do_call
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panicking.rs:581:40
+  51: std::panicking::catch_unwind
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panicking.rs:544:19
+  52: std::panic::catch_unwind
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panic.rs:359:14
+  53: std::thread::lifecycle::spawn_unchecked::{{closure}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/thread/lifecycle.rs:90:26
+  54: core::ops::function::FnOnce::call_once{{vtable.shim}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/core/src/ops/function.rs:250:5
+  55: <alloc::boxed::Box<F,A> as core::ops::function::FnOnce<Args>>::call_once
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/alloc/src/boxed.rs:2206:9
+  56: std::sys::thread::unix::Thread::new::thread_start
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/sys/thread/unix.rs:118:17
+  57: __pthread_cond_wait
+
+defer called:    0: std::backtrace_rs::backtrace::libunwind::trace
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/../../backtrace/src/backtrace/libunwind.rs:117:9
+   1: std::backtrace_rs::backtrace::trace_unsynchronized
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/../../backtrace/src/backtrace/mod.rs:66:14
+   2: std::backtrace::Backtrace::create
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/backtrace.rs:331:13
+   3: <gpui::app::App>::defer::<<gpui::app::App>::new_subscription::{closure#0}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:1630:13
+   4: <gpui::app::App>::new_subscription
+             at /Users/max/code/zed/crates/gpui/src/app.rs:989:14
+   5: <gpui::app::App>::subscribe_internal::<project::worktree_store::WorktreeStore, project::worktree_store::WorktreeStoreEvent, <gpui::app::context::Context<project::buffer_store::BufferStore>>::subscribe<project::worktree_store::WorktreeStore, project::worktree_store::WorktreeStoreEvent, <project::buffer_store::BufferStore>::local::{closure#0}>::{closure#0}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:1003:14
+   6: <gpui::app::context::Context<project::buffer_store::BufferStore>>::subscribe::<project::worktree_store::WorktreeStore, project::worktree_store::WorktreeStoreEvent, <project::buffer_store::BufferStore>::local::{closure#0}>
+             at /Users/max/code/zed/crates/gpui/src/app/context.rs:109:18
+   7: <project::buffer_store::BufferStore>::local
+             at /Users/max/code/zed/crates/project/src/buffer_store.rs:782:35
+   8: <project::Project>::local::{closure#0}::{closure#5}
+             at /Users/max/code/zed/crates/project/src/project.rs:1193:44
+   9: <gpui::app::App as gpui::AppContext>::new::<project::buffer_store::BufferStore, <project::Project>::local::{closure#0}::{closure#5}>::{closure#0}
+             at /Users/max/code/zed/crates/gpui/src/app.rs:2332:26
+  10: <gpui::app::App>::update::<gpui::app::entity_map::Entity<project::buffer_store::BufferStore>, <gpui::app::App as gpui::AppContext>::new<project::buffer_store::BufferStore, <project::Project>::local::{closure#0}::{closure#5}>::{closure#0}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:862:22
+  11: <gpui::app::App as gpui::AppContext>::new::<project::buffer_store::BufferStore, <project::Project>::local::{closure#0}::{closure#5}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:2329:14
+  12: <gpui::app::context::Context<project::Project> as gpui::AppContext>::new::<project::buffer_store::BufferStore, <project::Project>::local::{closure#0}::{closure#5}>
+             at /Users/max/code/zed/crates/gpui/src/app/context.rs:770:18
+  13: <project::Project>::local::{closure#0}
+             at /Users/max/code/zed/crates/project/src/project.rs:1193:35
+  14: <gpui::app::App as gpui::AppContext>::new::<project::Project, <project::Project>::local::{closure#0}>::{closure#0}
+             at /Users/max/code/zed/crates/gpui/src/app.rs:2332:26
+  15: <gpui::app::App>::update::<gpui::app::entity_map::Entity<project::Project>, <gpui::app::App as gpui::AppContext>::new<project::Project, <project::Project>::local::{closure#0}>::{closure#0}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:862:22
+  16: <gpui::app::App as gpui::AppContext>::new::<project::Project, <project::Project>::local::{closure#0}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:2329:14
+  17: <project::Project>::local
+             at /Users/max/code/zed/crates/project/src/project.rs:1149:12
+  18: <project::Project>::test_project::<[&std::path::Path; 0]>::{closure#0}::{closure#2}
+             at /Users/max/code/zed/crates/project/src/project.rs:2024:13
+  19: <gpui::app::App>::update::<gpui::app::entity_map::Entity<project::Project>, <project::Project>::test_project<[&std::path::Path; 0]>::{closure#0}::{closure#2}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:862:22
+  20: <gpui::app::test_context::TestAppContext>::update::<gpui::app::entity_map::Entity<project::Project>, <project::Project>::test_project<[&std::path::Path; 0]>::{closure#0}::{closure#2}>
+             at /Users/max/code/zed/crates/gpui/src/app/test_context.rs:205:12
+  21: <project::Project>::test_project::<[&std::path::Path; 0]>::{closure#0}
+             at /Users/max/code/zed/crates/project/src/project.rs:2023:26
+  22: <project::Project>::test::<[&std::path::Path; 0]>::{closure#0}
+             at /Users/max/code/zed/crates/project/src/project.rs:1997:55
+  23: agent_ui::agent_panel::tests::test_new_text_thread_action_handler::__test_new_text_thread_action_handler::{closure#0}
+             at ./src/agent_panel.rs:5125:57
+  24: <gpui::executor::ForegroundExecutor>::block_test::<(), agent_ui::agent_panel::tests::test_new_text_thread_action_handler::__test_new_text_thread_action_handler::{closure#0}>::{closure#0}
+             at /Users/max/code/zed/crates/gpui/src/executor.rs:440:36
+  25: <scheduler::test_scheduler::TestScheduler as scheduler::Scheduler>::block
+             at /Users/max/code/zed/crates/scheduler/src/test_scheduler.rs:538:35
+  26: <gpui::executor::ForegroundExecutor>::block_test::<(), agent_ui::agent_panel::tests::test_new_text_thread_action_handler::__test_new_text_thread_action_handler::{closure#0}>
+             at /Users/max/code/zed/crates/gpui/src/executor.rs:447:19
+  27: agent_ui::agent_panel::tests::test_new_text_thread_action_handler::{closure#0}
+             at ./src/agent_panel.rs:5108:5
+  28: gpui::test::run_test::{closure#0}
+             at /Users/max/code/zed/crates/gpui/src/test.rs:88:17
+  29: std::panicking::catch_unwind::do_call::<gpui::test::run_test::{closure#0}, ()>
+             at /Users/max/.rustup/toolchains/1.93-aarch64-apple-darwin/lib/rustlib/src/rust/library/std/src/panicking.rs:581:40
+  30: ___rust_try
+  31: std::panicking::catch_unwind::<(), gpui::test::run_test::{closure#0}>
+             at /Users/max/.rustup/toolchains/1.93-aarch64-apple-darwin/lib/rustlib/src/rust/library/std/src/panicking.rs:544:19
+  32: std::panic::catch_unwind::<gpui::test::run_test::{closure#0}, ()>
+             at /Users/max/.rustup/toolchains/1.93-aarch64-apple-darwin/lib/rustlib/src/rust/library/std/src/panic.rs:359:14
+  33: gpui::test::run_test
+             at /Users/max/code/zed/crates/gpui/src/test.rs:85:26
+  34: agent_ui::agent_panel::tests::test_new_text_thread_action_handler
+             at ./src/agent_panel.rs:5108:5
+  35: agent_ui::agent_panel::tests::test_new_text_thread_action_handler::{closure#0}
+             at ./src/agent_panel.rs:5108:18
+  36: <agent_ui::agent_panel::tests::test_new_text_thread_action_handler::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /Users/max/.rustup/toolchains/1.93-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/ops/function.rs:250:5
+  37: core::ops::function::FnOnce::call_once
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/core/src/ops/function.rs:250:5
+  38: test::__rust_begin_short_backtrace
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/test/src/lib.rs:663:18
+  39: test::run_test_in_process::{{closure}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/test/src/lib.rs:686:74
+  40: <core::panic::unwind_safe::AssertUnwindSafe<F> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/core/src/panic/unwind_safe.rs:274:9
+  41: std::panicking::catch_unwind::do_call
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panicking.rs:581:40
+  42: std::panicking::catch_unwind
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panicking.rs:544:19
+  43: std::panic::catch_unwind
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panic.rs:359:14
+  44: test::run_test_in_process
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/test/src/lib.rs:686:27
+  45: test::run_test::{{closure}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/test/src/lib.rs:607:43
+  46: test::run_test::{{closure}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/test/src/lib.rs:637:41
+  47: std::sys::backtrace::__rust_begin_short_backtrace
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/sys/backtrace.rs:160:18
+  48: std::thread::lifecycle::spawn_unchecked::{{closure}}::{{closure}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/thread/lifecycle.rs:92:13
+  49: <core::panic::unwind_safe::AssertUnwindSafe<F> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/core/src/panic/unwind_safe.rs:274:9
+  50: std::panicking::catch_unwind::do_call
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panicking.rs:581:40
+  51: std::panicking::catch_unwind
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panicking.rs:544:19
+  52: std::panic::catch_unwind
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panic.rs:359:14
+  53: std::thread::lifecycle::spawn_unchecked::{{closure}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/thread/lifecycle.rs:90:26
+  54: core::ops::function::FnOnce::call_once{{vtable.shim}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/core/src/ops/function.rs:250:5
+  55: <alloc::boxed::Box<F,A> as core::ops::function::FnOnce<Args>>::call_once
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/alloc/src/boxed.rs:2206:9
+  56: std::sys::thread::unix::Thread::new::thread_start
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/sys/thread/unix.rs:118:17
+  57: __pthread_cond_wait
+
+defer called:    0: std::backtrace_rs::backtrace::libunwind::trace
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/../../backtrace/src/backtrace/libunwind.rs:117:9
+   1: std::backtrace_rs::backtrace::trace_unsynchronized
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/../../backtrace/src/backtrace/mod.rs:66:14
+   2: std::backtrace::Backtrace::create
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/backtrace.rs:331:13
+   3: <gpui::app::App>::defer::<<gpui::app::App>::new_subscription::{closure#0}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:1630:13
+   4: <gpui::app::App>::new_subscription
+             at /Users/max/code/zed/crates/gpui/src/app.rs:989:14
+   5: <gpui::app::App>::subscribe_internal::<project::buffer_store::BufferStore, project::buffer_store::BufferStoreEvent, <gpui::app::context::Context<project::Project>>::subscribe<project::buffer_store::BufferStore, project::buffer_store::BufferStoreEvent, <project::Project>::on_buffer_store_event>::{closure#0}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:1003:14
+   6: <gpui::app::context::Context<project::Project>>::subscribe::<project::buffer_store::BufferStore, project::buffer_store::BufferStoreEvent, <project::Project>::on_buffer_store_event>
+             at /Users/max/code/zed/crates/gpui/src/app/context.rs:109:18
+   7: <project::Project>::local::{closure#0}
+             at /Users/max/code/zed/crates/project/src/project.rs:1194:16
+   8: <gpui::app::App as gpui::AppContext>::new::<project::Project, <project::Project>::local::{closure#0}>::{closure#0}
+             at /Users/max/code/zed/crates/gpui/src/app.rs:2332:26
+   9: <gpui::app::App>::update::<gpui::app::entity_map::Entity<project::Project>, <gpui::app::App as gpui::AppContext>::new<project::Project, <project::Project>::local::{closure#0}>::{closure#0}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:862:22
+  10: <gpui::app::App as gpui::AppContext>::new::<project::Project, <project::Project>::local::{closure#0}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:2329:14
+  11: <project::Project>::local
+             at /Users/max/code/zed/crates/project/src/project.rs:1149:12
+  12: <project::Project>::test_project::<[&std::path::Path; 0]>::{closure#0}::{closure#2}
+             at /Users/max/code/zed/crates/project/src/project.rs:2024:13
+  13: <gpui::app::App>::update::<gpui::app::entity_map::Entity<project::Project>, <project::Project>::test_project<[&std::path::Path; 0]>::{closure#0}::{closure#2}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:862:22
+  14: <gpui::app::test_context::TestAppContext>::update::<gpui::app::entity_map::Entity<project::Project>, <project::Project>::test_project<[&std::path::Path; 0]>::{closure#0}::{closure#2}>
+             at /Users/max/code/zed/crates/gpui/src/app/test_context.rs:205:12
+  15: <project::Project>::test_project::<[&std::path::Path; 0]>::{closure#0}
+             at /Users/max/code/zed/crates/project/src/project.rs:2023:26
+  16: <project::Project>::test::<[&std::path::Path; 0]>::{closure#0}
+             at /Users/max/code/zed/crates/project/src/project.rs:1997:55
+  17: agent_ui::agent_panel::tests::test_new_text_thread_action_handler::__test_new_text_thread_action_handler::{closure#0}
+             at ./src/agent_panel.rs:5125:57
+  18: <gpui::executor::ForegroundExecutor>::block_test::<(), agent_ui::agent_panel::tests::test_new_text_thread_action_handler::__test_new_text_thread_action_handler::{closure#0}>::{closure#0}
+             at /Users/max/code/zed/crates/gpui/src/executor.rs:440:36
+  19: <scheduler::test_scheduler::TestScheduler as scheduler::Scheduler>::block
+             at /Users/max/code/zed/crates/scheduler/src/test_scheduler.rs:538:35
+  20: <gpui::executor::ForegroundExecutor>::block_test::<(), agent_ui::agent_panel::tests::test_new_text_thread_action_handler::__test_new_text_thread_action_handler::{closure#0}>
+             at /Users/max/code/zed/crates/gpui/src/executor.rs:447:19
+  21: agent_ui::agent_panel::tests::test_new_text_thread_action_handler::{closure#0}
+             at ./src/agent_panel.rs:5108:5
+  22: gpui::test::run_test::{closure#0}
+             at /Users/max/code/zed/crates/gpui/src/test.rs:88:17
+  23: std::panicking::catch_unwind::do_call::<gpui::test::run_test::{closure#0}, ()>
+             at /Users/max/.rustup/toolchains/1.93-aarch64-apple-darwin/lib/rustlib/src/rust/library/std/src/panicking.rs:581:40
+  24: ___rust_try
+  25: std::panicking::catch_unwind::<(), gpui::test::run_test::{closure#0}>
+             at /Users/max/.rustup/toolchains/1.93-aarch64-apple-darwin/lib/rustlib/src/rust/library/std/src/panicking.rs:544:19
+  26: std::panic::catch_unwind::<gpui::test::run_test::{closure#0}, ()>
+             at /Users/max/.rustup/toolchains/1.93-aarch64-apple-darwin/lib/rustlib/src/rust/library/std/src/panic.rs:359:14
+  27: gpui::test::run_test
+             at /Users/max/code/zed/crates/gpui/src/test.rs:85:26
+  28: agent_ui::agent_panel::tests::test_new_text_thread_action_handler
+             at ./src/agent_panel.rs:5108:5
+  29: agent_ui::agent_panel::tests::test_new_text_thread_action_handler::{closure#0}
+             at ./src/agent_panel.rs:5108:18
+  30: <agent_ui::agent_panel::tests::test_new_text_thread_action_handler::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /Users/max/.rustup/toolchains/1.93-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/ops/function.rs:250:5
+  31: core::ops::function::FnOnce::call_once
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/core/src/ops/function.rs:250:5
+  32: test::__rust_begin_short_backtrace
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/test/src/lib.rs:663:18
+  33: test::run_test_in_process::{{closure}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/test/src/lib.rs:686:74
+  34: <core::panic::unwind_safe::AssertUnwindSafe<F> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/core/src/panic/unwind_safe.rs:274:9
+  35: std::panicking::catch_unwind::do_call
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panicking.rs:581:40
+  36: std::panicking::catch_unwind
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panicking.rs:544:19
+  37: std::panic::catch_unwind
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panic.rs:359:14
+  38: test::run_test_in_process
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/test/src/lib.rs:686:27
+  39: test::run_test::{{closure}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/test/src/lib.rs:607:43
+  40: test::run_test::{{closure}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/test/src/lib.rs:637:41
+  41: std::sys::backtrace::__rust_begin_short_backtrace
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/sys/backtrace.rs:160:18
+  42: std::thread::lifecycle::spawn_unchecked::{{closure}}::{{closure}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/thread/lifecycle.rs:92:13
+  43: <core::panic::unwind_safe::AssertUnwindSafe<F> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/core/src/panic/unwind_safe.rs:274:9
+  44: std::panicking::catch_unwind::do_call
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panicking.rs:581:40
+  45: std::panicking::catch_unwind
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panicking.rs:544:19
+  46: std::panic::catch_unwind
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panic.rs:359:14
+  47: std::thread::lifecycle::spawn_unchecked::{{closure}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/thread/lifecycle.rs:90:26
+  48: core::ops::function::FnOnce::call_once{{vtable.shim}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/core/src/ops/function.rs:250:5
+  49: <alloc::boxed::Box<F,A> as core::ops::function::FnOnce<Args>>::call_once
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/alloc/src/boxed.rs:2206:9
+  50: std::sys::thread::unix::Thread::new::thread_start
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/sys/thread/unix.rs:118:17
+  51: __pthread_cond_wait
+
+defer called:    0: std::backtrace_rs::backtrace::libunwind::trace
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/../../backtrace/src/backtrace/libunwind.rs:117:9
+   1: std::backtrace_rs::backtrace::trace_unsynchronized
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/../../backtrace/src/backtrace/mod.rs:66:14
+   2: std::backtrace::Backtrace::create
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/backtrace.rs:331:13
+   3: <gpui::app::App>::defer::<<gpui::app::App>::new_subscription::{closure#0}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:1630:13
+   4: <gpui::app::App>::new_subscription
+             at /Users/max/code/zed/crates/gpui/src/app.rs:989:14
+   5: <gpui::app::App>::subscribe_internal::<project::debugger::dap_store::DapStore, project::debugger::dap_store::DapStoreEvent, <gpui::app::context::Context<project::Project>>::subscribe<project::debugger::dap_store::DapStore, project::debugger::dap_store::DapStoreEvent, <project::Project>::on_dap_store_event>::{closure#0}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:1003:14
+   6: <gpui::app::context::Context<project::Project>>::subscribe::<project::debugger::dap_store::DapStore, project::debugger::dap_store::DapStoreEvent, <project::Project>::on_dap_store_event>
+             at /Users/max/code/zed/crates/gpui/src/app/context.rs:109:18
+   7: <project::Project>::local::{closure#0}
+             at /Users/max/code/zed/crates/project/src/project.rs:1213:16
+   8: <gpui::app::App as gpui::AppContext>::new::<project::Project, <project::Project>::local::{closure#0}>::{closure#0}
+             at /Users/max/code/zed/crates/gpui/src/app.rs:2332:26
+   9: <gpui::app::App>::update::<gpui::app::entity_map::Entity<project::Project>, <gpui::app::App as gpui::AppContext>::new<project::Project, <project::Project>::local::{closure#0}>::{closure#0}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:862:22
+  10: <gpui::app::App as gpui::AppContext>::new::<project::Project, <project::Project>::local::{closure#0}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:2329:14
+  11: <project::Project>::local
+             at /Users/max/code/zed/crates/project/src/project.rs:1149:12
+  12: <project::Project>::test_project::<[&std::path::Path; 0]>::{closure#0}::{closure#2}
+             at /Users/max/code/zed/crates/project/src/project.rs:2024:13
+  13: <gpui::app::App>::update::<gpui::app::entity_map::Entity<project::Project>, <project::Project>::test_project<[&std::path::Path; 0]>::{closure#0}::{closure#2}>
+             at /Users/max/code/zed/crates/gpui/src/app.rs:862:22
+  14: <gpui::app::test_context::TestAppContext>::update::<gpui::app::entity_map::Entity<project::Project>, <project::Project>::test_project<[&std::path::Path; 0]>::{closure#0}::{closure#2}>
+             at /Users/max/code/zed/crates/gpui/src/app/test_context.rs:205:12
+  15: <project::Project>::test_project::<[&std::path::Path; 0]>::{closure#0}
+             at /Users/max/code/zed/crates/project/src/project.rs:2023:26
+  16: <project::Project>::test::<[&std::path::Path; 0]>::{closure#0}
+             at /Users/max/code/zed/crates/project/src/project.rs:1997:55
+  17: agent_ui::agent_panel::tests::test_new_text_thread_action_handler::__test_new_text_thread_action_handler::{closure#0}
+             at ./src/agent_panel.rs:5125:57
+  18: <gpui::executor::ForegroundExecutor>::block_test::<(), agent_ui::agent_panel::tests::test_new_text_thread_action_handler::__test_new_text_thread_action_handler::{closure#0}>::{closure#0}
+             at /Users/max/code/zed/crates/gpui/src/executor.rs:440:36
+  19: <scheduler::test_scheduler::TestScheduler as scheduler::Scheduler>::block
+             at /Users/max/code/zed/crates/scheduler/src/test_scheduler.rs:538:35
+  20: <gpui::executor::ForegroundExecutor>::block_test::<(), agent_ui::agent_panel::tests::test_new_text_thread_action_handler::__test_new_text_thread_action_handler::{closure#0}>
+             at /Users/max/code/zed/crates/gpui/src/executor.rs:447:19
+  21: agent_ui::agent_panel::tests::test_new_text_thread_action_handler::{closure#0}
+             at ./src/agent_panel.rs:5108:5
+  22: gpui::test::run_test::{closure#0}
+             at /Users/max/code/zed/crates/gpui/src/test.rs:88:17
+  23: std::panicking::catch_unwind::do_call::<gpui::test::run_test::{closure#0}, ()>
+             at /Users/max/.rustup/toolchains/1.93-aarch64-apple-darwin/lib/rustlib/src/rust/library/std/src/panicking.rs:581:40
+  24: ___rust_try
+  25: std::panicking::catch_unwind::<(), gpui::test::run_test::{closure#0}>
+             at /Users/max/.rustup/toolchains/1.93-aarch64-apple-darwin/lib/rustlib/src/rust/library/std/src/panicking.rs:544:19
+  26: std::panic::catch_unwind::<gpui::test::run_test::{closure#0}, ()>
+             at /Users/max/.rustup/toolchains/1.93-aarch64-apple-darwin/lib/rustlib/src/rust/library/std/src/panic.rs:359:14
+  27: gpui::test::run_test
+             at /Users/max/code/zed/crates/gpui/src/test.rs:85:26
+  28: agent_ui::agent_panel::tests::test_new_text_thread_action_handler
+             at ./src/agent_panel.rs:5108:5
+  29: agent_ui::agent_panel::tests::test_new_text_thread_action_handler::{closure#0}
+             at ./src/agent_panel.rs:5108:18
+  30: <agent_ui::agent_panel::tests::test_new_text_thread_action_handler::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /Users/max/.rustup/toolchains/1.93-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/ops/function.rs:250:5
+  31: core::ops::function::FnOnce::call_once
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/core/src/ops/function.rs:250:5
+  32: test::__rust_begin_short_backtrace
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/test/src/lib.rs:663:18
+  33: test::run_test_in_process::{{closure}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/test/src/lib.rs:686:74
+  34: <core::panic::unwind_safe::AssertUnwindSafe<F> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/core/src/panic/unwind_safe.rs:274:9
+  35: std::panicking::catch_unwind::do_call
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panicking.rs:581:40
+  36: std::panicking::catch_unwind
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panicking.rs:544:19
+  37: std::panic::catch_unwind
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panic.rs:359:14
+  38: test::run_test_in_process
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/test/src/lib.rs:686:27
+  39: test::run_test::{{closure}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/test/src/lib.rs:607:43
+  40: test::run_test::{{closure}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/test/src/lib.rs:637:41
+  41: std::sys::backtrace::__rust_begin_short_backtrace
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/sys/backtrace.rs:160:18
+  42: std::thread::lifecycle::spawn_unchecked::{{closure}}::{{closure}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/thread/lifecycle.rs:92:13
+  43: <core::panic::unwind_safe::AssertUnwindSafe<F> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/core/src/panic/unwind_safe.rs:274:9
+  44: std::panicking::catch_unwind::do_call
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panicking.rs:581:40
+  45: std::panicking::catch_unwind
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panicking.rs:544:19
+  46: std::panic::catch_unwind
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panic.rs:359:14
+  47: std::thread::lifecycle::spawn_unchecked::{{closure}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/thread/lifecycle.rs:90:26
+  48: core::ops::function::FnOnce::call_once{{vtable.shim}}
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/core/src/ops/function.rs:250:5
+  49: <alloc::boxed::Box<F,A> as core::ops::function::FnOnce<Args>>::call_once
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/alloc/src/boxed.rs:2206:9
+  50: std::sys::thread::unix::Thread::new::thread_start
+             at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/sys/thread/unix.rs:118:17
+  51: __pthread_cond_wait
+

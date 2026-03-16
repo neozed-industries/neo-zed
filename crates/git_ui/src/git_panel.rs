@@ -5801,6 +5801,14 @@ impl Panel for GitPanel {
         GitPanelSettings::get_global(cx).button
     }
 
+    fn icon_label(&self, _: &Window, cx: &App) -> Option<String> {
+        if !GitPanelSettings::get_global(cx).show_count_badge {
+            return None;
+        }
+        let total = self.changes_count;
+        (total > 0).then(|| total.to_string())
+    }
+
     fn activation_priority(&self) -> u32 {
         2
     }

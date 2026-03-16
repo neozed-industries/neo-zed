@@ -33,6 +33,7 @@ mod text_thread_editor;
 mod text_thread_history;
 mod thread_history;
 mod thread_history_view;
+mod thread_metadata_store;
 mod threads_archive_view;
 mod threads_panel;
 mod ui;
@@ -55,7 +56,7 @@ use language::{
 use language_model::{
     ConfiguredModel, LanguageModelId, LanguageModelProviderId, LanguageModelRegistry,
 };
-use project::DisableAiSettings;
+use project::{AgentId, DisableAiSettings};
 use prompt_store::PromptBuilder;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -222,7 +223,10 @@ pub struct NewNativeAgentThreadFromSummary {
 #[serde(rename_all = "snake_case")]
 pub enum Agent {
     NativeAgent,
-    Custom { name: SharedString },
+    Custom {
+        #[serde(rename = "name")]
+        id: AgentId,
+    },
 }
 
 // Custom impl handles legacy variant names from before the built-in agents were moved to
@@ -234,7 +238,7 @@ impl<'de> serde::Deserialize<'de> for Agent {
     where
         D: serde::Deserializer<'de>,
     {
-        use project::agent_server_store::{CLAUDE_AGENT_NAME, CODEX_NAME, GEMINI_NAME};
+        use project::agent_server_store::{CLAUDE_AGENT_ID, CODEX_ID, GEMINI_ID};
 
         let value = serde_json::Value::deserialize(deserializer)?;
 
@@ -242,13 +246,13 @@ impl<'de> serde::Deserialize<'de> for Agent {
             return match s {
                 "native_agent" => Ok(Self::NativeAgent),
                 "claude_code" | "claude_agent" => Ok(Self::Custom {
-                    name: CLAUDE_AGENT_NAME.into(),
+                    id: CLAUDE_AGENT_ID.into(),
                 }),
                 "codex" => Ok(Self::Custom {
-                    name: CODEX_NAME.into(),
+                    id: CODEX_ID.into(),
                 }),
                 "gemini" => Ok(Self::Custom {
-                    name: GEMINI_NAME.into(),
+                    id: GEMINI_ID.into(),
                 }),
                 other => Err(serde::de::Error::unknown_variant(
                     other,
@@ -272,7 +276,9 @@ impl<'de> serde::Deserialize<'de> for Agent {
                 }
                 let fields: CustomFields =
                     serde_json::from_value(inner.clone()).map_err(serde::de::Error::custom)?;
-                return Ok(Self::Custom { name: fields.name });
+                return Ok(Self::Custom {
+                    id: AgentId::new(fields.name),
+                });
             }
         }
 
@@ -290,7 +296,9 @@ impl Agent {
     ) -> Rc<dyn agent_servers::AgentServer> {
         match self {
             Self::NativeAgent => Rc::new(agent::NativeAgentServer::new(fs, thread_store)),
-            Self::Custom { name } => Rc::new(agent_servers::CustomAgentServer::new(name.clone())),
+            Self::Custom { id: name } => {
+                Rc::new(agent_servers::CustomAgentServer::new(name.clone()))
+            }
         }
     }
 }
@@ -379,6 +387,7 @@ pub fn init(
     agent_panel::init(cx);
     context_server_configuration::init(language_registry.clone(), fs.clone(), cx);
     TextThreadEditor::init(cx);
+    thread_metadata_store::init(cx);
 
     register_slash_commands(cx);
     inline_assistant::init(fs.clone(), prompt_builder.clone(), cx);
@@ -752,24 +761,24 @@ mod tests {
 
     #[test]
     fn test_deserialize_legacy_external_agent_variants() {
-        use project::agent_server_store::{CLAUDE_AGENT_NAME, CODEX_NAME, GEMINI_NAME};
+        use project::agent_server_store::{CLAUDE_AGENT_ID, CODEX_ID, GEMINI_ID};
 
         assert_eq!(
             serde_json::from_str::<Agent>(r#""claude_code""#).unwrap(),
             Agent::Custom {
-                name: CLAUDE_AGENT_NAME.into(),
+                id: CLAUDE_AGENT_ID.into(),
             },
         );
         assert_eq!(
             serde_json::from_str::<Agent>(r#""codex""#).unwrap(),
             Agent::Custom {
-                name: CODEX_NAME.into(),
+                id: CODEX_ID.into(),
             },
         );
         assert_eq!(
             serde_json::from_str::<Agent>(r#""gemini""#).unwrap(),
             Agent::Custom {
-                name: GEMINI_NAME.into(),
+                id: GEMINI_ID.into(),
             },
         );
     }
@@ -783,7 +792,7 @@ mod tests {
         assert_eq!(
             serde_json::from_str::<Agent>(r#"{"custom":{"name":"my-agent"}}"#).unwrap(),
             Agent::Custom {
-                name: "my-agent".into(),
+                id: "my-agent".into(),
             },
         );
     }

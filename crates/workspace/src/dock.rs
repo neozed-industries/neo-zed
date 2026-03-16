@@ -12,8 +12,10 @@ use gpui::{
 };
 use settings::SettingsStore;
 use std::sync::Arc;
-use ui::{ContextMenu, Divider, DividerColor, IconButton, Tooltip, h_flex};
-use ui::{prelude::*, right_click_menu};
+use ui::{
+    ContextMenu, CountBadge, Divider, DividerColor, IconButton, Tooltip, prelude::*,
+    right_click_menu,
+};
 
 pub(crate) const RESIZE_HANDLE_SIZE: Pixels = px(6.);
 
@@ -41,6 +43,9 @@ pub trait Panel: Focusable + EventEmitter<PanelEvent> + Render + Sized {
     fn size(&self, window: &Window, cx: &App) -> Pixels;
     fn set_size(&mut self, size: Option<Pixels>, window: &mut Window, cx: &mut Context<Self>);
     fn icon_button(&self, window: &Window, cx: &App) -> PanelIconButton;
+    fn icon_label(&self, _: &Window, _: &App) -> Option<String> {
+        None
+    }
     fn secondary_button(&self, _window: &Window, _cx: &App) -> Option<(PanelIconButton, bool)> {
         None
     }
@@ -79,6 +84,7 @@ pub trait PanelHandle: Send + Sync {
     fn size(&self, window: &Window, cx: &App) -> Pixels;
     fn set_size(&self, size: Option<Pixels>, window: &mut Window, cx: &mut App);
     fn icon_button(&self, window: &Window, cx: &App) -> PanelIconButton;
+    fn icon_label(&self, _: &Window, _: &App) -> Option<String>;
     fn secondary_button(&self, window: &Window, cx: &App) -> Option<(PanelIconButton, bool)>;
     fn panel_focus_handle(&self, cx: &App) -> FocusHandle;
     fn to_any(&self) -> AnyView;
@@ -159,6 +165,10 @@ where
 
     fn icon_button(&self, window: &Window, cx: &App) -> PanelIconButton {
         self.read(cx).icon_button(window, cx)
+    }
+
+    fn icon_label(&self, window: &Window, cx: &App) -> Option<String> {
+        self.read(cx).icon_label(window, cx)
     }
 
     fn secondary_button(&self, window: &Window, cx: &App) -> Option<(PanelIconButton, bool)> {
@@ -932,6 +942,7 @@ impl Render for PanelButtons {
                 };
 
                 let focus_handle = dock.focus_handle(cx);
+                let icon_label = entry.panel.icon_label(window, cx);
 
                 Some(
                     right_click_menu(name)
@@ -980,6 +991,14 @@ impl Render for PanelButtons {
                                         Tooltip::for_action(tooltip.clone(), &*action, cx)
                                     })
                                 });
+
+                            let button = div().relative().child(button).when_some(
+                                icon_label
+                                    .clone()
+                                    .filter(|_| !is_active_button)
+                                    .and_then(|label| label.parse::<usize>().ok()),
+                                |this, count| this.child(CountBadge::new(count)),
+                            );
 
                             match secondary_button {
                                 Some((secondary_button, secondary_button_is_active)) => {
