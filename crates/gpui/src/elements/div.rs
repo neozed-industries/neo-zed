@@ -1801,6 +1801,12 @@ impl Element for Div {
         if let Some(label) = &self.interactivity.aria_label {
             node.set_label(label.as_str());
         }
+        if !self.interactivity.click_listeners.is_empty() {
+            node.add_action(accesskit::Action::Click);
+        }
+        if self.interactivity.tracked_focus_handle.is_some() {
+            node.add_action(accesskit::Action::Focus);
+        }
         if let Some(selected) = self.interactivity.aria_selected {
             node.set_selected(selected);
         }

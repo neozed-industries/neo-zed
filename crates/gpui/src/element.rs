@@ -432,7 +432,12 @@ impl<E: Element> Drawable<E> {
         }
     }
 
-    fn push_a11y_node(&self, global_id: &GlobalElementId, window: &mut Window) -> bool {
+    fn push_a11y_node(
+        &self,
+        global_id: &GlobalElementId,
+        bounds: Bounds<Pixels>,
+        window: &mut Window,
+    ) -> bool {
         if !window.is_a11y_active() {
             return false;
         }
@@ -440,6 +445,13 @@ impl<E: Element> Drawable<E> {
             let global_id = global_id.accesskit_node_id();
 
             let mut node = accesskit::Node::new(role);
+
+            node.set_bounds(accesskit::Rect::new(
+                f64::from(bounds.origin.x),
+                f64::from(bounds.origin.y),
+                f64::from(bounds.origin.x + bounds.size.width),
+                f64::from(bounds.origin.y + bounds.size.height),
+            ));
 
             if let Some((_parent_id, parent_node)) = window.a11y_nodes.peek_mut() {
                 parent_node.push_child(global_id);
@@ -474,13 +486,13 @@ impl<E: Element> Drawable<E> {
                     debug_assert_eq!(&*global_id.as_ref().unwrap().0, &*window.element_id_stack);
                 }
 
+                let bounds = window.layout_bounds(layout_id);
+
                 let a11y_node_pushed = if let Some(global_id) = &global_id {
-                    self.push_a11y_node(global_id, window)
+                    self.push_a11y_node(global_id, bounds, window)
                 } else {
                     false
                 };
-
-                let bounds = window.layout_bounds(layout_id);
                 let node_id = window.next_frame.dispatch_tree.push_node();
                 let prepaint = self.element.prepaint(
                     global_id.as_ref(),
