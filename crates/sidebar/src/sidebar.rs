@@ -208,6 +208,49 @@ fn workspace_path_list(workspace: &Entity<Workspace>, cx: &App) -> PathList {
     PathList::new(&workspace.read(cx).root_paths(cx))
 }
 
+use std::path::PathBuf;
+
+/// Build a mapping from git worktree checkout paths to their root repo paths.
+///
+/// For each open workspace's repositories, registers both the main repo path
+/// (identity mapping) and every linked worktree path → root repo path.
+fn build_worktree_root_mapping(
+    workspaces: &[Entity<Workspace>],
+    cx: &App,
+) -> HashMap<PathBuf, Arc<Path>> {
+    let mut mapping = HashMap::default();
+    for workspace in workspaces {
+        for snapshot in root_repository_snapshots(workspace, cx) {
+            let root = &snapshot.original_repo_abs_path;
+            mapping.insert(root.to_path_buf(), root.clone());
+            mapping.insert(snapshot.work_directory_abs_path.to_path_buf(), root.clone());
+            for wt in snapshot.linked_worktrees() {
+                mapping.insert(wt.path.clone(), root.clone());
+            }
+        }
+    }
+    mapping
+}
+
+/// Map each path in a `PathList` to its root repo path (if known), producing
+/// a canonical `PathList` suitable for grouping threads across worktrees.
+fn canonicalize_path_list(
+    path_list: &PathList,
+    worktree_to_root: &HashMap<PathBuf, Arc<Path>>,
+) -> PathList {
+    let canonical_paths: Vec<PathBuf> = path_list
+        .paths()
+        .iter()
+        .map(|p| {
+            worktree_to_root
+                .get(p)
+                .map(|root| root.to_path_buf())
+                .unwrap_or_else(|| p.clone())
+        })
+        .collect();
+    PathList::new(&canonical_paths)
+}
+
 fn workspace_label_from_path_list(path_list: &PathList) -> SharedString {
     let mut names = Vec::with_capacity(path_list.paths().len());
     for abs_path in path_list.paths() {
@@ -690,6 +733,24 @@ impl Sidebar {
             }
         }
 
+        // Build a mapping from worktree checkout paths → root repo paths so
+        // that threads saved against a worktree checkout can be grouped under
+        // the root repo's sidebar header.
+        let worktree_to_root = build_worktree_root_mapping(&workspaces, cx);
+
+        // Build a canonicalized thread index: for each thread in the store,
+        // map its folder_paths to root repo paths and index by the result.
+        let thread_store = SidebarThreadMetadataStore::global(cx);
+        let canonical_threads: HashMap<PathList, Vec<ThreadMetadata>> = {
+            let store = thread_store.read(cx);
+            let mut index: HashMap<PathList, Vec<ThreadMetadata>> = HashMap::default();
+            for entry in store.entries() {
+                let canonical = canonicalize_path_list(&entry.folder_paths, &worktree_to_root);
+                index.entry(canonical).or_default().push(entry);
+            }
+            index
+        };
+
         let has_open_projects = workspaces
             .iter()
             .any(|ws| !workspace_path_list(ws, cx).paths().is_empty());
@@ -718,10 +779,13 @@ impl Sidebar {
             if should_load_threads {
                 let mut seen_session_ids: HashSet<acp::SessionId> = HashSet::new();
 
-                // Read threads from the store cache for this workspace's path list.
-                let thread_store = SidebarThreadMetadataStore::global(cx);
-                let workspace_rows: Vec<_> =
-                    thread_store.read(cx).entries_for_path(&path_list).collect();
+                // Read threads from the canonicalized index so that threads
+                // saved against a git worktree checkout are grouped under the
+                // root repo's header.
+                let workspace_rows: Vec<ThreadMetadata> = canonical_threads
+                    .get(&path_list)
+                    .cloned()
+                    .unwrap_or_default();
                 for row in workspace_rows {
                     seen_session_ids.insert(row.session_id.clone());
                     let (agent, icon, icon_from_external_svg) = match &row.agent_id {
@@ -799,10 +863,12 @@ impl Sidebar {
                                 None => ThreadEntryWorkspace::Closed(worktree_path_list.clone()),
                             };
 
-                        let worktree_rows: Vec<_> = thread_store
-                            .read(cx)
-                            .entries_for_path(worktree_path_list)
-                            .collect();
+                        let canonical_wt_path =
+                            canonicalize_path_list(worktree_path_list, &worktree_to_root);
+                        let worktree_rows: Vec<ThreadMetadata> = canonical_threads
+                            .get(&canonical_wt_path)
+                            .cloned()
+                            .unwrap_or_default();
                         for row in worktree_rows {
                             if !seen_session_ids.insert(row.session_id.clone()) {
                                 continue;
