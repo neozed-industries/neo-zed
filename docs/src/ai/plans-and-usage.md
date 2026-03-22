@@ -11,22 +11,23 @@ Zed works without AI features or a subscription. No [authentication](../authenti
 
 ## Plans {#plans}
 
-|                        | Free    | Pro       | Business  |
-| ---------------------- | ------- | --------- | --------- |
-| Zed-hosted AI models   | —       | ✓         | ✓         |
-| AI via own API keys    | ✓       | ✓         | ✓         |
-| Edit Predictions       | Limited | Unlimited | Unlimited |
-| Enforced data controls | —       | —         | ✓         |
-| RBAC and permissions   | —       | —         | ✓         |
-| Consolidated billing   | —       | —         | ✓         |
+|                                                          | Free    | Pro       | Business  |
+| -------------------------------------------------------- | ------- | --------- | --------- |
+| Zed-hosted AI models                                     | —       | ✓         | ✓         |
+| [AI via own API keys](./llm-providers.md)                | ✓       | ✓         | ✓         |
+| [External agents](./external-agents.md)                  | ✓       | ✓         | ✓         |
+| Edit Predictions                                         | Limited | Unlimited | Unlimited |
+| Admin-enforced data controls                             | —       | —         | ✓         |
+| RBAC and permissions                                     | —       | —         | ✓         |
+| Consolidated billing                                     | —       | —         | ✓         |
 
 ## Zed Free {#free}
 
-The editor is free with no time limit. You can use AI with your own API keys via [Providers](./llm-providers.md). [Edit Predictions](./edit-prediction.md) are available on a limited basis. Zed's hosted models require a Pro subscription.
+Zed is free to use. You can use AI with your own API keys via [Providers](./llm-providers.md). [Edit Predictions](./edit-prediction.md) are available on a limited basis. Zed's hosted models require a Pro subscription.
 
 ## Zed Pro {#pro}
 
-Zed Pro includes access to all hosted AI models and Edit Predictions. The plan includes $5 of monthly token credit. A trial of Zed Pro includes $20 of credit, usable for 14 days.
+Zed Pro includes access to all hosted AI models and Edit Predictions. The plan includes $5 of monthly token credit; usage beyond that is billed at the rates listed on [the Models page](./models.md). A trial of Zed Pro includes $20 of credit, usable for 14 days.
 
 For details on billing and payment, see [Individual Billing](./billing.md).
 
@@ -40,7 +41,7 @@ For a full feature overview, see [Zed Business](../business/overview.md). For bi
 
 ## Student Plan {#student}
 
-The [Zed Student plan](https://zed.dev/education) includes all Zed Pro features: unlimited [Edit Predictions](./edit-prediction.md), all [hosted AI models](./models.md), and $10/month in token credits. Available free for one year to verified university students.
+The [Zed Student plan](https://zed.dev/education) includes all Zed Pro features: unlimited [Edit Predictions](./edit-prediction.md), all [hosted AI models](./models.md) except Claude Opus, and $10/month in token credits. Available free for one year to verified university students.
 
 ## Usage {#usage}
 
@@ -56,7 +57,7 @@ The default value for all Pro users is $10, for a total monthly spend with Zed o
 
 Once the spend limit is hit, we'll stop any further usage until your token spend limit resets.
 
-> **Note:** Spend limits are a Zed Pro feature. Student plan users do not currently have the ability to configure spend limits; usage is capped at the $10/month included credit.
+> **Note:** Spend limits are a Zed Pro feature. Student plan users cannot configure spend limits; usage is capped at the $10/month included credit.
 
 ## Trials {#trials}
 

@@ -9,7 +9,7 @@ Zed Business is Zed for your whole team. Every member gets full Zed Pro access, 
 
 It's for teams that want modern AI tooling without security trade-offs, and for companies with procurement or compliance requirements that have blocked Zed deployment.
 
-## What's Included
+## What's included
 
 Every member gets full Zed Pro access: all [hosted AI models](../ai/models.md) and [Edit Predictions](../ai/edit-prediction.md).
 
@@ -23,7 +23,7 @@ For the organization:
 <!-- TODO: confirm Edit Predictions behavior for Business (unlimited vs. metered) before launch -->
 <!-- TODO: confirm whether per-member usage visibility ships at launch -->
 
-## Getting Started
+## Getting started
 
 To set up Zed Business for your team, see [Organizations](./organizations.md).
 

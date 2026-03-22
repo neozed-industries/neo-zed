@@ -9,7 +9,7 @@ description: How billing works for Zed Business organizations, including consoli
 
 Zed Business consolidates your team's costs. Seat licenses and AI usage for all members appear on one bill, with no separate invoices per member.
 
-## Billing Dashboard {#dashboard}
+## Billing dashboard {#dashboard}
 
 <!-- TODO: confirm exactly what billing information is shown in the dashboard before launch -->
 
@@ -19,7 +19,7 @@ Owners and admins can access billing information at [dashboard.zed.dev](https://
 - AI usage and spend across the organization
 - Per-member usage and spending visibility
 
-## AI Usage {#ai-usage}
+## AI usage {#ai-usage}
 
 AI usage across the organization is metered on a token basis at the same rates as individual Pro subscriptions. See [Plans & Pricing](../ai/plans-and-usage.md#usage) for rate details.
 
@@ -39,10 +39,10 @@ Invoice history is accessible from the billing dashboard.
 
 For help updating payment methods, names, addresses, or tax IDs, email [billing-support@zed.dev](mailto:billing-support@zed.dev).
 
-Changes to billing information affect future invoices only. Historical invoices can't be modified.
+Changes to billing information affect future invoices only. Historical invoices cannot be modified.
 
-## Sales Tax {#sales-tax}
+## Sales tax {#sales-tax}
 
 Zed partners with [Sphere](https://www.getsphere.com/) to calculate indirect tax rates based on your billing address. Tax appears as a separate line item on invoices. If you have a VAT/GST ID, add it during checkout.
 
-Questions about tax can go to [billing-support@zed.dev](mailto:billing-support@zed.dev).
+Email [billing-support@zed.dev](mailto:billing-support@zed.dev) with any tax questions.

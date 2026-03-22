@@ -66,7 +66,7 @@ For details on AI data handling, see [Zed AI Features and Privacy](./ai/ai-impro
 
 ## Zed Business
 
-Administrators on Zed Business can enforce a no-sharing policy org-wide, blocking members from opting into [edit prediction training data sharing or AI feedback ratings](./ai/ai-improvement.md). See [Data Sharing](./business/admin-controls.md#data-sharing) in Admin Controls.
+Administrators on Zed Business can enforce a no-sharing policy org-wide; members can't opt into [edit prediction training data sharing](./ai/ai-improvement.md#edit-predictions) or [AI feedback ratings](./ai/ai-improvement.md#ai-feedback-with-ratings). See [Data Sharing](./business/admin-controls.md#data-sharing) in Admin Controls.
 
 <!-- TODO: link to telemetry org-wide disable control once it ships (currently planned for a future release) -->
 

@@ -7,6 +7,8 @@ description: AI models available via Zed Pro including Claude, GPT-5.2, Gemini 3
 
 Zed's plans offer hosted versions of major LLMs with higher rate limits than direct API access. Model availability is updated regularly. To use your own API keys instead, see [LLM Providers](./llm-providers.md). For general setup, see [Configuration](./configuration.md).
 
+> **Note:** Claude Opus models are not available on the [Student plan](./plans-and-usage.md#student).
+
 | Model                  | Provider  | Token Type          | Provider Price per 1M tokens | Zed Price per 1M tokens |
 | ---------------------- | --------- | ------------------- | ---------------------------- | ----------------------- |
 | Claude Opus 4.5        | Anthropic | Input               | $5.00                        | $5.50                   |

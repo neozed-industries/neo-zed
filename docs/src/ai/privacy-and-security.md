@@ -15,7 +15,7 @@ Zed collects minimal data necessary to serve and improve the product. Features t
 
 On Zed Business, administrators can enforce these settings org-wide so members can't opt in to data sharing individually. See [Privacy for Business](../business/privacy.md).
 
-## Related Documentation
+## Related documentation
 
 - [Tool Permissions](./tool-permissions.md): Configure which agent actions are auto-approved, blocked, or require confirmation.
 - [Worktree Trust](../worktree-trust.md): How Zed opens files and directories in restricted mode.

@@ -21,13 +21,13 @@ In the Zed editor, an organization menu in the title bar shows your current orga
 
 A Zed account can belong to more than one organization at the same time. If you're invited to a second organization while already a member of one, you simply join both. Each organization has its own subscription, billing, and admin controls.
 
-## Creating an Organization
+## Creating an organization
 
 <!-- TODO: document exact creation flow from dashboard before launch -->
 
 Organizations are created from the Zed dashboard at [dashboard.zed.dev](https://dashboard.zed.dev). The person who creates the organization becomes its owner.
 
-## Inviting Members
+## Inviting members
 
 Members are invited by email address. When an invite is accepted, the member's Zed account joins the organization and is covered by its subscription.
 
@@ -40,16 +40,16 @@ To invite a member:
 
 After accepting, they authenticate with their GitHub account and are added to the organization. For details on what each role can do, see [Roles & Permissions](../roles.md).
 
-## Managing Members
+## Managing members
 
 Owners and admins can manage members from the Members page in the dashboard.
 
-### Changing a Member's Role
+### Changing a member's role
 
 1. On the Members page, find the member.
 2. Open the menu and select a new role.
 
-### Removing a Member
+### Removing a member
 
 1. On the Members page, find the member.
 2. Select **Remove** and confirm.
