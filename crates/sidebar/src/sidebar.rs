@@ -96,7 +96,7 @@ impl From<&ActiveThreadInfo> for acp_thread::AgentSessionInfo {
 enum ThreadEntryWorkspace {
     Main(Entity<Workspace>),
     LinkedOpen {
-        worktree: Entity<Workspace>,
+        workspace: Entity<Workspace>,
         parent: Entity<Workspace>,
     },
     LinkedClosed {
@@ -108,8 +108,7 @@ enum ThreadEntryWorkspace {
 impl ThreadEntryWorkspace {
     fn workspace(&self) -> Option<&Entity<Workspace>> {
         match self {
-            Self::Main(ws) => Some(ws),
-            Self::LinkedOpen { worktree, .. } => Some(worktree),
+            Self::Main(workspace) | Self::LinkedOpen { workspace, .. } => Some(workspace),
             Self::LinkedClosed { .. } => None,
         }
     }
@@ -890,7 +889,7 @@ impl Sidebar {
                                         cx,
                                     ));
                                     ThreadEntryWorkspace::LinkedOpen {
-                                        worktree: workspaces[idx].clone(),
+                                        workspace: workspaces[idx].clone(),
                                         parent: workspace.clone(),
                                     }
                                 }
@@ -1965,9 +1964,9 @@ impl Sidebar {
                 let session_info = thread.session_info.clone();
                 let workspace = thread.workspace.clone();
                 match &workspace {
-                    ThreadEntryWorkspace::Main(ws)
-                    | ThreadEntryWorkspace::LinkedOpen { worktree: ws, .. } => {
-                        self.activate_thread(agent, session_info, ws, window, cx);
+                    ThreadEntryWorkspace::Main(workspace)
+                    | ThreadEntryWorkspace::LinkedOpen { workspace, .. } => {
+                        self.activate_thread(agent, session_info, workspace, window, cx);
                     }
                     ThreadEntryWorkspace::LinkedClosed { path_list, .. } => {
                         self.open_workspace_and_activate_thread(
@@ -2599,12 +2598,12 @@ impl Sidebar {
                 cx.listener(move |this, _, window, cx| {
                     this.selection = None;
                     match &thread_workspace {
-                        ThreadEntryWorkspace::Main(ws)
-                        | ThreadEntryWorkspace::LinkedOpen { worktree: ws, .. } => {
+                        ThreadEntryWorkspace::Main(workspace)
+                        | ThreadEntryWorkspace::LinkedOpen { workspace, .. } => {
                             this.activate_thread(
                                 agent.clone(),
                                 session_info.clone(),
-                                ws,
+                                workspace,
                                 window,
                                 cx,
                             );
