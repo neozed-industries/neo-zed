@@ -881,7 +881,12 @@ impl ActionLog {
     ) {
         let version = buffer.read(cx).version();
         let diff_base = match &status {
-            TrackedBufferStatus::Created { .. } => Rope::default(),
+            TrackedBufferStatus::Created {
+                existing_file_content: Some(existing_file_content),
+            } => existing_file_content.clone(),
+            TrackedBufferStatus::Created {
+                existing_file_content: None,
+            } => Rope::default(),
             TrackedBufferStatus::Modified | TrackedBufferStatus::Deleted => {
                 baseline_snapshot.as_rope().clone()
             }
@@ -922,19 +927,21 @@ impl ActionLog {
             .file()
             .is_some_and(|file| file.disk_state().exists());
         let had_tracked_buffer = self.tracked_buffers.contains_key(&buffer);
-        let has_attributed_change = self
-            .tracked_buffers
-            .get(&buffer)
-            .is_some_and(|tracked_buffer| tracked_buffer.has_edits(cx));
 
-        let tracked_buffer = self.track_buffer_internal(buffer.clone(), false, cx);
         if !had_tracked_buffer {
+            let tracked_buffer = self.track_buffer_internal(buffer.clone(), false, cx);
             tracked_buffer.mode = TrackedBufferMode::ExpectationOnly;
             tracked_buffer.status = TrackedBufferStatus::Modified;
             tracked_buffer.diff_base = buffer.read(cx).as_rope().clone();
             tracked_buffer.snapshot = buffer.read(cx).text_snapshot();
             tracked_buffer.unreviewed_edits.clear();
         }
+
+        // Reusing an existing tracked buffer must preserve its prior version so stale-buffer
+        // detection continues to reflect any user edits that predate the expectation.
+        let Some(tracked_buffer) = self.tracked_buffers.get_mut(&buffer) else {
+            return;
+        };
 
         let expected_external_edit =
             tracked_buffer
@@ -945,7 +952,7 @@ impl ActionLog {
                     initial_exists_on_disk,
                     observed_external_file_change: false,
                     armed_explicit_reload: false,
-                    has_attributed_change,
+                    has_attributed_change: false,
                     pending_delete: false,
                     is_disqualified: false,
                 });
@@ -1094,17 +1101,17 @@ impl ActionLog {
     ) {
         if let Some(linked_action_log) = &self.linked_action_log {
             let linked_baseline_snapshot = baseline_snapshot.clone();
-            if !linked_action_log.read(cx).has_changed_buffer(buffer, cx) {
-                linked_action_log.update(cx, |log, cx| {
-                    log.infer_buffer_from_snapshot_impl(
-                        buffer.clone(),
-                        linked_baseline_snapshot,
-                        kind,
-                        false,
-                        cx,
-                    );
-                });
-            }
+            // Later inferred snapshots must keep refreshing linked logs for the same buffer so
+            // parent and child review state do not diverge after the first forwarded hunk.
+            linked_action_log.update(cx, |log, cx| {
+                log.infer_buffer_from_snapshot_impl(
+                    buffer.clone(),
+                    linked_baseline_snapshot,
+                    kind,
+                    false,
+                    cx,
+                );
+            });
         }
     }
 
@@ -1129,10 +1136,11 @@ impl ActionLog {
             }
         }
 
+        let tracked_buffer_status = kind.tracked_buffer_status(&baseline_snapshot);
         self.prime_tracked_buffer_from_snapshot(
             buffer.clone(),
             baseline_snapshot,
-            kind.tracked_buffer_status(),
+            tracked_buffer_status,
             cx,
         );
 
@@ -1818,10 +1826,17 @@ enum InferredSnapshotKind {
 }
 
 impl InferredSnapshotKind {
-    fn tracked_buffer_status(self) -> TrackedBufferStatus {
+    fn tracked_buffer_status(
+        self,
+        baseline_snapshot: &text::BufferSnapshot,
+    ) -> TrackedBufferStatus {
         match self {
             Self::Created => TrackedBufferStatus::Created {
-                existing_file_content: None,
+                existing_file_content: if baseline_snapshot.text().is_empty() {
+                    None
+                } else {
+                    Some(baseline_snapshot.as_rope().clone())
+                },
             },
             Self::Edited => TrackedBufferStatus::Modified,
             Self::Deleted => TrackedBufferStatus::Deleted,
@@ -4078,6 +4093,88 @@ mod tests {
     }
 
     #[gpui::test]
+    async fn test_linked_action_log_forwards_sequential_inferred_snapshots(
+        cx: &mut TestAppContext,
+    ) {
+        init_test(cx);
+
+        let fs = FakeFs::new(cx.executor());
+        fs.insert_tree(path!("/dir"), json!({"file": "one\ntwo\n"}))
+            .await;
+        let project = Project::test(fs.clone(), [path!("/dir").as_ref()], cx).await;
+        let parent_log = cx.new(|_| ActionLog::new(project.clone()));
+        let child_log =
+            cx.new(|_| ActionLog::new(project.clone()).with_linked_action_log(parent_log.clone()));
+
+        let file_path = project
+            .read_with(cx, |project, cx| project.find_project_path("dir/file", cx))
+            .expect("test file should exist");
+        let buffer = project
+            .update(cx, |project, cx| project.open_buffer(file_path, cx))
+            .await
+            .expect("test buffer should open");
+
+        let first_baseline_snapshot = buffer.read_with(cx, |buffer, _| buffer.text_snapshot());
+        buffer.update(cx, |buffer, cx| buffer.set_text("one\ntwo\nthree\n", cx));
+        let second_baseline_snapshot = buffer.read_with(cx, |buffer, _| buffer.text_snapshot());
+        buffer.update(cx, |buffer, cx| {
+            buffer.set_text("one\ntwo\nthree\nfour\n", cx)
+        });
+        project
+            .update(cx, |project, cx| project.save_buffer(buffer.clone(), cx))
+            .await
+            .expect("final inferred buffer contents should save");
+
+        cx.update(|cx| {
+            child_log.update(cx, |log, cx| {
+                log.infer_buffer_edited_from_snapshot(
+                    buffer.clone(),
+                    first_baseline_snapshot.clone(),
+                    cx,
+                );
+            });
+        });
+        cx.run_until_parked();
+
+        let first_child_hunks = unreviewed_hunks(&child_log, cx);
+        assert!(
+            !first_child_hunks.is_empty(),
+            "the first inferred snapshot should produce review hunks"
+        );
+        assert_eq!(
+            unreviewed_hunks(&parent_log, cx),
+            first_child_hunks,
+            "parent should match the first forwarded inferred snapshot"
+        );
+
+        cx.update(|cx| {
+            child_log.update(cx, |log, cx| {
+                log.infer_buffer_edited_from_snapshot(
+                    buffer.clone(),
+                    second_baseline_snapshot.clone(),
+                    cx,
+                );
+            });
+        });
+        cx.run_until_parked();
+
+        let second_child_hunks = unreviewed_hunks(&child_log, cx);
+        assert!(
+            !second_child_hunks.is_empty(),
+            "the second inferred snapshot should still produce review hunks"
+        );
+        assert_ne!(
+            second_child_hunks, first_child_hunks,
+            "the second inferred snapshot should refresh the tracked diff"
+        );
+        assert_eq!(
+            unreviewed_hunks(&parent_log, cx),
+            second_child_hunks,
+            "parent should stay in sync after sequential inferred snapshots on one buffer"
+        );
+    }
+
+    #[gpui::test]
     async fn test_linked_action_log_infer_buffer_created(cx: &mut TestAppContext) {
         init_test(cx);
 
@@ -4496,6 +4593,171 @@ mod tests {
         assert!(
             parent_log.read_with(cx, |log, _| log.file_read_time(&abs_path).is_none()),
             "parent should still not inherit file_read_time from the child's expected external edit"
+        );
+    }
+
+    #[gpui::test]
+    async fn test_expected_external_edit_starts_unattributed_even_with_existing_hunks(
+        cx: &mut TestAppContext,
+    ) {
+        init_test(cx);
+
+        let fs = FakeFs::new(cx.executor());
+        fs.insert_tree(path!("/dir"), json!({"file": "one\ntwo\n"}))
+            .await;
+        let project = Project::test(fs, [path!("/dir").as_ref()], cx).await;
+        let action_log = cx.new(|_| ActionLog::new(project.clone()));
+        let file_path = project
+            .read_with(cx, |project, cx| project.find_project_path("dir/file", cx))
+            .unwrap();
+        let buffer = project
+            .update(cx, |project, cx| project.open_buffer(file_path, cx))
+            .await
+            .unwrap();
+
+        cx.update(|cx| {
+            action_log.update(cx, |log, cx| log.buffer_read(buffer.clone(), cx));
+            buffer.update(cx, |buffer, cx| buffer.set_text("one\ntwo\nthree\n", cx));
+            action_log.update(cx, |log, cx| log.buffer_edited(buffer.clone(), cx));
+        });
+        cx.run_until_parked();
+
+        assert!(
+            !unreviewed_hunks(&action_log, cx).is_empty(),
+            "buffer should already have tracked hunks before the expectation starts"
+        );
+
+        cx.update(|cx| {
+            action_log.update(cx, |log, cx| {
+                log.begin_expected_external_edit(buffer.clone(), cx);
+            });
+        });
+
+        assert!(
+            action_log.read_with(cx, |log, _| {
+                log.tracked_buffers
+                    .get(&buffer)
+                    .and_then(|tracked_buffer| tracked_buffer.expected_external_edit.as_ref())
+                    .is_some_and(|expected_external_edit| {
+                        !expected_external_edit.has_attributed_change
+                    })
+            }),
+            "a new expected external edit should start as unattributed even when the buffer already has hunks"
+        );
+    }
+
+    #[gpui::test]
+    async fn test_expected_external_edit_preserves_stale_tracking_for_existing_tracked_buffer(
+        cx: &mut TestAppContext,
+    ) {
+        init_test(cx);
+
+        let fs = FakeFs::new(cx.executor());
+        fs.insert_tree(path!("/dir"), json!({"file": "one\ntwo\n"}))
+            .await;
+        let project = Project::test(fs, [path!("/dir").as_ref()], cx).await;
+        let action_log = cx.new(|_| ActionLog::new(project.clone()));
+        let file_path = project
+            .read_with(cx, |project, cx| project.find_project_path("dir/file", cx))
+            .expect("test file should exist");
+        let buffer = project
+            .update(cx, |project, cx| project.open_buffer(file_path, cx))
+            .await
+            .expect("test buffer should open");
+
+        cx.update(|cx| {
+            action_log.update(cx, |log, cx| log.buffer_read(buffer.clone(), cx));
+        });
+
+        cx.update(|cx| {
+            buffer.update(cx, |buffer, cx| {
+                assert!(buffer.edit([(0..0, "zero\n")], None, cx).is_some());
+            });
+        });
+        cx.run_until_parked();
+
+        assert_eq!(
+            action_log.read_with(cx, |log, cx| {
+                log.stale_buffers(cx).cloned().collect::<Vec<_>>()
+            }),
+            vec![buffer.clone()],
+            "user edits after a read should mark the tracked buffer as stale"
+        );
+
+        cx.update(|cx| {
+            action_log.update(cx, |log, cx| {
+                log.begin_expected_external_edit(buffer.clone(), cx);
+            });
+        });
+
+        assert_eq!(
+            action_log.read_with(cx, |log, cx| {
+                log.stale_buffers(cx).cloned().collect::<Vec<_>>()
+            }),
+            vec![buffer.clone()],
+            "starting an expected external edit should not clear existing stale tracking"
+        );
+
+        cx.update(|cx| {
+            action_log.update(cx, |log, cx| {
+                log.end_expected_external_edit(buffer.clone(), cx);
+            });
+        });
+
+        assert_eq!(
+            action_log.read_with(cx, |log, cx| {
+                log.stale_buffers(cx).cloned().collect::<Vec<_>>()
+            }),
+            vec![buffer],
+            "ending an unattributed expected external edit should preserve existing stale tracking"
+        );
+    }
+
+    #[gpui::test]
+    async fn test_infer_buffer_created_preserves_non_empty_baseline_on_reject(
+        cx: &mut TestAppContext,
+    ) {
+        init_test(cx);
+
+        let fs = FakeFs::new(cx.executor());
+        fs.insert_tree(path!("/dir"), json!({})).await;
+        let project = Project::test(fs.clone(), [path!("/dir").as_ref()], cx).await;
+        let action_log = cx.new(|_| ActionLog::new(project.clone()));
+        let file_path = project
+            .read_with(cx, |project, cx| {
+                project.find_project_path("dir/new_file", cx)
+            })
+            .unwrap();
+        let buffer = project
+            .update(cx, |project, cx| project.open_buffer(file_path, cx))
+            .await
+            .unwrap();
+
+        buffer.update(cx, |buffer, cx| buffer.set_text("draft\n", cx));
+        let baseline_snapshot = buffer.read_with(cx, |buffer, _| buffer.text_snapshot());
+
+        buffer.update(cx, |buffer, cx| buffer.set_text("draft\nagent\n", cx));
+        project
+            .update(cx, |project, cx| project.save_buffer(buffer.clone(), cx))
+            .await
+            .unwrap();
+
+        cx.update(|cx| {
+            action_log.update(cx, |log, cx| {
+                log.infer_buffer_created(buffer.clone(), baseline_snapshot.clone(), cx);
+            });
+        });
+        cx.run_until_parked();
+
+        action_log
+            .update(cx, |log, cx| log.reject_all_edits(None, cx))
+            .await;
+        cx.run_until_parked();
+
+        assert_eq!(buffer.read_with(cx, |buffer, _| buffer.text()), "draft\n");
+        assert_eq!(
+            String::from_utf8(fs.read_file_sync(path!("/dir/new_file")).unwrap()).unwrap(),
+            "draft\n"
         );
     }
 
