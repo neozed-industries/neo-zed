@@ -959,11 +959,15 @@ pub struct Window {
     /// Tracks recent input event timestamps to determine if input is arriving at a high rate.
     /// Used to selectively enable VRR optimization only when input rate exceeds 60fps.
     pub(crate) input_rate_tracker: Rc<RefCell<InputRateTracker>>,
-    /// Timestamp recorded at the start of dispatch_event; cleared when a frame is presented.
-    /// Used to compute input-to-frame latency.
-    last_input_at: Option<Instant>,
+    /// Timestamp of the first unrendered input event in the current frame; cleared when a frame
+    /// is presented. Captures worst-case latency when multiple events are coalesced per frame.
+    first_input_at: Option<Instant>,
+    /// Count of input events received since the last frame was presented.
+    pending_input_count: u64,
     /// Histogram of input-to-frame latency samples, in nanoseconds.
     input_latency_histogram: Histogram<u64>,
+    /// Histogram of input events coalesced per rendered frame.
+    input_events_per_frame_histogram: Histogram<u64>,
     last_input_modality: InputModality,
     pub(crate) refreshing: bool,
     pub(crate) activation_observers: SubscriberSet<(), AnyObserver>,
@@ -1482,9 +1486,12 @@ impl Window {
             hovered,
             needs_present,
             input_rate_tracker,
-            last_input_at: None,
+            first_input_at: None,
+            pending_input_count: 0,
             input_latency_histogram: Histogram::new(3)
                 .map_err(|e| anyhow!("Failed to create input latency histogram: {e}"))?,
+            input_events_per_frame_histogram: Histogram::new(3)
+                .map_err(|e| anyhow!("Failed to create input events per frame histogram: {e}"))?,
             last_input_modality: InputModality::Mouse,
             refreshing: false,
             activation_observers: SubscriberSet::new(),
@@ -2372,9 +2379,15 @@ impl Window {
     #[profiling::function]
     fn present(&mut self) {
         self.platform_window.draw(&self.rendered_frame.scene);
-        if let Some(input_received_at) = self.last_input_at.take() {
-            let latency_nanos = input_received_at.elapsed().as_nanos() as u64;
+        if let Some(first_input_at) = self.first_input_at.take() {
+            let latency_nanos = first_input_at.elapsed().as_nanos() as u64;
             self.input_latency_histogram.record(latency_nanos).ok();
+        }
+        if self.pending_input_count > 0 {
+            self.input_events_per_frame_histogram
+                .record(self.pending_input_count)
+                .ok();
+            self.pending_input_count = 0;
         }
         self.needs_present.set(false);
         profiling::finish_frame!();
@@ -2446,6 +2459,23 @@ impl Window {
                 "  {range:>8}  {note:<11}: {count:>6} ({:>5.1}%) {bar}\n",
                 fraction * 100.0,
             ));
+        }
+
+        let coalesce = &self.input_events_per_frame_histogram;
+        let coalesce_total = coalesce.len();
+        if coalesce_total > 0 {
+            report.push('\n');
+            report.push_str("Events coalesced per frame:\n");
+            for (label, quantile) in percentiles {
+                let value = if *quantile == 0.0 {
+                    coalesce.min()
+                } else if *quantile == 1.0 {
+                    coalesce.max()
+                } else {
+                    coalesce.value_at_quantile(*quantile)
+                };
+                report.push_str(&format!("  {label}: {value:>6} events\n"));
+            }
         }
 
         report
@@ -4197,7 +4227,8 @@ impl Window {
     /// Dispatch a mouse or keyboard event on the window.
     #[profiling::function]
     pub fn dispatch_event(&mut self, event: PlatformInput, cx: &mut App) -> DispatchEventResult {
-        self.last_input_at = Some(Instant::now());
+        self.first_input_at.get_or_insert_with(Instant::now);
+        self.pending_input_count += 1;
         // Track input modality for focus-visible styling and hover suppression.
         // Hover is suppressed during keyboard modality so that keyboard navigation
         // doesn't show hover highlights on the item under the mouse cursor.
