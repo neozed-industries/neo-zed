@@ -4248,8 +4248,7 @@ impl Window {
     /// Dispatch a mouse or keyboard event on the window.
     #[profiling::function]
     pub fn dispatch_event(&mut self, event: PlatformInput, cx: &mut App) -> DispatchEventResult {
-        self.first_input_at.get_or_insert_with(Instant::now);
-        self.pending_input_count += 1;
+        let dispatch_time = Instant::now();
         // Track input modality for focus-visible styling and hover suppression.
         // Hover is suppressed during keyboard modality so that keyboard navigation
         // doesn't show hover highlights on the item under the mouse cursor.
@@ -4361,6 +4360,8 @@ impl Window {
 
         if self.invalidator.is_dirty() {
             self.input_rate_tracker.borrow_mut().record_input();
+            self.first_input_at.get_or_insert(dispatch_time);
+            self.pending_input_count += 1;
         }
 
         DispatchEventResult {
