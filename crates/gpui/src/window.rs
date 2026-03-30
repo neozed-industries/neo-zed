@@ -2476,6 +2476,27 @@ impl Window {
                 };
                 report.push_str(&format!("  {label}: {value:>6} events\n"));
             }
+
+            report.push('\n');
+            report.push_str("Distribution:\n");
+            let max_count = coalesce.max();
+            for n in 1..=max_count {
+                let count = coalesce
+                    .iter_recorded()
+                    .filter(|value| value.value_iterated_to() == n)
+                    .map(|value| value.count_at_value())
+                    .sum::<u64>();
+                if count == 0 {
+                    continue;
+                }
+                let fraction = count as f64 / coalesce_total as f64;
+                let bar_len = (fraction * bar_width as f64) as usize;
+                let bar = "█".repeat(bar_len);
+                report.push_str(&format!(
+                    "  {n:>6} events: {count:>6} ({:>5.1}%) {bar}\n",
+                    fraction * 100.0,
+                ));
+            }
         }
 
         report
