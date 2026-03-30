@@ -582,6 +582,7 @@ globset = "0.4"
 heapless = "0.9.2"
 handlebars = "4.3"
 heck = "0.5"
+hdrhistogram = "7"
 heed = { version = "0.21.0", features = ["read-txn-no-tls"] }
 hex = "0.4.3"
 human_bytes = "0.4.1"

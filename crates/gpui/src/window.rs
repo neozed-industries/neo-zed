@@ -20,6 +20,7 @@ use crate::{
     point, prelude::*, px, rems, size, transparent_black,
 };
 use anyhow::{Context as _, Result, anyhow};
+use hdrhistogram::Histogram;
 use collections::{FxHashMap, FxHashSet};
 #[cfg(target_os = "macos")]
 use core_video::pixel_buffer::CVPixelBuffer;
@@ -958,6 +959,11 @@ pub struct Window {
     /// Tracks recent input event timestamps to determine if input is arriving at a high rate.
     /// Used to selectively enable VRR optimization only when input rate exceeds 60fps.
     pub(crate) input_rate_tracker: Rc<RefCell<InputRateTracker>>,
+    /// Timestamp recorded at the start of dispatch_event; cleared when a frame is presented.
+    /// Used to compute input-to-frame latency.
+    last_input_at: Option<Instant>,
+    /// Histogram of input-to-frame latency samples, in nanoseconds.
+    input_latency_histogram: Histogram<u64>,
     last_input_modality: InputModality,
     pub(crate) refreshing: bool,
     pub(crate) activation_observers: SubscriberSet<(), AnyObserver>,
@@ -1476,6 +1482,9 @@ impl Window {
             hovered,
             needs_present,
             input_rate_tracker,
+            last_input_at: None,
+            input_latency_histogram: Histogram::new(3)
+                .map_err(|e| anyhow!("Failed to create input latency histogram: {e}"))?,
             last_input_modality: InputModality::Mouse,
             refreshing: false,
             activation_observers: SubscriberSet::new(),
@@ -2361,10 +2370,85 @@ impl Window {
     }
 
     #[profiling::function]
-    fn present(&self) {
+    fn present(&mut self) {
         self.platform_window.draw(&self.rendered_frame.scene);
+        if let Some(input_received_at) = self.last_input_at.take() {
+            let latency_nanos = input_received_at.elapsed().as_nanos() as u64;
+            self.input_latency_histogram.record(latency_nanos).ok();
+        }
         self.needs_present.set(false);
         profiling::finish_frame!();
+    }
+
+    /// Returns a formatted text report of the input-to-frame latency histogram.
+    pub fn format_input_latency_report(&self) -> String {
+        let histogram = &self.input_latency_histogram;
+        let total = histogram.len();
+
+        if total == 0 {
+            return "No input latency samples recorded yet.\n\nTry typing or clicking in a buffer first.".to_string();
+        }
+
+        let ns_to_ms = |ns: u64| ns as f64 / 1_000_000.0;
+
+        let mut report = String::new();
+        report.push_str("Input Latency Histogram\n");
+        report.push_str("=======================\n");
+        report.push_str(&format!("Samples: {total}\n\n"));
+
+        report.push_str("Percentiles:\n");
+        let percentiles: &[(&str, f64)] = &[
+            ("min  ", 0.0),
+            ("p50  ", 0.50),
+            ("p75  ", 0.75),
+            ("p90  ", 0.90),
+            ("p95  ", 0.95),
+            ("p99  ", 0.99),
+            ("p99.9", 0.999),
+            ("max  ", 1.0),
+        ];
+        for (label, quantile) in percentiles {
+            let value_ns = if *quantile == 0.0 {
+                histogram.min()
+            } else if *quantile == 1.0 {
+                histogram.max()
+            } else {
+                histogram.value_at_quantile(*quantile)
+            };
+            report.push_str(&format!("  {label}: {:>8.2}ms\n", ns_to_ms(value_ns)));
+        }
+
+        report.push('\n');
+        report.push_str("Distribution:\n");
+
+        // Perceptual latency buckets. Upper bounds are exclusive except for the last.
+        let buckets: &[(u64, u64, &str)] = &[
+            (0, 4_000_000, "   0–4ms  (excellent)"),
+            (4_000_000, 8_000_000, "   4–8ms  (120fps)  "),
+            (8_000_000, 16_000_000, "  8–16ms  (60fps)   "),
+            (16_000_000, 33_000_000, " 16–33ms  (30fps)   "),
+            (33_000_000, 100_000_000, "33–100ms            "),
+            (100_000_000, u64::MAX, "   100ms+ (sluggish) "),
+        ];
+
+        let bar_width = 30usize;
+        for (low, high, label) in buckets {
+            let count: u64 = histogram
+                .iter_recorded()
+                .filter(|value| value.value_iterated_to() >= *low && value.value_iterated_to() < *high)
+                .map(|value| value.count_at_value())
+                .sum();
+            let fraction = count as f64 / total as f64;
+            let bar_len = (fraction * bar_width as f64) as usize;
+            let bar = "█".repeat(bar_len);
+            report.push_str(&format!(
+                "  {label}: {:>6} ({:>5.1}%) {bar}\n",
+                count,
+                fraction * 100.0,
+            ));
+        }
+
+        report
     }
 
     fn draw_roots(&mut self, cx: &mut App) {
@@ -4113,6 +4197,7 @@ impl Window {
     /// Dispatch a mouse or keyboard event on the window.
     #[profiling::function]
     pub fn dispatch_event(&mut self, event: PlatformInput, cx: &mut App) -> DispatchEventResult {
+        self.last_input_at = Some(Instant::now());
         // Track input modality for focus-visible styling and hover suppression.
         // Hover is suppressed during keyboard modality so that keyboard navigation
         // doesn't show hover highlights on the item under the mouse cursor.
