@@ -2422,17 +2422,18 @@ impl Window {
         report.push_str("Distribution:\n");
 
         // Perceptual latency buckets. Upper bounds are exclusive except for the last.
-        let buckets: &[(u64, u64, &str)] = &[
-            (0, 4_000_000, "   0–4ms  (excellent)"),
-            (4_000_000, 8_000_000, "   4–8ms  (120fps)  "),
-            (8_000_000, 16_000_000, "  8–16ms  (60fps)   "),
-            (16_000_000, 33_000_000, " 16–33ms  (30fps)   "),
-            (33_000_000, 100_000_000, "33–100ms            "),
-            (100_000_000, u64::MAX, "   100ms+ (sluggish) "),
+        // range is right-aligned to 8 chars; note is left-aligned to 11 chars.
+        let buckets: &[(u64, u64, &str, &str)] = &[
+            (0, 4_000_000, "0–4ms", "(excellent)"),
+            (4_000_000, 8_000_000, "4–8ms", "(120fps)"),
+            (8_000_000, 16_000_000, "8–16ms", "(60fps)"),
+            (16_000_000, 33_000_000, "16–33ms", "(30fps)"),
+            (33_000_000, 100_000_000, "33–100ms", ""),
+            (100_000_000, u64::MAX, "100ms+", "(sluggish)"),
         ];
 
         let bar_width = 30usize;
-        for (low, high, label) in buckets {
+        for (low, high, range, note) in buckets {
             let count: u64 = histogram
                 .iter_recorded()
                 .filter(|value| value.value_iterated_to() >= *low && value.value_iterated_to() < *high)
@@ -2442,8 +2443,7 @@ impl Window {
             let bar_len = (fraction * bar_width as f64) as usize;
             let bar = "█".repeat(bar_len);
             report.push_str(&format!(
-                "  {label}: {:>6} ({:>5.1}%) {bar}\n",
-                count,
+                "  {range:>8}  {note:<11}: {count:>6} ({:>5.1}%) {bar}\n",
                 fraction * 100.0,
             ));
         }
