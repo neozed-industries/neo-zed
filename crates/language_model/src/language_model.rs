@@ -4,7 +4,6 @@ mod rate_limiter;
 mod registry;
 mod request;
 mod role;
-mod telemetry;
 pub mod tool_schema;
 
 #[cfg(any(test, feature = "test-support"))]
@@ -38,7 +37,6 @@ pub use crate::rate_limiter::*;
 pub use crate::registry::*;
 pub use crate::request::*;
 pub use crate::role::*;
-pub use crate::telemetry::*;
 pub use crate::tool_schema::LanguageModelToolSchemaFormat;
 pub use zed_env_vars::{EnvVar, env_var};
 

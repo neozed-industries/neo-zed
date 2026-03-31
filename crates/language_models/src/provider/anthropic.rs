@@ -1,3 +1,5 @@
+pub mod telemetry;
+
 use anthropic::{
     ANTHROPIC_API_URL, AnthropicError, AnthropicModelMode, ContentDelta, CountTokensRequest, Event,
     ResponseContent, ToolResultContent, ToolResultPart, Usage,
