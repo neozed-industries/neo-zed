@@ -3752,7 +3752,6 @@ fn all_projects(
                 .flat_map(|multi_workspace| {
                     multi_workspace
                         .workspaces()
-                        .iter()
                         .map(|workspace| workspace.read(cx).project().clone())
                         .collect::<Vec<_>>()
                 }),

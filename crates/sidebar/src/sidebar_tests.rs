@@ -476,7 +476,7 @@ async fn test_workspace_lifecycle(cx: &mut TestAppContext) {
 
     // Remove the second workspace
     multi_workspace.update_in(cx, |mw, window, cx| {
-        let workspace = mw.workspaces()[1].clone();
+        let workspace = mw.workspaces().nth(1).unwrap().clone();
         mw.remove(&workspace, window, cx);
     });
     cx.run_until_parked();
@@ -1826,13 +1826,13 @@ async fn test_confirm_on_historical_thread_activates_workspace(cx: &mut TestAppC
 
     // Switch to workspace 1 so we can verify the confirm switches back.
     multi_workspace.update_in(cx, |mw, window, cx| {
-        let workspace = mw.workspaces()[1].clone();
+        let workspace = mw.workspaces().nth(1).unwrap().clone();
         mw.activate(workspace, window, cx);
     });
     cx.run_until_parked();
     assert_eq!(
-        multi_workspace.read_with(cx, |mw, _| mw.active_workspace_index()),
-        1
+        multi_workspace.read_with(cx, |mw, _| mw.active_workspace()),
+        multi_workspace.read_with(cx, |mw, _| mw.workspaces().nth(1).unwrap())
     );
 
     // Confirm on the historical (non-live) thread at index 1.
@@ -1846,8 +1846,8 @@ async fn test_confirm_on_historical_thread_activates_workspace(cx: &mut TestAppC
     cx.run_until_parked();
 
     assert_eq!(
-        multi_workspace.read_with(cx, |mw, _| mw.active_workspace_index()),
-        0
+        multi_workspace.read_with(cx, |mw, _| mw.active_workspace()),
+        multi_workspace.read_with(cx, |mw, _| mw.workspaces().nth(0).unwrap())
     );
 }
 
@@ -1994,7 +1994,8 @@ async fn test_focused_thread_tracks_user_intent(cx: &mut TestAppContext) {
     let panel_b = add_agent_panel(&workspace_b, cx);
     cx.run_until_parked();
 
-    let workspace_a = multi_workspace.read_with(cx, |mw, _cx| mw.workspaces()[0].clone());
+    let workspace_a =
+        multi_workspace.read_with(cx, |mw, _cx| mw.workspaces().nth(0).unwrap().clone());
 
     // ── 1. Initial state: focused thread derived from active panel ─────
     sidebar.read_with(cx, |sidebar, _cx| {
@@ -2091,7 +2092,7 @@ async fn test_focused_thread_tracks_user_intent(cx: &mut TestAppContext) {
     });
 
     multi_workspace.update_in(cx, |mw, window, cx| {
-        let workspace = mw.workspaces()[0].clone();
+        let workspace = mw.workspaces().nth(0).unwrap().clone();
         mw.activate(workspace, window, cx);
     });
     cx.run_until_parked();
@@ -2146,8 +2147,8 @@ async fn test_focused_thread_tracks_user_intent(cx: &mut TestAppContext) {
     // Switching workspaces via the multi_workspace (simulates clicking
     // a workspace header) should clear focused_thread.
     multi_workspace.update_in(cx, |mw, window, cx| {
-        if let Some(index) = mw.workspaces().iter().position(|w| w == &workspace_b) {
-            let workspace = mw.workspaces()[index].clone();
+        let workspace = mw.workspaces().find(|w| w == &workspace_b);
+        if let Some(workspace) = workspace {
             mw.activate(workspace, window, cx);
         }
     });
@@ -2455,7 +2456,7 @@ async fn test_cmd_n_shows_new_thread_entry_in_absorbed_worktree(cx: &mut TestApp
 
     // Switch to the worktree workspace.
     multi_workspace.update_in(cx, |mw, window, cx| {
-        let workspace = mw.workspaces()[1].clone();
+        let workspace = mw.workspaces().nth(1).unwrap().clone();
         mw.activate(workspace, window, cx);
     });
 
@@ -3128,7 +3129,7 @@ async fn test_absorbed_worktree_running_thread_shows_live_status(cx: &mut TestAp
 
     // Switch back to the main workspace before setting up the sidebar.
     multi_workspace.update_in(cx, |mw, window, cx| {
-        let workspace = mw.workspaces()[0].clone();
+        let workspace = mw.workspaces().nth(0).unwrap().clone();
         mw.activate(workspace, window, cx);
     });
 
@@ -3239,7 +3240,7 @@ async fn test_absorbed_worktree_completion_triggers_notification(cx: &mut TestAp
     let worktree_panel = add_agent_panel(&worktree_workspace, cx);
 
     multi_workspace.update_in(cx, |mw, window, cx| {
-        let workspace = mw.workspaces()[0].clone();
+        let workspace = mw.workspaces().nth(0).unwrap().clone();
         mw.activate(workspace, window, cx);
     });
 
@@ -3354,7 +3355,7 @@ async fn test_clicking_worktree_thread_opens_workspace_when_none_exists(cx: &mut
 
     // Only 1 workspace should exist.
     assert_eq!(
-        multi_workspace.read_with(cx, |mw, _| mw.workspaces().len()),
+        multi_workspace.read_with(cx, |mw, _| mw.workspaces().count()),
         1,
     );
 
@@ -3371,11 +3372,11 @@ async fn test_clicking_worktree_thread_opens_workspace_when_none_exists(cx: &mut
     // A new workspace should have been created for the worktree path.
     let new_workspace = multi_workspace.read_with(cx, |mw, _| {
         assert_eq!(
-            mw.workspaces().len(),
+            mw.workspaces().count(),
             2,
             "confirming a worktree thread without a workspace should open one",
         );
-        mw.workspaces()[1].clone()
+        mw.workspaces().nth(1).unwrap().clone()
     });
 
     let new_path_list =
@@ -3599,7 +3600,7 @@ async fn test_clicking_absorbed_worktree_thread_activates_worktree_workspace(
 
     // Activate the main workspace before setting up the sidebar.
     multi_workspace.update_in(cx, |mw, window, cx| {
-        let workspace = mw.workspaces()[0].clone();
+        let workspace = mw.workspaces().nth(0).unwrap().clone();
         mw.activate(workspace, window, cx);
     });
 
@@ -3626,8 +3627,8 @@ async fn test_clicking_absorbed_worktree_thread_activates_worktree_workspace(
         .expect("should find the worktree thread entry");
 
     assert_eq!(
-        multi_workspace.read_with(cx, |mw, _| mw.active_workspace_index()),
-        0,
+        multi_workspace.read_with(cx, |mw, _| mw.active_workspace()),
+        multi_workspace.read_with(cx, |mw, _| mw.workspaces().nth(0).unwrap()),
         "main workspace should be active initially"
     );
 
@@ -3642,9 +3643,7 @@ async fn test_clicking_absorbed_worktree_thread_activates_worktree_workspace(
     cx.run_until_parked();
 
     // The worktree workspace should now be active, not the main one.
-    let active_workspace = multi_workspace.read_with(cx, |mw, _| {
-        mw.workspaces()[mw.active_workspace_index()].clone()
-    });
+    let active_workspace = multi_workspace.read_with(cx, |mw, _| mw.active_workspace().clone());
     assert_eq!(
         active_workspace, worktree_workspace,
         "clicking an absorbed worktree thread should activate the worktree workspace"
@@ -3684,13 +3683,13 @@ async fn test_activate_archived_thread_with_saved_paths_activates_matching_works
 
     // Ensure workspace A is active.
     multi_workspace.update_in(cx, |mw, window, cx| {
-        let workspace = mw.workspaces()[0].clone();
+        let workspace = mw.workspaces().nth(0).unwrap().clone();
         mw.activate(workspace, window, cx);
     });
     cx.run_until_parked();
     assert_eq!(
-        multi_workspace.read_with(cx, |mw, _| mw.active_workspace_index()),
-        0
+        multi_workspace.read_with(cx, |mw, _| mw.active_workspace()),
+        multi_workspace.read_with(cx, |mw, _| mw.workspaces().nth(0).unwrap())
     );
 
     // Call activate_archived_thread – should resolve saved paths and
@@ -3713,8 +3712,8 @@ async fn test_activate_archived_thread_with_saved_paths_activates_matching_works
     cx.run_until_parked();
 
     assert_eq!(
-        multi_workspace.read_with(cx, |mw, _| mw.active_workspace_index()),
-        1,
+        multi_workspace.read_with(cx, |mw, _| mw.active_workspace()),
+        multi_workspace.read_with(cx, |mw, _| mw.workspaces().nth(1).unwrap()),
         "should have activated the workspace matching the saved path_list"
     );
 }
@@ -3747,13 +3746,13 @@ async fn test_activate_archived_thread_cwd_fallback_with_matching_workspace(
 
     // Start with workspace A active.
     multi_workspace.update_in(cx, |mw, window, cx| {
-        let workspace = mw.workspaces()[0].clone();
+        let workspace = mw.workspaces().nth(0).unwrap().clone();
         mw.activate(workspace, window, cx);
     });
     cx.run_until_parked();
     assert_eq!(
-        multi_workspace.read_with(cx, |mw, _| mw.active_workspace_index()),
-        0
+        multi_workspace.read_with(cx, |mw, _| mw.active_workspace()),
+        multi_workspace.read_with(cx, |mw, _| mw.workspaces().nth(0).unwrap())
     );
 
     // No thread saved to the store – cwd is the only path hint.
@@ -3775,8 +3774,8 @@ async fn test_activate_archived_thread_cwd_fallback_with_matching_workspace(
     cx.run_until_parked();
 
     assert_eq!(
-        multi_workspace.read_with(cx, |mw, _| mw.active_workspace_index()),
-        1,
+        multi_workspace.read_with(cx, |mw, _| mw.active_workspace()),
+        multi_workspace.read_with(cx, |mw, _| mw.workspaces().nth(1).unwrap()),
         "should have activated the workspace matching the cwd"
     );
 }
@@ -3809,13 +3808,13 @@ async fn test_activate_archived_thread_no_paths_no_cwd_uses_active_workspace(
 
     // Activate workspace B (index 1) to make it the active one.
     multi_workspace.update_in(cx, |mw, window, cx| {
-        let workspace = mw.workspaces()[1].clone();
+        let workspace = mw.workspaces().nth(1).unwrap().clone();
         mw.activate(workspace, window, cx);
     });
     cx.run_until_parked();
     assert_eq!(
-        multi_workspace.read_with(cx, |mw, _| mw.active_workspace_index()),
-        1
+        multi_workspace.read_with(cx, |mw, _| mw.active_workspace()),
+        multi_workspace.read_with(cx, |mw, _| mw.workspaces().nth(1).unwrap())
     );
 
     // No saved thread, no cwd – should fall back to the active workspace.
@@ -3837,8 +3836,8 @@ async fn test_activate_archived_thread_no_paths_no_cwd_uses_active_workspace(
     cx.run_until_parked();
 
     assert_eq!(
-        multi_workspace.read_with(cx, |mw, _| mw.active_workspace_index()),
-        1,
+        multi_workspace.read_with(cx, |mw, _| mw.active_workspace()),
+        multi_workspace.read_with(cx, |mw, _| mw.workspaces().nth(1).unwrap()),
         "should have stayed on the active workspace when no path info is available"
     );
 }
@@ -3868,7 +3867,7 @@ async fn test_activate_archived_thread_saved_paths_opens_new_workspace(cx: &mut 
     let session_id = acp::SessionId::new(Arc::from("archived-new-ws"));
 
     assert_eq!(
-        multi_workspace.read_with(cx, |mw, _| mw.workspaces().len()),
+        multi_workspace.read_with(cx, |mw, _| mw.workspaces().count()),
         1,
         "should start with one workspace"
     );
@@ -3891,7 +3890,7 @@ async fn test_activate_archived_thread_saved_paths_opens_new_workspace(cx: &mut 
     cx.run_until_parked();
 
     assert_eq!(
-        multi_workspace.read_with(cx, |mw, _| mw.workspaces().len()),
+        multi_workspace.read_with(cx, |mw, _| mw.workspaces().count()),
         2,
         "should have opened a second workspace for the archived thread's saved paths"
     );
@@ -3941,14 +3940,14 @@ async fn test_activate_archived_thread_reuses_workspace_in_another_window(cx: &m
 
     assert_eq!(
         multi_workspace_a
-            .read_with(cx_a, |mw, _| mw.workspaces().len())
+            .read_with(cx_a, |mw, _| mw.workspaces().count())
             .unwrap(),
         1,
         "should not add the other window's workspace into the current window"
     );
     assert_eq!(
         multi_workspace_b
-            .read_with(cx_a, |mw, _| mw.workspaces().len())
+            .read_with(cx_a, |mw, _| mw.workspaces().count())
             .unwrap(),
         1,
         "should reuse the existing workspace in the other window"
@@ -4017,14 +4016,14 @@ async fn test_activate_archived_thread_reuses_workspace_in_another_window_with_t
 
     assert_eq!(
         multi_workspace_a
-            .read_with(cx_a, |mw, _| mw.workspaces().len())
+            .read_with(cx_a, |mw, _| mw.workspaces().count())
             .unwrap(),
         1,
         "should not add the other window's workspace into the current window"
     );
     assert_eq!(
         multi_workspace_b
-            .read_with(cx_a, |mw, _| mw.workspaces().len())
+            .read_with(cx_a, |mw, _| mw.workspaces().count())
             .unwrap(),
         1,
         "should reuse the existing workspace in the other window"
@@ -4103,14 +4102,14 @@ async fn test_activate_archived_thread_prefers_current_window_for_matching_paths
     });
     assert_eq!(
         multi_workspace_a
-            .read_with(cx_a, |mw, _| mw.workspaces().len())
+            .read_with(cx_a, |mw, _| mw.workspaces().count())
             .unwrap(),
         1,
         "current window should continue reusing its existing workspace"
     );
     assert_eq!(
         multi_workspace_b
-            .read_with(cx_a, |mw, _| mw.workspaces().len())
+            .read_with(cx_a, |mw, _| mw.workspaces().count())
             .unwrap(),
         1,
         "other windows should not be activated just because they also match the saved paths"
@@ -4193,13 +4192,14 @@ async fn test_archive_thread_uses_next_threads_own_workspace(cx: &mut TestAppCon
 
     // Activate main workspace so the sidebar tracks the main panel.
     multi_workspace.update_in(cx, |mw, window, cx| {
-        let workspace = mw.workspaces()[0].clone();
+        let workspace = mw.workspaces().nth(0).unwrap().clone();
         mw.activate(workspace, window, cx);
     });
 
     let sidebar = setup_sidebar(&multi_workspace, cx);
 
-    let main_workspace = multi_workspace.read_with(cx, |mw, _| mw.workspaces()[0].clone());
+    let main_workspace =
+        multi_workspace.read_with(cx, |mw, _| mw.workspaces().nth(0).unwrap().clone());
     let main_panel = add_agent_panel(&main_workspace, cx);
     let _worktree_panel = add_agent_panel(&worktree_workspace, cx);
 
@@ -5001,8 +5001,9 @@ mod property_test {
     ) {
         match operation {
             Operation::SaveThread { workspace_index } => {
-                let workspace =
-                    multi_workspace.read_with(cx, |mw, _| mw.workspaces()[workspace_index].clone());
+                let workspace = multi_workspace.read_with(cx, |mw, _| {
+                    mw.workspaces().nth(workspace_index).unwrap().clone()
+                });
                 let path_list = workspace
                     .read_with(cx, |workspace, cx| PathList::new(&workspace.root_paths(cx)));
                 save_thread_to_path(state, path_list, cx);
@@ -5088,7 +5089,7 @@ mod property_test {
             }
             Operation::RemoveWorkspace { index } => {
                 let removed = multi_workspace.update_in(cx, |mw, window, cx| {
-                    let workspace = mw.workspaces()[index].clone();
+                    let workspace = mw.workspaces().nth(index).unwrap().clone();
                     mw.remove(&workspace, window, cx)
                 });
                 if removed {
@@ -5102,8 +5103,8 @@ mod property_test {
                 }
             }
             Operation::SwitchWorkspace { index } => {
-                let workspace =
-                    multi_workspace.read_with(cx, |mw, _| mw.workspaces()[index].clone());
+                let workspace = multi_workspace
+                    .read_with(cx, |mw, _| mw.workspaces().nth(index).unwrap().clone());
                 multi_workspace.update_in(cx, |mw, window, cx| {
                     mw.activate(workspace, window, cx);
                 });
@@ -5150,8 +5151,9 @@ mod property_test {
                     .unwrap();
 
                 // Re-scan the main workspace's project so it discovers the new worktree.
-                let main_workspace =
-                    multi_workspace.read_with(cx, |mw, _| mw.workspaces()[workspace_index].clone());
+                let main_workspace = multi_workspace.read_with(cx, |mw, _| {
+                    mw.workspaces().nth(workspace_index).unwrap().clone()
+                });
                 let main_project = main_workspace.read_with(cx, |ws, _| ws.project().clone());
                 main_project
                     .update(cx, |p, cx| p.git_scans_complete(cx))
@@ -5198,7 +5200,7 @@ mod property_test {
             anyhow::bail!("sidebar should still have an associated multi-workspace");
         };
 
-        let workspaces = multi_workspace.read(cx).workspaces().to_vec();
+        let workspaces = multi_workspace.read(cx).workspaces().collect::<Vec<_>>();
 
         // Workspaces with no root paths are not shown because the
         // sidebar skips empty path lists. All other workspaces should
@@ -5236,7 +5238,7 @@ mod property_test {
         let Some(multi_workspace) = sidebar.multi_workspace.upgrade() else {
             anyhow::bail!("sidebar should still have an associated multi-workspace");
         };
-        let workspaces = multi_workspace.read(cx).workspaces().to_vec();
+        let workspaces = multi_workspace.read(cx).workspaces().collect::<Vec<_>>();
         let thread_store = ThreadMetadataStore::global(cx);
 
         let sidebar_thread_ids: HashSet<acp::SessionId> = sidebar

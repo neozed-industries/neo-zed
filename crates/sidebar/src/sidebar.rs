@@ -443,7 +443,7 @@ impl Sidebar {
         })
         .detach();
 
-        let workspaces = multi_workspace.read(cx).workspaces().to_vec();
+        let workspaces = multi_workspace.read(cx).workspaces().collect::<Vec<_>>();
         cx.defer_in(window, move |this, window, cx| {
             for workspace in &workspaces {
                 this.subscribe_to_workspace(workspace, window, cx);
@@ -697,7 +697,7 @@ impl Sidebar {
             return;
         };
         let mw = multi_workspace.read(cx);
-        let workspaces = mw.workspaces().to_vec();
+        let workspaces = mw.workspaces().collect::<Vec<_>>();
         let active_workspace = Some(mw.active_workspace());
 
         let agent_server_store = workspaces
@@ -1582,7 +1582,7 @@ impl Sidebar {
 
                     let workspace_count = multi_workspace
                         .upgrade()
-                        .map_or(0, |mw| mw.read(cx).workspaces().len());
+                        .map_or(0, |mw| mw.read(cx).workspaces().count());
                     let menu = if workspace_count > 1 {
                         let workspace_for_move = workspace.clone();
                         let multi_workspace_for_move = multi_workspace.clone();
@@ -1967,9 +1967,7 @@ impl Sidebar {
                 let workspace = window.read(cx).ok().and_then(|multi_workspace| {
                     multi_workspace
                         .workspaces()
-                        .iter()
                         .find(|workspace| predicate(workspace, cx))
-                        .cloned()
                 })?;
                 Some((window, workspace))
             })
@@ -1984,9 +1982,7 @@ impl Sidebar {
             multi_workspace
                 .read(cx)
                 .workspaces()
-                .iter()
                 .find(|workspace| predicate(workspace, cx))
-                .cloned()
         })
     }
 
@@ -2317,7 +2313,7 @@ impl Sidebar {
             return;
         };
 
-        let workspaces = multi_workspace.read(cx).workspaces().to_vec();
+        let workspaces = multi_workspace.read(cx).workspaces().collect::<Vec<_>>();
         for workspace in workspaces {
             if let Some(agent_panel) = workspace.read(cx).panel::<AgentPanel>(cx) {
                 let cancelled =
@@ -2911,7 +2907,6 @@ impl Sidebar {
             .map(|mw| {
                 mw.read(cx)
                     .workspaces()
-                    .iter()
                     .filter_map(|ws| ws.read(cx).database_id())
                     .collect()
             })
@@ -3341,12 +3336,9 @@ impl Sidebar {
     }
 
     fn active_workspace(&self, cx: &App) -> Option<Entity<Workspace>> {
-        self.multi_workspace.upgrade().and_then(|w| {
-            w.read(cx)
-                .workspaces()
-                .get(w.read(cx).active_workspace_index())
-                .cloned()
-        })
+        self.multi_workspace
+            .upgrade()
+            .map(|w| w.read(cx).active_workspace())
     }
 
     fn show_thread_import_modal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -3454,12 +3446,11 @@ impl Sidebar {
     }
 
     fn show_archive(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(active_workspace) = self.multi_workspace.upgrade().and_then(|w| {
-            w.read(cx)
-                .workspaces()
-                .get(w.read(cx).active_workspace_index())
-                .cloned()
-        }) else {
+        let Some(active_workspace) = self
+            .multi_workspace
+            .upgrade()
+            .map(|w| w.read(cx).active_workspace())
+        else {
             return;
         };
         let Some(agent_panel) = active_workspace.read(cx).panel::<AgentPanel>(cx) else {
@@ -3764,21 +3755,18 @@ pub fn dump_workspace_info(
 
     let multi_workspace = workspace.multi_workspace().and_then(|weak| weak.upgrade());
     let workspaces: Vec<gpui::Entity<Workspace>> = match &multi_workspace {
-        Some(mw) => mw.read(cx).workspaces().to_vec(),
+        Some(mw) => mw.read(cx).workspaces().collect::<Vec<_>>(),
         None => vec![this_entity.clone()],
     };
-    let active_index = multi_workspace
+    let active_workspace = multi_workspace
         .as_ref()
-        .map(|mw| mw.read(cx).active_workspace_index());
+        .map(|mw| mw.read(cx).active_workspace());
 
     writeln!(output, "MultiWorkspace: {} workspace(s)", workspaces.len()).ok();
-    if let Some(index) = active_index {
-        writeln!(output, "Active workspace index: {index}").ok();
-    }
     writeln!(output).ok();
 
     for (index, ws) in workspaces.iter().enumerate() {
-        let is_active = active_index == Some(index);
+        let is_active = active_workspace.as_ref() == Some(ws);
         writeln!(
             output,
             "--- Workspace {index}{} ---",

@@ -15,7 +15,7 @@ use std::future::Future;
 use std::path::PathBuf;
 use std::sync::Arc;
 use ui::prelude::*;
-use util::{ResultExt, debug_panic, path_list::PathList};
+use util::{ResultExt, path_list::PathList};
 use zed_actions::agents_sidebar::{MoveWorkspaceToNewWindow, ToggleThreadSwitcher};
 
 use agent_settings::AgentSettings;
@@ -435,11 +435,10 @@ impl MultiWorkspace {
         }
     }
 
-    pub fn workspaces(&self) -> Vec<Entity<Workspace>> {
+    pub fn workspaces(&self) -> impl Iterator<Item = Entity<Workspace>> + '_ {
         self.project_groups
             .iter()
             .flat_map(|group| group.workspaces.iter().cloned())
-            .collect()
     }
 
     pub fn open_sidebar(&mut self, cx: &mut Context<Self>) {
@@ -470,8 +469,9 @@ impl MultiWorkspace {
 
     pub fn close_window(&mut self, _: &CloseWindow, window: &mut Window, cx: &mut Context<Self>) {
         cx.spawn_in(window, async move |this, cx| {
-            let workspaces =
-                this.update(cx, |multi_workspace, _cx| multi_workspace.workspaces())?;
+            let workspaces: Vec<_> = this.update(cx, |multi_workspace, _cx| {
+                multi_workspace.workspaces().collect()
+            })?;
 
             for workspace in workspaces {
                 let should_continue = workspace
@@ -514,16 +514,6 @@ impl MultiWorkspace {
         self.active_workspace.clone()
     }
 
-    pub fn active_workspace_index(&self) -> usize {
-        self.workspaces()
-            .iter()
-            .position(|workspace| workspace == &self.active_workspace)
-            .unwrap_or_else(|| {
-                debug_panic!("active workspace was not present in project groups");
-                0
-            })
-    }
-
     /// Adds a workspace to this window without changing which workspace is
     /// active.
     pub fn add(&mut self, workspace: Entity<Workspace>, window: &Window, cx: &mut Context<Self>) {
@@ -533,6 +523,13 @@ impl MultiWorkspace {
         }
 
         self.insert_workspace(workspace, window, cx);
+    }
+
+    /// Returns the number of workspaces in this multiworkspace
+    pub fn len(&self) -> usize {
+        self.project_groups
+            .iter()
+            .fold(0, |acc, group| acc + group.workspaces.len())
     }
 
     /// Ensures the workspace is in the multiworkspace and makes it the active one.
@@ -571,9 +568,10 @@ impl MultiWorkspace {
             return;
         }
 
-        if let Some(index) = self.workspaces().iter().position(|w| *w == workspace) {
-            let changed = self.active_workspace_index() != index;
-            self.active_workspace = self.workspaces()[index].clone();
+        let exists = self.workspaces().any(|w| w == workspace);
+        if exists {
+            let changed = self.active_workspace != workspace;
+            self.active_workspace = workspace;
             if changed {
                 cx.emit(MultiWorkspaceEvent::ActiveWorkspaceChanged);
                 self.serialize(cx);
@@ -611,7 +609,7 @@ impl MultiWorkspace {
         window: &Window,
         cx: &mut Context<Self>,
     ) {
-        if self.workspaces().iter().any(|w| *w == workspace) {
+        if self.workspaces().any(|w| w == workspace) {
             return;
         }
 
@@ -668,15 +666,16 @@ impl MultiWorkspace {
     }
 
     fn cycle_workspace(&mut self, delta: isize, window: &mut Window, cx: &mut Context<Self>) {
-        let workspaces = self.workspaces();
-        let count = workspaces.len() as isize;
-        if count <= 1 {
-            return;
+        let count = self.len();
+        let current_ix = self
+            .workspaces()
+            .position(|w| w == self.active_workspace)
+            .unwrap_or(0);
+        let next_ix = ((current_ix as isize + delta).rem_euclid(count as isize)) as usize;
+        let next_workspace = self.workspaces().nth(next_ix);
+        if let Some(next_workspace) = next_workspace {
+            self.activate(next_workspace, window, cx);
         }
-        let current = self.active_workspace_index() as isize;
-        let next = ((current + delta).rem_euclid(count)) as usize;
-        let workspace = workspaces[next].clone();
-        self.activate(workspace, window, cx);
     }
 
     fn next_workspace(&mut self, _: &NextWorkspace, window: &mut Window, cx: &mut Context<Self>) {
@@ -909,7 +908,7 @@ impl MultiWorkspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        let all_workspaces = self.workspaces();
+        let all_workspaces: Vec<_> = self.workspaces().collect();
         if all_workspaces.len() <= 1 {
             return false;
         }
@@ -928,11 +927,11 @@ impl MultiWorkspace {
 
         // If we removed the active workspace, pick a new one.
         if self.active_workspace == *workspace {
-            self.active_workspace = self
+            let workspace = self
                 .workspaces()
-                .into_iter()
                 .next()
                 .expect("there is always at least one workspace after the len() > 1 check");
+            self.active_workspace = workspace;
         }
 
         self.detach_workspace(workspace, cx);

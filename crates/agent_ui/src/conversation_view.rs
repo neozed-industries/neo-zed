@@ -3354,7 +3354,6 @@ pub(crate) mod tests {
         // Verify workspace1 is no longer the active workspace
         multi_workspace_handle
             .read_with(cx, |mw, _cx| {
-                assert_eq!(mw.active_workspace_index(), 1);
                 assert_ne!(mw.workspace(), &workspace1);
             })
             .unwrap();

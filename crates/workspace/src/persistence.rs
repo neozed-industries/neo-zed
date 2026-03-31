@@ -2541,7 +2541,11 @@ mod tests {
 
         // --- Remove the second workspace (index 1) ---
         multi_workspace.update_in(cx, |mw, window, cx| {
-            let ws = mw.workspaces()[1].clone();
+            let ws = mw
+                .workspaces()
+                .nth(1)
+                .expect("no workspace at index 1")
+                .clone();
             mw.remove(&ws, window, cx);
         });
 
@@ -4224,7 +4228,11 @@ mod tests {
 
         // Remove workspace at index 1 (the second workspace).
         multi_workspace.update_in(cx, |mw, window, cx| {
-            let ws = mw.workspaces()[1].clone();
+            let ws = mw
+                .workspaces()
+                .nth(1)
+                .expect("no workspace at index 1")
+                .clone();
             mw.remove(&ws, window, cx);
         });
 
@@ -4335,7 +4343,11 @@ mod tests {
 
         // Remove workspace2 (index 1).
         multi_workspace.update_in(cx, |mw, window, cx| {
-            let ws = mw.workspaces()[1].clone();
+            let ws = mw
+                .workspaces()
+                .nth(1)
+                .expect("no workspace at index 1")
+                .clone();
             mw.remove(&ws, window, cx);
         });
 
@@ -4419,7 +4431,11 @@ mod tests {
 
         // Remove workspace2 — this pushes a task to pending_removal_tasks.
         multi_workspace.update_in(cx, |mw, window, cx| {
-            let ws = mw.workspaces()[1].clone();
+            let ws = mw
+                .workspaces()
+                .nth(1)
+                .expect("no workspace at index 1")
+                .clone();
             mw.remove(&ws, window, cx);
         });
 
@@ -4428,7 +4444,6 @@ mod tests {
         let all_tasks = multi_workspace.update_in(cx, |mw, window, cx| {
             let mut tasks: Vec<Task<()>> = mw
                 .workspaces()
-                .iter()
                 .map(|workspace| {
                     workspace.update(cx, |workspace, cx| {
                         workspace.flush_serialization(window, cx)

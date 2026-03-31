@@ -1348,7 +1348,7 @@ fn quit(_: &Quit, cx: &mut App) {
             let window = *window;
             let workspaces = window
                 .update(cx, |multi_workspace, _, _| {
-                    multi_workspace.workspaces().to_vec()
+                    multi_workspace.workspaces().collect::<Vec<_>>()
                 })
                 .log_err();
 
@@ -2282,7 +2282,6 @@ mod tests {
             .update(cx, |multi_workspace, window, cx| {
                 let mut tasks = multi_workspace
                     .workspaces()
-                    .iter()
                     .map(|workspace| {
                         workspace.update(cx, |workspace, cx| {
                             workspace.flush_serialization(window, cx)
@@ -5355,7 +5354,7 @@ mod tests {
 
         let workspace1 = window
             .read_with(cx, |multi_workspace, _| {
-                multi_workspace.workspaces()[0].clone()
+                multi_workspace.workspaces().nth(0).unwrap().clone()
             })
             .unwrap();
 
@@ -5365,7 +5364,8 @@ mod tests {
                 multi_workspace.activate(workspace3.clone(), window, cx);
                 // Switch back to workspace1 for test setup
                 multi_workspace.activate(workspace1, window, cx);
-                assert_eq!(multi_workspace.active_workspace_index(), 0);
+                let workspaces: Vec<_> = multi_workspace.workspaces().collect();
+                assert_eq!(multi_workspace.workspace(), &workspaces[0]);
             })
             .unwrap();
 
@@ -5374,8 +5374,9 @@ mod tests {
         // Verify setup: 3 workspaces, workspace 0 active, still 1 window
         window
             .read_with(cx, |multi_workspace, _| {
-                assert_eq!(multi_workspace.workspaces().len(), 3);
-                assert_eq!(multi_workspace.active_workspace_index(), 0);
+                let workspaces: Vec<_> = multi_workspace.workspaces().collect();
+                assert_eq!(workspaces.len(), 3);
+                assert_eq!(multi_workspace.workspace(), &workspaces[0]);
             })
             .unwrap();
         assert_eq!(cx.windows().len(), 1);
@@ -5397,9 +5398,10 @@ mod tests {
         // Verify workspace 2 is active and file opened there
         window
             .read_with(cx, |multi_workspace, cx| {
+                let workspaces: Vec<_> = multi_workspace.workspaces().collect();
                 assert_eq!(
-                    multi_workspace.active_workspace_index(),
-                    2,
+                    multi_workspace.workspace(),
+                    &workspaces[2],
                     "Should have switched to workspace 3 which contains /dir3"
                 );
                 let active_item = multi_workspace
@@ -5431,9 +5433,10 @@ mod tests {
         // Verify workspace 1 is active and file opened there
         window
             .read_with(cx, |multi_workspace, cx| {
+                let workspaces: Vec<_> = multi_workspace.workspaces().collect();
                 assert_eq!(
-                    multi_workspace.active_workspace_index(),
-                    1,
+                    multi_workspace.workspace(),
+                    &workspaces[1],
                     "Should have switched to workspace 2 which contains /dir2"
                 );
                 let active_item = multi_workspace
@@ -5480,9 +5483,10 @@ mod tests {
         // Verify workspace 0 is active and file opened there
         window
             .read_with(cx, |multi_workspace, cx| {
+                let workspaces: Vec<_> = multi_workspace.workspaces().collect();
                 assert_eq!(
-                    multi_workspace.active_workspace_index(),
-                    0,
+                    multi_workspace.workspace(),
+                    &workspaces[0],
                     "Should have switched back to workspace 0 which contains /dir1"
                 );
                 let active_item = multi_workspace
@@ -5592,7 +5596,8 @@ mod tests {
         // Verify workspace1_1 is active
         window1
             .read_with(cx, |multi_workspace, _| {
-                assert_eq!(multi_workspace.active_workspace_index(), 0);
+                let workspaces: Vec<_> = multi_workspace.workspaces().collect();
+                assert_eq!(multi_workspace.workspace(), &workspaces[0]);
             })
             .unwrap();
 
@@ -5658,7 +5663,12 @@ mod tests {
         // Verify workspace1_1 is still active (not workspace1_2 with dirty item)
         window1
             .read_with(cx, |multi_workspace, _| {
-                assert_eq!(multi_workspace.active_workspace_index(), 0);
+                assert_eq!(
+                    multi_workspace
+                        .workspaces()
+                        .position(|workspace| workspace == multi_workspace.active_workspace()),
+                    Some(0)
+                );
             })
             .unwrap();
 
@@ -5669,8 +5679,10 @@ mod tests {
         window1
             .read_with(cx, |multi_workspace, _| {
                 assert_eq!(
-                    multi_workspace.active_workspace_index(),
-                    1,
+                    multi_workspace
+                        .workspaces()
+                        .position(|workspace| workspace == multi_workspace.active_workspace()),
+                    Some(1),
                     "Case 2: Non-active workspace should be activated when it has dirty item"
                 );
             })
@@ -5853,7 +5865,11 @@ mod tests {
         // still be active rather than whichever workspace happened to restore last.
         window_a
             .update(cx, |multi_workspace, window, cx| {
-                let workspace = multi_workspace.workspaces()[0].clone();
+                let workspace = multi_workspace
+                    .workspaces()
+                    .nth(0)
+                    .expect("no workspace at index 0")
+                    .clone();
                 multi_workspace.activate(workspace, window, cx);
             })
             .unwrap();
@@ -5950,7 +5966,9 @@ mod tests {
             .iter()
             .map(|window| {
                 window
-                    .read_with(cx, |multi_workspace, _| multi_workspace.workspaces().len())
+                    .read_with(cx, |multi_workspace, _| {
+                        multi_workspace.workspaces().count()
+                    })
                     .unwrap()
             })
             .collect();
@@ -5973,7 +5991,6 @@ mod tests {
                     .read_with(cx, |multi_workspace, cx| {
                         multi_workspace
                             .workspaces()
-                            .iter()
                             .map(|ws| ws.read(cx).root_paths(cx))
                             .collect()
                     })
@@ -6010,7 +6027,7 @@ mod tests {
                     let active = multi_workspace.workspace();
                     (
                         active.read(cx).root_paths(cx),
-                        multi_workspace.workspaces().len(),
+                        multi_workspace.workspaces().count(),
                     )
                 })
                 .unwrap();

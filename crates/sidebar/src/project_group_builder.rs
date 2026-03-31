@@ -15,7 +15,6 @@ use std::{
 };
 
 use gpui::{App, Entity};
-use ui::SharedString;
 use workspace::{MultiWorkspace, PathList, ProjectGroupKey, Workspace};
 
 #[derive(Default)]
