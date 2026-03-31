@@ -38,7 +38,7 @@ use std::{
     fmt::Debug,
     marker::PhantomData,
     mem,
-    rc::{Rc, Weak},
+    rc::Rc,
     sync::Arc,
     time::Duration,
 };
@@ -2878,7 +2878,7 @@ pub struct InteractiveElementState {
     pub(crate) hover_listener_state: Option<Rc<RefCell<bool>>>,
     pub(crate) pending_mouse_down: Option<Rc<RefCell<Option<MouseDownEvent>>>>,
     pub(crate) scroll_offset: Option<Rc<RefCell<Point<Pixels>>>>,
-    pub(crate) active_tooltip: Option<ActiveTooltipState>,
+    pub(crate) active_tooltip: Option<Rc<RefCell<Option<ActiveTooltip>>>>,
 }
 
 /// Whether or not the element or a group that contains it is clicked by the mouse.
@@ -2907,9 +2907,6 @@ pub struct ElementHoverState {
     pub element: bool,
 }
 
-type ActiveTooltipState = Rc<RefCell<Option<ActiveTooltip>>>;
-type WeakActiveTooltipState = Weak<RefCell<Option<ActiveTooltip>>>;
-
 pub(crate) enum ActiveTooltip {
     /// Currently delaying before showing the tooltip.
     WaitingForShow { _task: Task<()> },
@@ -2926,7 +2923,10 @@ pub(crate) enum ActiveTooltip {
     },
 }
 
-pub(crate) fn clear_active_tooltip(active_tooltip: &ActiveTooltipState, window: &mut Window) {
+pub(crate) fn clear_active_tooltip(
+    active_tooltip: &Rc<RefCell<Option<ActiveTooltip>>>,
+    window: &mut Window,
+) {
     match active_tooltip.borrow_mut().take() {
         None => {}
         Some(ActiveTooltip::WaitingForShow { .. }) => {}
@@ -2936,7 +2936,7 @@ pub(crate) fn clear_active_tooltip(active_tooltip: &ActiveTooltipState, window: 
 }
 
 pub(crate) fn clear_active_tooltip_if_not_hoverable(
-    active_tooltip: &ActiveTooltipState,
+    active_tooltip: &Rc<RefCell<Option<ActiveTooltip>>>,
     window: &mut Window,
 ) {
     let should_clear = match active_tooltip.borrow().as_ref() {
@@ -2952,7 +2952,7 @@ pub(crate) fn clear_active_tooltip_if_not_hoverable(
 }
 
 pub(crate) fn set_tooltip_on_window(
-    active_tooltip: &ActiveTooltipState,
+    active_tooltip: &Rc<RefCell<Option<ActiveTooltip>>>,
     window: &mut Window,
 ) -> Option<TooltipId> {
     let tooltip = match active_tooltip.borrow().as_ref() {
@@ -2965,7 +2965,7 @@ pub(crate) fn set_tooltip_on_window(
 }
 
 pub(crate) fn register_tooltip_mouse_handlers(
-    active_tooltip: &ActiveTooltipState,
+    active_tooltip: &Rc<RefCell<Option<ActiveTooltip>>>,
     tooltip_id: Option<TooltipId>,
     build_tooltip: Rc<dyn Fn(&mut Window, &mut App) -> Option<(AnyView, bool)>>,
     check_is_hovered: Rc<dyn Fn(&Window) -> bool>,
@@ -3020,7 +3020,7 @@ pub(crate) fn register_tooltip_mouse_handlers(
 /// does not know if the hitbox is occluded. In the case where a tooltip gets displayed and then
 /// gets occluded after display, it will stick around until the mouse exits the hover bounds.
 fn handle_tooltip_mouse_move(
-    active_tooltip: &ActiveTooltipState,
+    active_tooltip: &Rc<RefCell<Option<ActiveTooltip>>>,
     build_tooltip: &Rc<dyn Fn(&mut Window, &mut App) -> Option<(AnyView, bool)>>,
     check_is_hovered: &Rc<dyn Fn(&Window) -> bool>,
     check_is_hovered_during_prepaint: &Rc<dyn Fn(&Window) -> bool>,
@@ -3123,7 +3123,7 @@ fn handle_tooltip_mouse_move(
 /// purpose of doing this logic here instead of the mouse move handler is that the mouse move
 /// handler won't get called when the element is not painted (e.g. via use of `visible_on_hover`).
 fn handle_tooltip_check_visible_and_update(
-    active_tooltip: &ActiveTooltipState,
+    active_tooltip: &Rc<RefCell<Option<ActiveTooltip>>>,
     tooltip_is_hoverable: bool,
     check_is_hovered: &Rc<dyn Fn(&Window) -> bool>,
     tooltip_bounds: Bounds<Pixels>,
@@ -3168,7 +3168,7 @@ fn handle_tooltip_check_visible_and_update(
         Action::Hide => clear_active_tooltip(active_tooltip, window),
         Action::ScheduleHide(tooltip) => {
             let delayed_hide_task = window.spawn(cx, {
-                let weak_active_tooltip: WeakActiveTooltipState = Rc::downgrade(active_tooltip);
+                let weak_active_tooltip = Rc::downgrade(active_tooltip);
                 async move |cx| {
                     cx.background_executor()
                         .timer(HOVERABLE_TOOLTIP_HIDE_DELAY)
@@ -3588,6 +3588,62 @@ impl ScrollHandle {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{AppContext as _, Context, Modifiers, TestAppContext, size};
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering::SeqCst},
+    };
+
+    struct TooltipLifecycleCounts {
+        created: AtomicUsize,
+        dropped: AtomicUsize,
+    }
+
+    struct DropTrackingTooltip {
+        tooltip_lifecycle_counts: Arc<TooltipLifecycleCounts>,
+    }
+
+    impl Drop for DropTrackingTooltip {
+        fn drop(&mut self) {
+            self.tooltip_lifecycle_counts.dropped.fetch_add(1, SeqCst);
+        }
+    }
+
+    impl Render for DropTrackingTooltip {
+        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            div().w(px(20.)).h(px(20.)).child("tooltip")
+        }
+    }
+
+    struct TooltipOwner {
+        show_target: bool,
+        tooltip_lifecycle_counts: Arc<TooltipLifecycleCounts>,
+    }
+
+    impl Render for TooltipOwner {
+        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            let root = div().size_full();
+            if self.show_target {
+                let tooltip_lifecycle_counts = self.tooltip_lifecycle_counts.clone();
+                root.child(
+                    div()
+                        .id("target")
+                        .w(px(50.))
+                        .h(px(50.))
+                        .tooltip(move |_window, cx| {
+                            tooltip_lifecycle_counts.created.fetch_add(1, SeqCst);
+                            let tooltip_lifecycle_counts = tooltip_lifecycle_counts.clone();
+                            cx.new(|_| DropTrackingTooltip {
+                                tooltip_lifecycle_counts,
+                            })
+                            .into()
+                        }),
+                )
+            } else {
+                root
+            }
+        }
+    }
 
     #[test]
     fn scroll_handle_aligns_wide_children_to_left_edge() {
@@ -3625,5 +3681,50 @@ mod tests {
         handle.scroll_to_active_item();
 
         assert_eq!(handle.offset().y, px(-25.));
+    }
+
+    #[test]
+    fn tooltip_is_released_when_its_owner_disappears() {
+        let mut test_app = TestAppContext::single();
+        let tooltip_lifecycle_counts = Arc::new(TooltipLifecycleCounts {
+            created: AtomicUsize::new(0),
+            dropped: AtomicUsize::new(0),
+        });
+
+        let (view, cx) = test_app.add_window_view({
+            let tooltip_lifecycle_counts = tooltip_lifecycle_counts.clone();
+            move |_window, _cx| TooltipOwner {
+                show_target: true,
+                tooltip_lifecycle_counts,
+            }
+        });
+
+        cx.draw(point(px(0.), px(0.)), size(px(100.), px(100.)), |_, _| {
+            view.clone().into_any_element()
+        });
+        cx.simulate_mouse_move(point(px(10.), px(10.)), None, Modifiers::default());
+        cx.run_until_parked();
+        cx.draw(point(px(0.), px(0.)), size(px(100.), px(100.)), |_, _| {
+            view.clone().into_any_element()
+        });
+
+        assert_eq!(tooltip_lifecycle_counts.created.load(SeqCst), 1);
+        assert_eq!(tooltip_lifecycle_counts.dropped.load(SeqCst), 0);
+
+        cx.update(|_window, app| {
+            view.update(app, |tooltip_owner, cx| {
+                tooltip_owner.show_target = false;
+                cx.notify();
+            });
+        });
+        cx.draw(point(px(0.), px(0.)), size(px(100.), px(100.)), |_, _| {
+            view.clone().into_any_element()
+        });
+        cx.run_until_parked();
+        cx.draw(point(px(0.), px(0.)), size(px(100.), px(100.)), |_, _| {
+            view.clone().into_any_element()
+        });
+
+        assert_eq!(tooltip_lifecycle_counts.dropped.load(SeqCst), 1);
     }
 }
