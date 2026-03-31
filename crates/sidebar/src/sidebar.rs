@@ -700,10 +700,22 @@ impl Sidebar {
                 if panel.read(cx).active_thread_is_draft(cx)
                     || panel.read(cx).active_conversation_view().is_none()
                 {
-                    let preserving_thread =
-                        matches!(&self.active_entry, Some(ActiveEntry::Thread { .. }))
-                            && self.active_entry_workspace() == Some(active_ws);
-                    if !preserving_thread {
+                    // When the sidebar eagerly sets active_entry to a Thread
+                    // (e.g. via activate_thread_locally), the panel may
+                    // temporarily report as a draft while the conversation
+                    // is still loading. Don't overwrite the Thread entry in
+                    // that case — unless the thread has since been archived.
+                    let thread_is_loading =
+                        if let Some(ActiveEntry::Thread { session_id, .. }) = &self.active_entry {
+                            self.active_entry_workspace() == Some(active_ws)
+                                && !ThreadMetadataStore::global(cx)
+                                    .read(cx)
+                                    .entry(session_id)
+                                    .is_some_and(|m| m.archived)
+                        } else {
+                            false
+                        };
+                    if !thread_is_loading {
                         let draft_session_id = panel
                             .read(cx)
                             .active_conversation_view()
@@ -803,7 +815,7 @@ impl Sidebar {
             let mut waiting_thread_count: usize = 0;
 
             if should_load_threads {
-                let mut seen_session_ids: HashSet<acp::SessionId> = HashSet::new();
+                let mut seen_session_ids: HashSet<acp::SessionId> = HashSet::default();
                 let thread_store = ThreadMetadataStore::global(cx);
 
                 // Load threads from each workspace in the group.
@@ -1523,7 +1535,12 @@ impl Sidebar {
                                     // the new-thread entry becomes visible.
                                     this.collapsed_groups.remove(&path_list_for_new_thread);
                                     this.selection = None;
-                                    this.create_new_thread(&workspace_for_new_thread, window, cx);
+                                    this.create_new_thread(
+                                        &workspace_for_new_thread,
+                                        None,
+                                        window,
+                                        cx,
+                                    );
                                 }
                             })),
                         )
@@ -2002,9 +2019,16 @@ impl Sidebar {
                 self.serialize(cx);
                 self.update_entries(cx);
             }
-            ListEntry::NewThread { workspace, .. } => {
+            ListEntry::NewThread {
+                workspace,
+                draft_thread,
+                ..
+            } => {
                 let workspace = workspace.clone();
-                self.create_new_thread(&workspace, window, cx);
+                let draft_session_id = draft_thread
+                    .as_ref()
+                    .map(|t| t.read(cx).session_id().clone());
+                self.create_new_thread(&workspace, draft_session_id, window, cx);
             }
         }
     }
@@ -3056,12 +3080,13 @@ impl Sidebar {
             return;
         };
 
-        self.create_new_thread(&workspace, window, cx);
+        self.create_new_thread(&workspace, None, window, cx);
     }
 
     fn create_new_thread(
         &mut self,
         workspace: &Entity<Workspace>,
+        draft_session_id: Option<acp::SessionId>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -3069,7 +3094,10 @@ impl Sidebar {
             return;
         };
 
-        self.active_entry = Some(ActiveEntry::draft_for_workspace(workspace.clone()));
+        self.active_entry = Some(ActiveEntry::Draft {
+            session_id: draft_session_id.clone(),
+            workspace: workspace.clone(),
+        });
 
         multi_workspace.update(cx, |multi_workspace, cx| {
             multi_workspace.activate(workspace.clone(), window, cx);
@@ -3078,7 +3106,19 @@ impl Sidebar {
         workspace.update(cx, |workspace, cx| {
             if let Some(agent_panel) = workspace.panel::<AgentPanel>(cx) {
                 agent_panel.update(cx, |panel, cx| {
-                    panel.new_thread(&NewThread, window, cx);
+                    if let Some(session_id) = draft_session_id {
+                        panel.load_agent_thread(
+                            Agent::NativeAgent,
+                            session_id,
+                            None,
+                            None,
+                            true,
+                            window,
+                            cx,
+                        );
+                    } else {
+                        panel.new_thread(&NewThread, window, cx);
+                    }
                 });
             }
             workspace.focus_panel::<AgentPanel>(window, cx);
@@ -3101,6 +3141,7 @@ impl Sidebar {
             .unwrap_or_else(|| DEFAULT_THREAD_TITLE.into());
 
         let workspace = workspace.clone();
+        let draft_session_id = draft_thread.map(|thread| thread.read(cx).session_id().clone());
         let id = SharedString::from(format!("new-thread-btn-{}", ix));
 
         let thread_item = ThreadItem::new(id, label)
@@ -3121,7 +3162,7 @@ impl Sidebar {
             .when(!is_active, |this| {
                 this.on_click(cx.listener(move |this, _, window, cx| {
                     this.selection = None;
-                    this.create_new_thread(&workspace, window, cx);
+                    this.create_new_thread(&workspace, draft_session_id.clone(), window, cx);
                 }))
             });
 
@@ -3636,8 +3677,25 @@ fn summarize_content_blocks(blocks: &[acp::ContentBlock]) -> Option<SharedString
             acp::ContentBlock::ResourceLink(link) => {
                 text.push_str(&format!("@{}", link.name));
             }
-            acp::ContentBlock::Image(_) => {
-                text.push_str("[image]");
+            acp::ContentBlock::Resource(resource) => {
+                if let acp::EmbeddedResourceResource::TextResourceContents(
+                    acp::TextResourceContents { uri, .. },
+                ) = &resource.resource
+                {
+                    let name = uri.rsplit('/').next().unwrap_or(uri);
+                    text.push_str(&format!("@{}", name));
+                }
+            }
+            acp::ContentBlock::Image(image) => {
+                let name = image
+                    .uri
+                    .as_ref()
+                    .map(|uri| uri.rsplit('/').next().unwrap_or(uri))
+                    .unwrap_or(&image.mime_type);
+                text.push_str(&format!("@{}", name));
+            }
+            agent_client_protocol::ContentBlock::Audio(audio) => {
+                text.push_str(&format!("@{}", audio.mime_type));
             }
             _ => {}
         }

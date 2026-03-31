@@ -198,7 +198,12 @@ impl ThreadMetadataStore {
     pub fn init_global(cx: &mut App) {
         let thread = std::thread::current();
         let test_name = thread.name().unwrap_or("unknown_test");
-        let db_name = format!("THREAD_METADATA_DB_{}", test_name);
+        Self::init_global_with_name(test_name, cx);
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn init_global_with_name(name: &str, cx: &mut App) {
+        let db_name = format!("THREAD_METADATA_DB_{}", name);
         let db = smol::block_on(db::open_test_db::<ThreadMetadataDb>(&db_name));
         let thread_store = cx.new(|cx| Self::new(ThreadMetadataDb(db), cx));
         cx.set_global(GlobalThreadMetadataStore(thread_store));
@@ -364,9 +369,9 @@ impl ThreadMetadataStore {
                         .update(cx, |store, cx| {
                             let session_id = thread.session_id().clone();
                             store.session_subscriptions.remove(&session_id);
-                            if thread.entries().is_empty() {
-                                // Empty threads can be unloaded without ever being
-                                // durably persisted by the underlying agent.
+                            let is_blank = thread.entries().is_empty()
+                                && thread.draft_prompt().is_none_or(|p| p.is_empty());
+                            if is_blank {
                                 store.delete(session_id, cx);
                             }
                         })

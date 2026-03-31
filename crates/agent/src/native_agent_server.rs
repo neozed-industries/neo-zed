@@ -1,4 +1,5 @@
 use std::{any::Any, rc::Rc, sync::Arc};
+use util::ResultExt as _;
 
 use agent_client_protocol as acp;
 use agent_servers::{AgentServer, AgentServerDelegate};
@@ -45,17 +46,13 @@ impl AgentServer for NativeAgentServer {
         let thread_store = self.thread_store.clone();
         let prompt_store = PromptStore::global(cx);
         cx.spawn(async move |cx| {
-            log::debug!("Creating templates for native agent");
             let templates = Templates::new();
-            let prompt_store = prompt_store.await?;
+            let prompt_store = prompt_store.await.log_err();
 
-            log::debug!("Creating native agent entity");
-            let agent = cx
-                .update(|cx| NativeAgent::new(thread_store, templates, Some(prompt_store), fs, cx));
+            let agent =
+                cx.update(|cx| NativeAgent::new(thread_store, templates, prompt_store, fs, cx));
 
-            // Create the connection wrapper
             let connection = NativeAgentConnection(agent);
-            log::debug!("NativeAgentServer connection established successfully");
 
             Ok(Rc::new(connection) as Rc<dyn acp_thread::AgentConnection>)
         })

@@ -974,14 +974,19 @@ impl NativeAgent {
     }
 
     fn save_thread(&mut self, thread: Entity<Thread>, cx: &mut Context<Self>) {
-        if thread.read(cx).is_empty() {
-            return;
-        }
-
         let id = thread.read(cx).id().clone();
         let Some(session) = self.sessions.get_mut(&id) else {
             return;
         };
+
+        let has_draft_prompt = session
+            .acp_thread
+            .read(cx)
+            .draft_prompt()
+            .is_some_and(|p| !p.is_empty());
+        if thread.read(cx).is_empty() && !has_draft_prompt {
+            return;
+        }
 
         let project_id = session.project_id;
         let Some(state) = self.projects.get(&project_id) else {

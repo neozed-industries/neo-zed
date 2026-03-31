@@ -154,6 +154,56 @@ async fn save_thread_metadata(
     cx.run_until_parked();
 }
 
+fn save_thread_with_content(
+    session_id: &acp::SessionId,
+    path_list: PathList,
+    cx: &mut gpui::VisualTestContext,
+) {
+    let title: SharedString = "Test".into();
+    let updated_at = chrono::TimeZone::with_ymd_and_hms(&chrono::Utc, 2024, 1, 1, 0, 0, 0).unwrap();
+    let metadata = ThreadMetadata {
+        session_id: session_id.clone(),
+        agent_id: agent::ZED_AGENT_ID.clone(),
+        title: title.clone(),
+        updated_at,
+        created_at: None,
+        folder_paths: path_list.clone(),
+        archived: false,
+    };
+    let session_id = session_id.clone();
+    cx.update(|_, cx| {
+        ThreadMetadataStore::global(cx).update(cx, |store, cx| store.save(metadata, cx));
+
+        let db_thread = agent::DbThread {
+            title,
+            messages: vec![agent::Message::User(agent::UserMessage {
+                id: acp_thread::UserMessageId::new(),
+                content: vec![agent::UserMessageContent::Text("Hello".to_string())],
+            })],
+            updated_at,
+            detailed_summary: None,
+            initial_project_snapshot: None,
+            cumulative_token_usage: Default::default(),
+            request_token_usage: Default::default(),
+            model: None,
+            profile: None,
+            imported: false,
+            subagent_context: None,
+            speed: None,
+            thinking_enabled: false,
+            thinking_effort: None,
+            draft_prompt: None,
+            ui_scroll_position: None,
+        };
+        ThreadStore::global(cx)
+            .update(cx, |store, cx| {
+                store.save_thread(session_id, db_thread, path_list, cx)
+            })
+            .detach_and_log_err(cx);
+    });
+    cx.run_until_parked();
+}
+
 fn open_and_focus_sidebar(sidebar: &Entity<Sidebar>, cx: &mut gpui::VisualTestContext) {
     let multi_workspace = sidebar.read_with(cx, |s, _| s.multi_workspace.upgrade());
     if let Some(multi_workspace) = multi_workspace {
@@ -2272,7 +2322,7 @@ async fn test_new_thread_button_works_after_adding_folder(cx: &mut TestAppContex
     // verify a new draft is created.
     let workspace = multi_workspace.read_with(cx, |mw, _cx| mw.workspace().clone());
     sidebar.update_in(cx, |sidebar, window, cx| {
-        sidebar.create_new_thread(&workspace, window, cx);
+        sidebar.create_new_thread(&workspace, None, window, cx);
     });
     cx.run_until_parked();
 
@@ -4994,16 +5044,47 @@ mod property_test {
             .unwrap()
             + chrono::Duration::seconds(state.thread_counter as i64);
         let metadata = ThreadMetadata {
-            session_id,
+            session_id: session_id.clone(),
             agent_id: agent::ZED_AGENT_ID.clone(),
-            title,
+            title: title.clone(),
             updated_at,
             created_at: None,
-            folder_paths: path_list,
+            folder_paths: path_list.clone(),
             archived: false,
         };
+        // Save to both stores: ThreadMetadataStore (used by sidebar for
+        // listing) and ThreadStore (used by NativeAgentServer for loading
+        // thread content). In production these are populated through
+        // different paths, but tests need both.
         cx.update(|_, cx| {
             ThreadMetadataStore::global(cx).update(cx, |store, cx| store.save(metadata, cx));
+
+            let db_thread = agent::DbThread {
+                title,
+                messages: vec![agent::Message::User(agent::UserMessage {
+                    id: acp_thread::UserMessageId::new(),
+                    content: vec![agent::UserMessageContent::Text("Hello".to_string())],
+                })],
+                updated_at,
+                detailed_summary: None,
+                initial_project_snapshot: None,
+                cumulative_token_usage: Default::default(),
+                request_token_usage: Default::default(),
+                model: None,
+                profile: None,
+                imported: false,
+                subagent_context: None,
+                speed: None,
+                thinking_enabled: false,
+                thinking_effort: None,
+                draft_prompt: None,
+                ui_scroll_position: None,
+            };
+            ThreadStore::global(cx)
+                .update(cx, |store, cx| {
+                    store.save_thread(session_id, db_thread, path_list, cx)
+                })
+                .detach_and_log_err(cx);
         });
     }
 
@@ -5018,9 +5099,24 @@ mod property_test {
             Operation::SaveThread { workspace_index } => {
                 let workspace =
                     multi_workspace.read_with(cx, |mw, _| mw.workspaces()[workspace_index].clone());
-                let path_list = workspace
-                    .read_with(cx, |workspace, cx| PathList::new(&workspace.root_paths(cx)));
-                save_thread_to_path(state, path_list, cx);
+                let panel =
+                    workspace.read_with(cx, |workspace, cx| workspace.panel::<AgentPanel>(cx));
+                if let Some(panel) = panel {
+                    let title = format!("Thread {}", state.thread_counter);
+                    let connection = StubAgentConnection::new();
+                    connection.set_next_prompt_updates(vec![
+                        acp::SessionUpdate::AgentMessageChunk(acp::ContentChunk::new(title.into())),
+                    ]);
+                    open_thread_with_connection(&panel, connection, cx);
+                    send_message(&panel, cx);
+                    let session_id = active_session_id(&panel, cx);
+                    state.thread_counter += 1;
+                    state.saved_thread_ids.push(session_id.clone());
+
+                    let path_list = workspace
+                        .read_with(cx, |workspace, cx| PathList::new(&workspace.root_paths(cx)));
+                    save_thread_with_content(&session_id, path_list, cx);
+                }
             }
             Operation::SaveWorktreeThread { worktree_index } => {
                 let worktree = &state.unopened_worktrees[worktree_index];
@@ -5068,33 +5164,8 @@ mod property_test {
                         .find(|m| m.session_id == session_id)
                 });
                 if let Some(metadata) = metadata {
-                    let panel =
-                        workspace.read_with(cx, |workspace, cx| workspace.panel::<AgentPanel>(cx));
-                    if let Some(panel) = panel {
-                        let connection = StubAgentConnection::new();
-                        connection.set_next_prompt_updates(vec![
-                            acp::SessionUpdate::AgentMessageChunk(acp::ContentChunk::new(
-                                metadata.title.to_string().into(),
-                            )),
-                        ]);
-                        open_thread_with_connection(&panel, connection, cx);
-                        send_message(&panel, cx);
-                        let panel_session_id = active_session_id(&panel, cx);
-                        // Replace the old metadata entry with one that
-                        // uses the panel's actual session ID.
-                        let old_session_id = metadata.session_id.clone();
-                        let mut updated_metadata = metadata.clone();
-                        updated_metadata.session_id = panel_session_id.clone();
-                        cx.update(|_, cx| {
-                            ThreadMetadataStore::global(cx).update(cx, |store, cx| {
-                                store.delete(old_session_id, cx);
-                                store.save(updated_metadata, cx);
-                            });
-                        });
-                        state.saved_thread_ids[index] = panel_session_id;
-                    }
-                    _sidebar.update_in(cx, |sidebar, _window, cx| {
-                        sidebar.update_entries(cx);
+                    _sidebar.update_in(cx, |sidebar, window, cx| {
+                        sidebar.activate_thread_locally(&metadata, &workspace, window, cx);
                     });
                 }
             }
@@ -5423,18 +5494,24 @@ mod property_test {
         raw_operations: Vec<u32>,
         cx: &mut TestAppContext,
     ) {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        static ITERATION: AtomicUsize = AtomicUsize::new(0);
+        let iteration = ITERATION.fetch_add(1, Ordering::SeqCst);
+        let project_path = format!("/my-project-{iteration}");
+        let db_name = format!("sidebar_invariants_{iteration}");
+
         agent_ui::test_support::init_test(cx);
         cx.update(|cx| {
             cx.update_flags(false, vec!["agent-v2".into()]);
             ThreadStore::init_global(cx);
-            ThreadMetadataStore::init_global(cx);
+            ThreadMetadataStore::init_global_with_name(&db_name, cx);
             language_model::LanguageModelRegistry::test(cx);
             prompt_store::init(cx);
         });
 
         let fs = FakeFs::new(cx.executor());
         fs.insert_tree(
-            "/my-project",
+            &project_path,
             serde_json::json!({
                 ".git": {},
                 "src": {},
@@ -5443,7 +5520,7 @@ mod property_test {
         .await;
         cx.update(|cx| <dyn fs::Fs>::set_global(fs.clone(), cx));
         let project =
-            project::Project::test(fs.clone() as Arc<dyn fs::Fs>, ["/my-project".as_ref()], cx)
+            project::Project::test(fs.clone() as Arc<dyn fs::Fs>, [project_path.as_ref()], cx)
                 .await;
         project.update(cx, |p, cx| p.git_scans_complete(cx)).await;
 
@@ -5451,7 +5528,7 @@ mod property_test {
             cx.add_window_view(|window, cx| MultiWorkspace::test_new(project.clone(), window, cx));
         let (sidebar, _panel) = setup_sidebar_with_agent_panel(&multi_workspace, &project, cx);
 
-        let mut state = TestState::new(fs, "/my-project".to_string());
+        let mut state = TestState::new(fs, project_path);
         let mut executed: Vec<String> = Vec::new();
 
         for &raw_op in &raw_operations {

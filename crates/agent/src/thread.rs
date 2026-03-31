@@ -1373,7 +1373,9 @@ impl Thread {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.messages.is_empty() && self.title.is_none()
+        self.messages.is_empty()
+            && self.title.is_none()
+            && self.draft_prompt.as_ref().is_none_or(|p| p.is_empty())
     }
 
     pub fn draft_prompt(&self) -> Option<&[acp::ContentBlock]> {
