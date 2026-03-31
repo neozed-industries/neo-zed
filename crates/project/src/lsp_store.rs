@@ -4184,6 +4184,11 @@ impl LspStore {
         }
     }
 
+    pub fn is_buffer_being_formatted(&self, buffer_id: BufferId) -> bool {
+        self.as_local()
+            .is_some_and(|local| local.buffers_being_formatted.contains(&buffer_id))
+    }
+
     pub fn as_local_mut(&mut self) -> Option<&mut LocalLspStore> {
         match &mut self.mode {
             LspStoreMode::Local(local_lsp_store) => Some(local_lsp_store),

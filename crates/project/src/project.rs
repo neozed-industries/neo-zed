@@ -3694,7 +3694,9 @@ impl Project {
         let buffer_id = buffer.read(cx).remote_id();
         match event {
             BufferEvent::ReloadNeeded => {
-                if !self.is_via_collab() {
+                if !self.is_via_collab()
+                    && !self.lsp_store.read(cx).is_buffer_being_formatted(buffer_id)
+                {
                     self.reload_buffers([buffer.clone()].into_iter().collect(), true, cx)
                         .detach_and_log_err(cx);
                 }
