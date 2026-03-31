@@ -1,6 +1,6 @@
 mod api_key;
 mod model;
-pub mod provider;
+mod provider;
 mod rate_limiter;
 mod registry;
 mod request;
@@ -20,7 +20,6 @@ use gpui::{AnyView, App, AsyncApp, Entity, SharedString, Task, Window};
 use http_client::{StatusCode, http};
 use icons::IconName;
 use parking_lot::Mutex;
-use provider::parse_prompt_too_long;
 use serde::{Deserialize, Serialize};
 use std::ops::{Add, Sub};
 use std::str::FromStr;
@@ -37,6 +36,7 @@ pub use crate::registry::*;
 pub use crate::request::*;
 pub use crate::role::*;
 pub use crate::tool_schema::LanguageModelToolSchemaFormat;
+pub use provider::*;
 pub use zed_env_vars::{EnvVar, env_var};
 
 pub fn init(user_store: Entity<UserStore>, client: Arc<Client>, cx: &mut App) {
@@ -252,12 +252,7 @@ impl LanguageModelCompletionError {
             .strip_prefix("http_")
             .and_then(|code| StatusCode::from_str(code).ok())
         {
-            Self::from_http_status(
-                provider::ZED_CLOUD_PROVIDER_NAME,
-                status_code,
-                message,
-                retry_after,
-            )
+            Self::from_http_status(ZED_CLOUD_PROVIDER_NAME, status_code, message, retry_after)
         } else {
             anyhow!("completion request failed, code: {code}, message: {message}").into()
         }

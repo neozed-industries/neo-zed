@@ -10,8 +10,8 @@ use language_model::{
     LanguageModelProvider, LanguageModelProviderId, LanguageModelProviderName,
     LanguageModelProviderState, LanguageModelRequest, LanguageModelRequestMessage,
     LanguageModelToolChoice, LanguageModelToolResultContent, LanguageModelToolUse,
-    LanguageModelToolUseId, MessageContent, RateLimiter, Role, StopReason, TokenUsage, env_var,
-    provider::{OPEN_AI_PROVIDER_ID, OPEN_AI_PROVIDER_NAME},
+    LanguageModelToolUseId, MessageContent, OPEN_AI_PROVIDER_ID, OPEN_AI_PROVIDER_NAME,
+    RateLimiter, Role, StopReason, TokenUsage, env_var,
 };
 use menu;
 use open_ai::responses::{
