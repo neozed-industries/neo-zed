@@ -4121,7 +4121,7 @@ fn window_and_layout_page() -> SettingsPage {
         ]
     }
 
-    fn layout_section() -> [SettingsPageItem; 5] {
+    fn layout_section() -> [SettingsPageItem; 6] {
         [
             SettingsPageItem::SectionHeader("Layout"),
             SettingsPageItem::SettingItem(SettingItem {
@@ -4189,12 +4189,43 @@ fn window_and_layout_page() -> SettingsPage {
                 title: "Focus Follows Mouse",
                 description: "Whether to change focus to a pane when the mouse hovers over it.",
                 field: Box::new(SettingField {
-                    json_path: Some("focus_follows_mouse"),
+                    json_path: Some("focus_follows_mouse.enabled"),
                     pick: |settings_content| {
-                        settings_content.workspace.focus_follows_mouse.as_ref()
+                        settings_content
+                            .workspace
+                            .focus_follows_mouse
+                            .as_ref()
+                            .and_then(|s| s.enabled.as_ref())
                     },
                     write: |settings_content, value| {
-                        settings_content.workspace.focus_follows_mouse = value;
+                        settings_content
+                            .workspace
+                            .focus_follows_mouse
+                            .get_or_insert_default()
+                            .enabled = value;
+                    },
+                }),
+                metadata: None,
+                files: USER,
+            }),
+            SettingsPageItem::SettingItem(SettingItem {
+                title: "Focus Follows Mouse Debounce ms",
+                description: "Amount of time to wait before changing focus.",
+                field: Box::new(SettingField {
+                    json_path: Some("focus_follows_mouse.debounce_ms"),
+                    pick: |settings_content| {
+                        settings_content
+                            .workspace
+                            .focus_follows_mouse
+                            .as_ref()
+                            .and_then(|s| s.debounce_ms.as_ref())
+                    },
+                    write: |settings_content, value| {
+                        settings_content
+                            .workspace
+                            .focus_follows_mouse
+                            .get_or_insert_default()
+                            .debounce_ms = value;
                     },
                 }),
                 metadata: None,
