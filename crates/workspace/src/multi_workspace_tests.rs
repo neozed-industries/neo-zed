@@ -98,7 +98,12 @@ async fn test_replace(cx: &mut TestAppContext) {
     let (multi_workspace, cx) =
         cx.add_window_view(|window, cx| MultiWorkspace::test_new(project_a.clone(), window, cx));
 
-    let workspace_a_id = multi_workspace.read_with(cx, |mw, _cx| mw.workspaces()[0].entity_id());
+    let workspace_a_id = multi_workspace.read_with(cx, |mw, _cx| {
+        mw.workspaces()
+            .next()
+            .expect("workspace should exist")
+            .entity_id()
+    });
 
     // Replace the only workspace (single-workspace case).
     let workspace_b = multi_workspace.update_in(cx, |mw, window, cx| {
@@ -108,14 +113,20 @@ async fn test_replace(cx: &mut TestAppContext) {
     });
 
     multi_workspace.read_with(cx, |mw, _cx| {
-        assert_eq!(mw.workspaces().len(), 1);
+        assert_eq!(mw.len(), 1);
         assert_eq!(
-            mw.workspaces()[0].entity_id(),
+            mw.workspaces()
+                .next()
+                .expect("workspace should exist")
+                .entity_id(),
             workspace_b.entity_id(),
             "slot should now be project_b"
         );
         assert_ne!(
-            mw.workspaces()[0].entity_id(),
+            mw.workspaces()
+                .next()
+                .expect("workspace should exist")
+                .entity_id(),
             workspace_a_id,
             "project_a should be gone"
         );
@@ -127,8 +138,12 @@ async fn test_replace(cx: &mut TestAppContext) {
     });
 
     multi_workspace.read_with(cx, |mw, _cx| {
-        assert_eq!(mw.workspaces().len(), 2);
-        assert_eq!(mw.active_workspace_index(), 1);
+        assert_eq!(mw.len(), 2);
+        assert_eq!(
+            mw.workspaces()
+                .position(|workspace| workspace == mw.active_workspace()),
+            Some(1)
+        );
     });
 
     let workspace_d = multi_workspace.update_in(cx, |mw, window, cx| {
@@ -138,15 +153,25 @@ async fn test_replace(cx: &mut TestAppContext) {
     });
 
     multi_workspace.read_with(cx, |mw, _cx| {
-        assert_eq!(mw.workspaces().len(), 2, "should still have 2 workspaces");
-        assert_eq!(mw.active_workspace_index(), 1);
+        assert_eq!(mw.len(), 2, "should still have 2 workspaces");
         assert_eq!(
-            mw.workspaces()[1].entity_id(),
+            mw.workspaces()
+                .position(|workspace| workspace == mw.active_workspace()),
+            Some(1)
+        );
+        assert_eq!(
+            mw.workspaces()
+                .nth(1)
+                .expect("no workspace at index 1")
+                .entity_id(),
             workspace_d.entity_id(),
             "active slot should now be project_d"
         );
         assert_ne!(
-            mw.workspaces()[1].entity_id(),
+            mw.workspaces()
+                .nth(1)
+                .expect("no workspace at index 1")
+                .entity_id(),
             workspace_c.entity_id(),
             "project_c should be gone"
         );
@@ -158,14 +183,11 @@ async fn test_replace(cx: &mut TestAppContext) {
     });
 
     multi_workspace.read_with(cx, |mw, _cx| {
+        assert_eq!(mw.len(), 2, "no workspace should be added or removed");
         assert_eq!(
-            mw.workspaces().len(),
-            2,
-            "no workspace should be added or removed"
-        );
-        assert_eq!(
-            mw.active_workspace_index(),
-            0,
+            mw.workspaces()
+                .position(|workspace| workspace == mw.active_workspace()),
+            Some(0),
             "should have switched to workspace_b"
         );
     });

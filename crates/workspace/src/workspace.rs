@@ -8718,12 +8718,10 @@ pub async fn restore_multiworkspace(
     if let Some(target_id) = state.active_workspace_id {
         window_handle
             .update(cx, |multi_workspace, window, cx| {
-                let target_index = multi_workspace
+                let target_workspace = multi_workspace
                     .workspaces()
-                    .iter()
-                    .position(|ws| ws.read(cx).database_id() == Some(target_id));
-                let index = target_index.unwrap_or(0);
-                if let Some(workspace) = multi_workspace.workspaces().get(index).cloned() {
+                    .find(|ws| ws.read(cx).database_id() == Some(target_id));
+                if let Some(workspace) = target_workspace {
                     multi_workspace.activate(workspace, window, cx);
                 }
             })
@@ -8731,7 +8729,8 @@ pub async fn restore_multiworkspace(
     } else {
         window_handle
             .update(cx, |multi_workspace, window, cx| {
-                if let Some(workspace) = multi_workspace.workspaces().first().cloned() {
+                let first_workspace = multi_workspace.workspaces().next();
+                if let Some(workspace) = first_workspace {
                     multi_workspace.activate(workspace, window, cx);
                 }
             })
@@ -9136,7 +9135,7 @@ pub fn workspace_windows_for_location(
             };
 
             multi_workspace.read(cx).is_ok_and(|multi_workspace| {
-                multi_workspace.workspaces().iter().any(|workspace| {
+                multi_workspace.workspaces().any(|workspace| {
                     match workspace.read(cx).workspace_location(cx) {
                         WorkspaceLocation::Location(location, _) => {
                             match (&location, serialized_location) {
@@ -10783,7 +10782,11 @@ mod tests {
         // Activate workspace A
         multi_workspace_handle
             .update(cx, |mw, window, cx| {
-                let workspace = mw.workspaces()[0].clone();
+                let workspace = mw
+                    .workspaces()
+                    .nth(0)
+                    .expect("no workspace at index 0")
+                    .clone();
                 mw.activate(workspace, window, cx);
             })
             .unwrap();
@@ -10805,7 +10808,11 @@ mod tests {
         // Verify workspace A is active
         multi_workspace_handle
             .read_with(cx, |mw, _| {
-                assert_eq!(mw.active_workspace_index(), 0);
+                assert_eq!(
+                    mw.workspaces()
+                        .position(|workspace| workspace == mw.active_workspace()),
+                    Some(0)
+                );
             })
             .unwrap();
 
@@ -10821,8 +10828,9 @@ mod tests {
         multi_workspace_handle
             .read_with(cx, |mw, _| {
                 assert_eq!(
-                    mw.active_workspace_index(),
-                    1,
+                    mw.workspaces()
+                        .position(|workspace| workspace == mw.active_workspace()),
+                    Some(1),
                     "workspace B should be activated when it prompts"
                 );
             })
@@ -14553,7 +14561,7 @@ mod tests {
         // Switch to workspace A
         multi_workspace_handle
             .update(cx, |mw, window, cx| {
-                let workspace = mw.workspaces()[0].clone();
+                let workspace = mw.workspaces().next().expect("no workspace").clone();
                 mw.activate(workspace, window, cx);
             })
             .unwrap();
@@ -14599,7 +14607,11 @@ mod tests {
         // Switch to workspace B
         multi_workspace_handle
             .update(cx, |mw, window, cx| {
-                let workspace = mw.workspaces()[1].clone();
+                let workspace = mw
+                    .workspaces()
+                    .nth(1)
+                    .expect("no workspace at index 1")
+                    .clone();
                 mw.activate(workspace, window, cx);
             })
             .unwrap();
@@ -14608,7 +14620,11 @@ mod tests {
         // Switch back to workspace A
         multi_workspace_handle
             .update(cx, |mw, window, cx| {
-                let workspace = mw.workspaces()[0].clone();
+                let workspace = mw
+                    .workspaces()
+                    .nth(0)
+                    .expect("no workspace at index 0")
+                    .clone();
                 mw.activate(workspace, window, cx);
             })
             .unwrap();

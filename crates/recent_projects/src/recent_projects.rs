@@ -357,7 +357,6 @@ pub fn init(cx: &mut App) {
                         .update(cx, |multi_workspace, window, cx| {
                             let sibling_workspace_ids: HashSet<WorkspaceId> = multi_workspace
                                 .workspaces()
-                                .iter()
                                 .filter_map(|ws| ws.read(cx).database_id())
                                 .collect();
 
@@ -1113,9 +1112,7 @@ impl PickerDelegate for RecentProjectsDelegate {
                             .update(cx, |multi_workspace, window, cx| {
                                 let workspace = multi_workspace
                                     .workspaces()
-                                    .iter()
-                                    .find(|ws| ws.read(cx).database_id() == Some(workspace_id))
-                                    .cloned();
+                                    .find(|ws| ws.read(cx).database_id() == Some(workspace_id));
                                 if let Some(workspace) = workspace {
                                     multi_workspace.activate(workspace, window, cx);
                                 }
@@ -1932,9 +1929,7 @@ impl RecentProjectsDelegate {
                     .update(cx, |multi_workspace, window, cx| {
                         let workspace = multi_workspace
                             .workspaces()
-                            .iter()
-                            .find(|ws| ws.read(cx).database_id() == Some(workspace_id))
-                            .cloned();
+                            .find(|ws| ws.read(cx).database_id() == Some(workspace_id));
                         if let Some(workspace) = workspace {
                             multi_workspace.remove(&workspace, window, cx);
                         }
@@ -2143,7 +2138,9 @@ mod tests {
                 );
 
                 assert!(
-                    !multi_workspace.workspaces().contains(&dirty_workspace),
+                    !multi_workspace
+                        .workspaces()
+                        .any(|workspace| workspace == dirty_workspace),
                     "The original dirty workspace should have been replaced"
                 );
 

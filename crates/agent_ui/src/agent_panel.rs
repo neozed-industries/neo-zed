@@ -5171,7 +5171,7 @@ mod tests {
         multi_workspace
             .read_with(cx, |multi_workspace, _cx| {
                 assert_eq!(
-                    multi_workspace.workspaces().len(),
+                    multi_workspace.len(),
                     1,
                     "LocalProject should not create a new workspace"
                 );
@@ -5534,16 +5534,15 @@ mod tests {
             .read_with(cx, |multi_workspace, cx| {
                 // There should be more than one workspace now (the original + the new worktree).
                 assert!(
-                    multi_workspace.workspaces().len() > 1,
+                    multi_workspace.len() > 1,
                     "expected a new workspace to have been created, found {}",
-                    multi_workspace.workspaces().len(),
+                    multi_workspace.len(),
                 );
 
                 // Check the newest workspace's panel for the correct agent.
-                let workspaces = multi_workspace.workspaces();
-                let new_workspace = workspaces
-                    .iter()
-                    .find(|ws| ws.entity_id() != workspace.entity_id())
+                let new_workspace = multi_workspace
+                    .workspaces()
+                    .find(|ws| *ws != workspace)
                     .expect("should find the new workspace");
                 let new_panel = new_workspace
                     .read(cx)
