@@ -18,7 +18,7 @@ use feature_flags::{AgentV2FeatureFlag, FeatureFlagViewExt as _};
 use git::repository::{AskPassDelegate, CommitOptions, ResetMode};
 use gpui::{
     Action as _, AnyElement, App, AsyncWindowContext, Context, Entity, FocusHandle, Focusable,
-    KeyContext, ListState, Pixels, PromptLevel, Render, SharedString, WeakEntity, Window,
+    KeyContext, ListState, Pixels, PromptLevel, Render, SharedString, Task, WeakEntity, Window,
     WindowHandle, linear_color_stop, linear_gradient, list, prelude::*, px,
 };
 use menu::{
@@ -384,6 +384,7 @@ pub struct Sidebar {
     project_header_menu_ix: Option<usize>,
     _subscriptions: Vec<gpui::Subscription>,
     _draft_observation: Option<gpui::Subscription>,
+    pending_worktree_archives: HashMap<PathBuf, Task<anyhow::Result<()>>>,
 }
 
 fn find_main_repo_in_workspaces(
@@ -494,6 +495,7 @@ impl Sidebar {
             project_header_menu_ix: None,
             _subscriptions: Vec::new(),
             _draft_observation: None,
+            pending_worktree_archives: HashMap::default(),
         }
     }
 
@@ -2244,6 +2246,12 @@ impl Sidebar {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // Cancel any in-flight archive tasks for the paths we're about to
+        // restore, so a slow archive cannot delete a worktree we are restoring.
+        for path in &paths {
+            self.pending_worktree_archives.remove(path);
+        }
+
         let Some(multi_workspace) = self.multi_workspace.upgrade() else {
             return;
         };
@@ -2822,7 +2830,7 @@ impl Sidebar {
     /// that worktree, create a WIP commit, anchor it with a git ref, and
     /// delete the worktree.
     fn maybe_delete_git_worktree_for_archived_thread(
-        &self,
+        &mut self,
         session_id: &acp::SessionId,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -2890,13 +2898,27 @@ impl Sidebar {
         let worktree_path_str = worktree_path.to_string_lossy().to_string();
         let main_repo_path_str = main_repo_path.to_string_lossy().to_string();
         let session_id = session_id.clone();
+        let folder_paths_for_recheck = folder_paths.clone();
+        let worktree_path_for_key = worktree_path.clone();
 
-        cx.spawn_in(window, async move |_this, cx| {
+        let task = cx.spawn_in(window, async move |_this, cx| {
             if !is_last_thread {
                 return anyhow::Ok(());
             }
 
             let store = cx.update(|_window, cx| ThreadMetadataStore::global(cx))?;
+
+            // Re-check inside the async block to close the TOCTOU window:
+            // another thread on the same worktree may have been un-archived
+            // (or a new one created) between the synchronous check and here.
+            let still_last_thread = store.update(cx, |store, _cx| {
+                !store
+                    .entries_for_path(&folder_paths_for_recheck)
+                    .any(|entry| &entry.session_id != &session_id)
+            });
+            if !still_last_thread {
+                return anyhow::Ok(());
+            }
 
             // Helper: unarchive the thread so it reappears in the sidebar.
             let unarchive = |cx: &mut AsyncWindowContext| {
@@ -3191,8 +3213,9 @@ impl Sidebar {
             .log_err();
 
             anyhow::Ok(())
-        })
-        .detach_and_log_err(cx);
+        });
+        self.pending_worktree_archives
+            .insert(worktree_path_for_key, task);
     }
 
     fn remove_selected_thread(
