@@ -2879,40 +2879,10 @@ impl Sidebar {
             return;
         };
 
-        if folder_paths.paths().len() != 1 {
-            return;
-        }
-
-        let worktree_path = folder_paths.paths()[0].clone();
-
         let Some(multi_workspace) = self.multi_workspace.upgrade() else {
             return;
         };
         let workspaces = multi_workspace.read(cx).workspaces().to_vec();
-
-        let worktree_info = workspaces.iter().find_map(|workspace| {
-            let project = workspace.read(cx).project().clone();
-            project
-                .read(cx)
-                .repositories(cx)
-                .values()
-                .find_map(|repo_entity| {
-                    let snapshot = repo_entity.read(cx).snapshot();
-                    if snapshot.is_linked_worktree()
-                        && *snapshot.work_directory_abs_path == *worktree_path
-                    {
-                        let branch_name = snapshot.branch.as_ref().map(|b| b.name().to_string());
-                        let main_repo_path = snapshot.original_repo_abs_path;
-                        Some((repo_entity.clone(), branch_name, main_repo_path))
-                    } else {
-                        None
-                    }
-                })
-        });
-
-        let Some((worktree_repo, branch_name, main_repo_path)) = worktree_info else {
-            return;
-        };
 
         let store_entity = ThreadMetadataStore::global(cx);
         let is_last_thread = !store_entity
@@ -2920,330 +2890,407 @@ impl Sidebar {
             .entries_for_path(&folder_paths)
             .any(|entry| &entry.session_id != session_id);
 
-        let main_repo = find_main_repo_in_workspaces(&workspaces, &main_repo_path, cx);
+        // Collect info for each path that is a linked git worktree.
+        let mut linked_worktrees: Vec<(
+            Entity<git_store::Repository>,
+            PathBuf,
+            Option<String>,
+            std::sync::Arc<std::path::Path>,
+            Option<Entity<git_store::Repository>>,
+        )> = Vec::new();
+        for worktree_path in folder_paths.paths() {
+            if let Some(info) = workspaces.iter().find_map(|workspace| {
+                let project = workspace.read(cx).project().clone();
+                project
+                    .read(cx)
+                    .repositories(cx)
+                    .values()
+                    .find_map(|repo_entity| {
+                        let snapshot = repo_entity.read(cx).snapshot();
+                        if snapshot.is_linked_worktree()
+                            && *snapshot.work_directory_abs_path == *worktree_path
+                        {
+                            let branch_name =
+                                snapshot.branch.as_ref().map(|b| b.name().to_string());
+                            let main_repo_path = snapshot.original_repo_abs_path;
+                            let main_repo =
+                                find_main_repo_in_workspaces(&workspaces, &main_repo_path, cx);
+                            Some((
+                                repo_entity.clone(),
+                                worktree_path.clone(),
+                                branch_name,
+                                main_repo_path,
+                                main_repo,
+                            ))
+                        } else {
+                            None
+                        }
+                    })
+            }) {
+                linked_worktrees.push(info);
+            }
+        }
+
+        if linked_worktrees.is_empty() {
+            return;
+        }
 
         let fs = <dyn fs::Fs>::global(cx);
-        let worktree_path_str = worktree_path.to_string_lossy().to_string();
-        let main_repo_path_str = main_repo_path.to_string_lossy().to_string();
-        let session_id = session_id.clone();
-        let folder_paths_for_recheck = folder_paths.clone();
-        let worktree_path_for_key = worktree_path.clone();
 
-        let task = cx.spawn_in(window, async move |_this, cx| {
-            if !is_last_thread {
-                return anyhow::Ok(());
-            }
+        for (worktree_repo, worktree_path, branch_name, main_repo_path, main_repo) in
+            linked_worktrees
+        {
+            let session_id = session_id.clone();
+            let folder_paths = folder_paths.clone();
+            let fs = fs.clone();
+            let worktree_path_key = worktree_path.clone();
 
-            let store = cx.update(|_window, cx| ThreadMetadataStore::global(cx))?;
-
-            // Re-check inside the async block to close the TOCTOU window:
-            // another thread on the same worktree may have been un-archived
-            // (or a new one created) between the synchronous check and here.
-            let still_last_thread = store.update(cx, |store, _cx| {
-                !store
-                    .entries_for_path(&folder_paths_for_recheck)
-                    .any(|entry| &entry.session_id != &session_id)
-            });
-            if !still_last_thread {
-                return anyhow::Ok(());
-            }
-
-            // Helper: unarchive the thread so it reappears in the sidebar.
-            let unarchive = |cx: &mut AsyncWindowContext| {
-                store.update(cx, |store, cx| {
-                    store.unarchive(&session_id, cx);
-                });
-            };
-
-            // Helper: undo both WIP commits on the worktree.
-            let undo_wip_commits = |cx: &mut AsyncWindowContext| {
-                let reset_receiver = worktree_repo.update(cx, |repo, cx| {
-                    repo.reset("HEAD~2".to_string(), ResetMode::Mixed, cx)
-                });
-                async move {
-                    match reset_receiver.await {
-                        Ok(Ok(())) => {}
-                        Ok(Err(err)) => log::error!("Failed to undo WIP commits: {err}"),
-                        Err(_) => log::error!("WIP commit undo was canceled"),
-                    }
-                }
-            };
-
-            // === Last thread: two WIP commits, ref creation, and worktree deletion ===
-            //
-            // We create two commits to preserve the original staging state:
-            //   1. Commit whatever is currently staged (allow-empty).
-            //   2. Stage everything (including untracked), commit again (allow-empty).
-            //
-            // On restore, two resets undo this:
-            //   1. `git reset --mixed HEAD~`  — undoes commit 2, puts
-            //      previously-unstaged/untracked files back as unstaged.
-            //   2. `git reset --soft HEAD~`   — undoes commit 1, leaves
-            //      the index as-is so originally-staged files stay staged.
-            //
-            // If any step in this sequence fails, we undo everything and
-            // bail out.
-
-            // Step 1: commit whatever is currently staged.
-            let askpass = AskPassDelegate::new(cx, |_, _, _| {});
-            let first_commit_result = worktree_repo.update(cx, |repo, cx| {
-                repo.commit(
-                    "WIP staged".into(),
-                    None,
-                    CommitOptions {
-                        allow_empty: true,
-                        ..Default::default()
-                    },
-                    askpass,
+            let task = cx.spawn_in(window, async move |_this, cx| {
+                Self::archive_single_worktree(
+                    worktree_repo,
+                    worktree_path,
+                    branch_name,
+                    main_repo_path,
+                    main_repo,
+                    is_last_thread,
+                    session_id,
+                    folder_paths,
+                    fs,
                     cx,
                 )
+                .await
             });
-            let first_commit_ok = match first_commit_result.await {
+            self.pending_worktree_archives
+                .insert(worktree_path_key, task);
+        }
+    }
+
+    async fn archive_single_worktree(
+        worktree_repo: Entity<git_store::Repository>,
+        worktree_path: PathBuf,
+        branch_name: Option<String>,
+        main_repo_path: std::sync::Arc<std::path::Path>,
+        main_repo: Option<Entity<git_store::Repository>>,
+        is_last_thread: bool,
+        session_id: acp::SessionId,
+        folder_paths: PathList,
+        fs: std::sync::Arc<dyn fs::Fs>,
+        cx: &mut AsyncWindowContext,
+    ) -> anyhow::Result<()> {
+        if !is_last_thread {
+            return anyhow::Ok(());
+        }
+
+        let store = cx.update(|_window, cx| ThreadMetadataStore::global(cx))?;
+
+        // Re-check inside the async block to close the TOCTOU window:
+        // another thread on the same worktree may have been un-archived
+        // (or a new one created) between the synchronous check and here.
+        let still_last_thread = store.update(cx, |store, _cx| {
+            !store
+                .entries_for_path(&folder_paths)
+                .any(|entry| &entry.session_id != &session_id)
+        });
+        if !still_last_thread {
+            return anyhow::Ok(());
+        }
+
+        // Helper: unarchive the thread so it reappears in the sidebar.
+        let unarchive = |cx: &mut AsyncWindowContext| {
+            store.update(cx, |store, cx| {
+                store.unarchive(&session_id, cx);
+            });
+        };
+
+        // Helper: undo both WIP commits on the worktree.
+        let undo_wip_commits = |cx: &mut AsyncWindowContext| {
+            let reset_receiver = worktree_repo.update(cx, |repo, cx| {
+                repo.reset("HEAD~2".to_string(), ResetMode::Mixed, cx)
+            });
+            async move {
+                match reset_receiver.await {
+                    Ok(Ok(())) => {}
+                    Ok(Err(err)) => log::error!("Failed to undo WIP commits: {err}"),
+                    Err(_) => log::error!("WIP commit undo was canceled"),
+                }
+            }
+        };
+
+        // === Last thread: two WIP commits, ref creation, and worktree deletion ===
+        //
+        // We create two commits to preserve the original staging state:
+        //   1. Commit whatever is currently staged (allow-empty).
+        //   2. Stage everything (including untracked), commit again (allow-empty).
+        //
+        // On restore, two resets undo this:
+        //   1. `git reset --mixed HEAD~`  — undoes commit 2, puts
+        //      previously-unstaged/untracked files back as unstaged.
+        //   2. `git reset --soft HEAD~`   — undoes commit 1, leaves
+        //      the index as-is so originally-staged files stay staged.
+        //
+        // If any step in this sequence fails, we undo everything and
+        // bail out.
+
+        // Step 1: commit whatever is currently staged.
+        let askpass = AskPassDelegate::new(cx, |_, _, _| {});
+        let first_commit_result = worktree_repo.update(cx, |repo, cx| {
+            repo.commit(
+                "WIP staged".into(),
+                None,
+                CommitOptions {
+                    allow_empty: true,
+                    ..Default::default()
+                },
+                askpass,
+                cx,
+            )
+        });
+        let first_commit_ok = match first_commit_result.await {
+            Ok(Ok(())) => true,
+            Ok(Err(err)) => {
+                log::error!("Failed to create first WIP commit (staged): {err}");
+                false
+            }
+            Err(_) => {
+                log::error!("First WIP commit was canceled");
+                false
+            }
+        };
+
+        // Step 2: stage everything including untracked, then commit.
+        // If anything fails after the first commit, undo it and bail.
+        let commit_ok = if first_commit_ok {
+            let stage_result =
+                worktree_repo.update(cx, |repo, _cx| repo.stage_all_including_untracked());
+            let stage_ok = match stage_result.await {
                 Ok(Ok(())) => true,
                 Ok(Err(err)) => {
-                    log::error!("Failed to create first WIP commit (staged): {err}");
+                    log::error!("Failed to stage worktree files: {err}");
                     false
                 }
                 Err(_) => {
-                    log::error!("First WIP commit was canceled");
+                    log::error!("Stage operation was canceled");
                     false
                 }
             };
 
-            // Step 2: stage everything including untracked, then commit.
-            // If anything fails after the first commit, undo it and bail.
-            let commit_ok = if first_commit_ok {
-                let stage_result =
-                    worktree_repo.update(cx, |repo, _cx| repo.stage_all_including_untracked());
-                let stage_ok = match stage_result.await {
+            if !stage_ok {
+                let undo = worktree_repo.update(cx, |repo, cx| {
+                    repo.reset("HEAD~".to_string(), ResetMode::Mixed, cx)
+                });
+                match undo.await {
+                    Ok(Ok(())) => {}
+                    Ok(Err(err)) => log::error!("Failed to undo first WIP commit: {err}"),
+                    Err(_) => log::error!("Undo of first WIP commit was canceled"),
+                }
+                false
+            } else {
+                let askpass = AskPassDelegate::new(cx, |_, _, _| {});
+                let second_commit_result = worktree_repo.update(cx, |repo, cx| {
+                    repo.commit(
+                        "WIP unstaged".into(),
+                        None,
+                        CommitOptions {
+                            allow_empty: true,
+                            ..Default::default()
+                        },
+                        askpass,
+                        cx,
+                    )
+                });
+                match second_commit_result.await {
                     Ok(Ok(())) => true,
                     Ok(Err(err)) => {
-                        log::error!("Failed to stage worktree files: {err}");
+                        log::error!("Failed to create second WIP commit (unstaged): {err}");
+                        let undo = worktree_repo.update(cx, |repo, cx| {
+                            repo.reset("HEAD~".to_string(), ResetMode::Mixed, cx)
+                        });
+                        match undo.await {
+                            Ok(Ok(())) => {}
+                            Ok(Err(err)) => {
+                                log::error!("Failed to undo first WIP commit: {err}")
+                            }
+                            Err(_) => {
+                                log::error!("Undo of first WIP commit was canceled")
+                            }
+                        }
                         false
                     }
                     Err(_) => {
-                        log::error!("Stage operation was canceled");
+                        log::error!("Second WIP commit was canceled");
+                        let undo = worktree_repo.update(cx, |repo, cx| {
+                            repo.reset("HEAD~".to_string(), ResetMode::Mixed, cx)
+                        });
+                        match undo.await {
+                            Ok(Ok(())) => {}
+                            Ok(Err(err)) => {
+                                log::error!("Failed to undo first WIP commit: {err}")
+                            }
+                            Err(_) => {
+                                log::error!("Undo of first WIP commit was canceled")
+                            }
+                        }
                         false
                     }
-                };
-
-                if !stage_ok {
-                    let undo = worktree_repo.update(cx, |repo, cx| {
-                        repo.reset("HEAD~".to_string(), ResetMode::Mixed, cx)
-                    });
-                    match undo.await {
-                        Ok(Ok(())) => {}
-                        Ok(Err(err)) => log::error!("Failed to undo first WIP commit: {err}"),
-                        Err(_) => log::error!("Undo of first WIP commit was canceled"),
-                    }
-                    false
-                } else {
-                    let askpass = AskPassDelegate::new(cx, |_, _, _| {});
-                    let second_commit_result = worktree_repo.update(cx, |repo, cx| {
-                        repo.commit(
-                            "WIP unstaged".into(),
-                            None,
-                            CommitOptions {
-                                allow_empty: true,
-                                ..Default::default()
-                            },
-                            askpass,
-                            cx,
-                        )
-                    });
-                    match second_commit_result.await {
-                        Ok(Ok(())) => true,
-                        Ok(Err(err)) => {
-                            log::error!("Failed to create second WIP commit (unstaged): {err}");
-                            let undo = worktree_repo.update(cx, |repo, cx| {
-                                repo.reset("HEAD~".to_string(), ResetMode::Mixed, cx)
-                            });
-                            match undo.await {
-                                Ok(Ok(())) => {}
-                                Ok(Err(err)) => {
-                                    log::error!("Failed to undo first WIP commit: {err}")
-                                }
-                                Err(_) => {
-                                    log::error!("Undo of first WIP commit was canceled")
-                                }
-                            }
-                            false
-                        }
-                        Err(_) => {
-                            log::error!("Second WIP commit was canceled");
-                            let undo = worktree_repo.update(cx, |repo, cx| {
-                                repo.reset("HEAD~".to_string(), ResetMode::Mixed, cx)
-                            });
-                            match undo.await {
-                                Ok(Ok(())) => {}
-                                Ok(Err(err)) => {
-                                    log::error!("Failed to undo first WIP commit: {err}")
-                                }
-                                Err(_) => {
-                                    log::error!("Undo of first WIP commit was canceled")
-                                }
-                            }
-                            false
-                        }
-                    }
                 }
-            } else {
-                false
+            }
+        } else {
+            false
+        };
+
+        let worktree_path_str = worktree_path.to_string_lossy().to_string();
+        let main_repo_path_str = main_repo_path.to_string_lossy().to_string();
+
+        if !commit_ok {
+            // Show a prompt asking the user what to do.
+            let answer = cx.prompt(
+                PromptLevel::Warning,
+                "Failed to save worktree state",
+                Some(
+                    "Could not create a WIP commit for this worktree. \
+                     If you proceed, the worktree will be deleted and \
+                     unarchiving this thread later will not restore the \
+                     filesystem to its previous state.\n\n\
+                     Cancel to keep the worktree on disk so you can \
+                     resolve the issue manually.",
+                ),
+                &["Delete Anyway", "Cancel"],
+            );
+
+            match answer.await {
+                Ok(0) => {
+                    // "Delete Anyway" — proceed to worktree deletion
+                    // without a WIP commit or DB record.
+                }
+                _ => {
+                    // "Cancel" — undo the archive so the thread
+                    // reappears in the sidebar.
+                    unarchive(cx);
+                    return anyhow::Ok(());
+                }
+            }
+        } else {
+            // Commit succeeded — get hash, create archived worktree row, create ref.
+            let head_sha_result = worktree_repo.update(cx, |repo, _cx| repo.head_sha());
+            let commit_hash = match head_sha_result.await {
+                Ok(Ok(Some(sha))) => sha,
+                sha_result => {
+                    let reason = match &sha_result {
+                        Ok(Ok(None)) => "HEAD SHA is None".into(),
+                        Ok(Err(err)) => format!("Failed to get HEAD SHA: {err}"),
+                        Err(_) => "HEAD SHA operation was canceled".into(),
+                        Ok(Ok(Some(_))) => unreachable!(),
+                    };
+                    log::error!("{reason} after WIP commits; attempting to undo");
+                    undo_wip_commits(cx).await;
+                    unarchive(cx);
+                    cx.prompt(
+                        PromptLevel::Warning,
+                        "Failed to archive worktree",
+                        Some(
+                            "Could not read the commit hash after creating \
+                             the WIP commit. The commit has been undone and \
+                             the thread has been restored to the sidebar.",
+                        ),
+                        &["OK"],
+                    )
+                    .await
+                    .ok();
+                    return anyhow::Ok(());
+                }
             };
 
-            if !commit_ok {
-                // Show a prompt asking the user what to do.
-                let answer = cx.prompt(
-                    PromptLevel::Warning,
-                    "Failed to save worktree state",
-                    Some(
-                        "Could not create a WIP commit for this worktree. \
-                         If you proceed, the worktree will be deleted and \
-                         unarchiving this thread later will not restore the \
-                         filesystem to its previous state.\n\n\
-                         Cancel to keep the worktree on disk so you can \
-                         resolve the issue manually.",
-                    ),
-                    &["Delete Anyway", "Cancel"],
-                );
+            let row_id_result = store
+                .update(cx, |store, cx| {
+                    store.create_archived_worktree(
+                        worktree_path_str,
+                        main_repo_path_str,
+                        branch_name,
+                        commit_hash.clone(),
+                        cx,
+                    )
+                })
+                .await;
 
-                match answer.await {
-                    Ok(0) => {
-                        // "Delete Anyway" — proceed to worktree deletion
-                        // without a WIP commit or DB record.
-                    }
-                    _ => {
-                        // "Cancel" — undo the archive so the thread
-                        // reappears in the sidebar.
-                        unarchive(cx);
-                        return anyhow::Ok(());
-                    }
-                }
-            } else {
-                // Commit succeeded — get hash, create archived worktree row, create ref.
-                let head_sha_result = worktree_repo.update(cx, |repo, _cx| repo.head_sha());
-                let commit_hash = match head_sha_result.await {
-                    Ok(Ok(Some(sha))) => sha,
-                    sha_result => {
-                        let reason = match &sha_result {
-                            Ok(Ok(None)) => "HEAD SHA is None".into(),
-                            Ok(Err(err)) => format!("Failed to get HEAD SHA: {err}"),
-                            Err(_) => "HEAD SHA operation was canceled".into(),
-                            Ok(Ok(Some(_))) => unreachable!(),
-                        };
-                        log::error!("{reason} after WIP commits; attempting to undo");
-                        undo_wip_commits(cx).await;
-                        unarchive(cx);
-                        cx.prompt(
-                            PromptLevel::Warning,
-                            "Failed to archive worktree",
-                            Some(
-                                "Could not read the commit hash after creating \
-                                 the WIP commit. The commit has been undone and \
-                                 the thread has been restored to the sidebar.",
-                            ),
-                            &["OK"],
-                        )
-                        .await
-                        .ok();
-                        return anyhow::Ok(());
-                    }
-                };
-
-                let row_id_result = store
-                    .update(cx, |store, cx| {
-                        store.create_archived_worktree(
-                            worktree_path_str,
-                            main_repo_path_str,
-                            branch_name,
-                            commit_hash.clone(),
-                            cx,
-                        )
-                    })
-                    .await;
-
-                match row_id_result {
-                    Ok(row_id) => {
-                        // Create a git ref on the main repo (non-fatal if
-                        // this fails — the commit hash is in the DB).
-                        if let Some(main_repo) = &main_repo {
-                            let ref_name = format!("refs/archived-worktrees/{row_id}");
-                            let ref_result = main_repo
-                                .update(cx, |repo, _cx| repo.update_ref(ref_name, commit_hash));
-                            match ref_result.await {
-                                Ok(Ok(())) => {}
-                                Ok(Err(err)) => {
-                                    log::warn!("Failed to create archive ref: {err}")
-                                }
-                                Err(_) => log::warn!("Archive ref creation was canceled"),
+            match row_id_result {
+                Ok(row_id) => {
+                    // Create a git ref on the main repo (non-fatal if
+                    // this fails — the commit hash is in the DB).
+                    if let Some(main_repo) = &main_repo {
+                        let ref_name = format!("refs/archived-worktrees/{row_id}");
+                        let ref_result = main_repo
+                            .update(cx, |repo, _cx| repo.update_ref(ref_name, commit_hash));
+                        match ref_result.await {
+                            Ok(Ok(())) => {}
+                            Ok(Err(err)) => {
+                                log::warn!("Failed to create archive ref: {err}")
                             }
+                            Err(_) => log::warn!("Archive ref creation was canceled"),
                         }
                     }
-                    Err(err) => {
-                        log::error!("Failed to create archived worktree record: {err}");
-                        undo_wip_commits(cx).await;
-                        unarchive(cx);
-                        cx.prompt(
-                            PromptLevel::Warning,
-                            "Failed to archive worktree",
-                            Some(
-                                "Could not save the archived worktree record. \
-                                 The WIP commit has been undone and the thread \
-                                 has been restored to the sidebar.",
-                            ),
-                            &["OK"],
-                        )
-                        .await
-                        .ok();
-                        return anyhow::Ok(());
-                    }
+                }
+                Err(err) => {
+                    log::error!("Failed to create archived worktree record: {err}");
+                    undo_wip_commits(cx).await;
+                    unarchive(cx);
+                    cx.prompt(
+                        PromptLevel::Warning,
+                        "Failed to archive worktree",
+                        Some(
+                            "Could not save the archived worktree record. \
+                             The WIP commit has been undone and the thread \
+                             has been restored to the sidebar.",
+                        ),
+                        &["OK"],
+                    )
+                    .await
+                    .ok();
+                    return anyhow::Ok(());
                 }
             }
+        }
 
-            // Delete the worktree directory.
-            let timestamp = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_nanos();
-            let temp_path = std::env::temp_dir().join(format!("zed-removing-worktree-{timestamp}"));
+        // Delete the worktree directory.
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let temp_path = std::env::temp_dir().join(format!("zed-removing-worktree-{timestamp}"));
 
-            if let Err(err) = fs
-                .rename(
-                    &worktree_path,
-                    &temp_path,
-                    fs::RenameOptions {
-                        overwrite: false,
-                        ..Default::default()
-                    },
-                )
-                .await
-            {
-                log::error!("Failed to move worktree to temp dir: {err}");
-                return anyhow::Ok(());
-            }
-
-            if let Some(main_repo) = &main_repo {
-                let receiver =
-                    main_repo.update(cx, |repo, _cx| repo.remove_worktree(worktree_path, true));
-                if let Ok(result) = receiver.await {
-                    result.log_err();
-                }
-            }
-
-            fs.remove_dir(
+        if let Err(err) = fs
+            .rename(
+                &worktree_path,
                 &temp_path,
-                fs::RemoveOptions {
-                    recursive: true,
-                    ignore_if_not_exists: true,
+                fs::RenameOptions {
+                    overwrite: false,
+                    ..Default::default()
                 },
             )
             .await
-            .log_err();
+        {
+            log::error!("Failed to move worktree to temp dir: {err}");
+            return anyhow::Ok(());
+        }
 
-            anyhow::Ok(())
-        });
-        self.pending_worktree_archives
-            .insert(worktree_path_for_key, task);
+        if let Some(main_repo) = &main_repo {
+            let receiver =
+                main_repo.update(cx, |repo, _cx| repo.remove_worktree(worktree_path, true));
+            if let Ok(result) = receiver.await {
+                result.log_err();
+            }
+        }
+
+        fs.remove_dir(
+            &temp_path,
+            fs::RemoveOptions {
+                recursive: true,
+                ignore_if_not_exists: true,
+            },
+        )
+        .await
+        .log_err();
+
+        anyhow::Ok(())
     }
 
     fn remove_selected_thread(
