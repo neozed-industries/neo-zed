@@ -779,13 +779,26 @@ impl Sidebar {
             (icon, icon_from_external_svg)
         };
 
-        for (group_name, group) in project_groups.groups() {
+        let groups: Vec<_> = project_groups.groups().collect();
+
+        let all_paths: Vec<std::path::PathBuf> = groups
+            .iter()
+            .flat_map(|(name, _)| name.path_list().paths().iter().cloned())
+            .collect();
+        let path_details =
+            util::disambiguate::compute_disambiguation_details(&all_paths, |path, detail| {
+                crate::project_group_builder::path_suffix(path, detail)
+            });
+        let path_detail_map: collections::HashMap<std::path::PathBuf, usize> =
+            all_paths.into_iter().zip(path_details).collect();
+
+        for (group_name, group) in &groups {
             let path_list = group_name.path_list().clone();
             if path_list.paths().is_empty() {
                 continue;
             }
 
-            let label = group_name.display_name();
+            let label = group_name.display_name_from_suffixes(&path_detail_map);
 
             let is_collapsed = self.collapsed_groups.contains(&path_list);
             let should_load_threads = !is_collapsed || !query.is_empty();

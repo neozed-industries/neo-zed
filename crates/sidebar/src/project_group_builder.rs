@@ -10,7 +10,7 @@
 
 use collections::{HashMap, HashSet, vecmap::VecMap};
 use std::{
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
     sync::Arc,
 };
 
@@ -28,16 +28,32 @@ pub struct ProjectGroupName {
     path_list: PathList,
 }
 
+pub(crate) fn path_suffix(path: &Path, detail: usize) -> String {
+    let components: Vec<_> = path
+        .components()
+        .filter_map(|c| match c {
+            Component::Normal(s) => Some(s.to_string_lossy()),
+            _ => None,
+        })
+        .collect();
+    let start = components.len().saturating_sub(detail + 1);
+    components[start..].join("/")
+}
+
 impl ProjectGroupName {
-    pub fn display_name(&self) -> SharedString {
+    pub fn display_name_from_suffixes(
+        &self,
+        path_detail_map: &HashMap<PathBuf, usize>,
+    ) -> SharedString {
         let mut names = Vec::with_capacity(self.path_list.paths().len());
         for abs_path in self.path_list.paths() {
-            if let Some(name) = abs_path.file_name() {
-                names.push(name.to_string_lossy().to_string());
+            let detail = path_detail_map.get(abs_path).copied().unwrap_or(0);
+            let suffix = path_suffix(abs_path, detail);
+            if !suffix.is_empty() {
+                names.push(suffix);
             }
         }
         if names.is_empty() {
-            // TODO: Can we do something better in this case?
             "Empty Workspace".into()
         } else {
             names.join(", ").into()
@@ -295,6 +311,81 @@ mod tests {
                 Path::new("/something/else"),
             );
         });
+    }
+
+    fn group_name_from_paths(paths: &[&str]) -> ProjectGroupName {
+        ProjectGroupName {
+            path_list: PathList::new(paths),
+        }
+    }
+
+    #[test]
+    fn test_path_suffix_detail_zero() {
+        assert_eq!(path_suffix(Path::new("/a/b/c"), 0), "c");
+    }
+
+    #[test]
+    fn test_path_suffix_detail_one() {
+        assert_eq!(path_suffix(Path::new("/a/b/c"), 1), "b/c");
+    }
+
+    #[test]
+    fn test_path_suffix_detail_two() {
+        assert_eq!(path_suffix(Path::new("/a/b/c"), 2), "a/b/c");
+    }
+
+    #[test]
+    fn test_path_suffix_clamped() {
+        let result = path_suffix(Path::new("/a/b"), 5);
+        assert_eq!(result, "a/b");
+    }
+
+    #[test]
+    fn test_display_name_from_suffixes_single_path() {
+        let name = group_name_from_paths(&["/code/zed"]);
+        let map = HashMap::default();
+        assert_eq!(name.display_name_from_suffixes(&map).as_ref(), "zed");
+
+        let map = HashMap::from_iter([(PathBuf::from("/code/zed"), 1)]);
+        assert_eq!(name.display_name_from_suffixes(&map).as_ref(), "code/zed");
+    }
+
+    #[test]
+    fn test_display_name_from_suffixes_multiple_paths() {
+        let name = group_name_from_paths(&["/a/zed", "/b/bar"]);
+
+        let map = HashMap::default();
+        assert_eq!(
+            name.display_name_from_suffixes(&map).as_ref(),
+            "zed, bar",
+            "PathList sorts lexicographically, so /a/zed comes before /b/bar"
+        );
+
+        let map = HashMap::from_iter([(PathBuf::from("/a/zed"), 1), (PathBuf::from("/b/bar"), 0)]);
+        assert_eq!(name.display_name_from_suffixes(&map).as_ref(), "a/zed, bar");
+    }
+
+    #[test]
+    fn test_display_name_from_suffixes_empty() {
+        let name = group_name_from_paths(&[]);
+        let map = HashMap::default();
+        assert_eq!(
+            name.display_name_from_suffixes(&map).as_ref(),
+            "Empty Workspace"
+        );
+    }
+
+    #[test]
+    fn test_display_name_from_suffixes_per_path_detail() {
+        let name = group_name_from_paths(&["/code/zed", "/code/bar/zed"]);
+        let map = HashMap::from_iter([
+            (PathBuf::from("/code/zed"), 1),
+            (PathBuf::from("/code/bar/zed"), 1),
+        ]);
+        assert_eq!(
+            name.display_name_from_suffixes(&map).as_ref(),
+            "bar/zed, code/zed",
+        );
     }
 
     #[gpui::test]
