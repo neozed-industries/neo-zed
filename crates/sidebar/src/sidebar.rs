@@ -2266,14 +2266,8 @@ impl Sidebar {
                         // No archived worktree record — keep the original path.
                         final_paths.push(path.clone());
                     }
-                    Some(row) if row.commit_hash.is_empty() => {
-                        // Worktree was deleted without a WIP commit (user
-                        // chose "Delete Anyway"). Redirect to main repo.
-                        final_paths.push(row.main_repo_path.clone());
-                        Self::maybe_cleanup_archived_worktree(&row, &store, &workspaces, cx).await;
-                    }
                     Some(row) => {
-                        // Full restore from WIP commit.
+                        // Restore from WIP commit.
                         let restored_path =
                             Self::restore_archived_worktree(&row, &workspaces, cx).await?;
                         final_paths.push(restored_path);
@@ -2895,6 +2889,29 @@ impl Sidebar {
 
             let store = cx.update(|_window, cx| ThreadMetadataStore::global(cx))?;
 
+            // Helper: unarchive the thread so it reappears in the sidebar.
+            let unarchive = |cx: &mut AsyncWindowContext| {
+                if let Some(metadata) = &thread_metadata {
+                    store.update(cx, |store, cx| {
+                        store.unarchive(&metadata.session_id, cx);
+                    });
+                }
+            };
+
+            // Helper: undo the WIP commit on the worktree.
+            let undo_wip_commit = |cx: &mut AsyncWindowContext| {
+                let reset_receiver = worktree_repo.update(cx, |repo, cx| {
+                    repo.reset("HEAD~".to_string(), ResetMode::Mixed, cx)
+                });
+                async move {
+                    match reset_receiver.await {
+                        Ok(Ok(())) => {}
+                        Ok(Err(err)) => log::error!("Failed to undo WIP commit: {err}"),
+                        Err(_) => log::error!("WIP commit undo was canceled"),
+                    }
+                }
+            };
+
             // === Last thread: WIP commit, ref creation, and worktree deletion ===
 
             // Stage all files including untracked.
@@ -2959,16 +2976,13 @@ impl Sidebar {
 
                 match answer.await {
                     Ok(0) => {
-                        // "Delete Anyway" — proceed with deletion, no WIP commit.
+                        // "Delete Anyway" — proceed to worktree deletion
+                        // without a WIP commit or DB record.
                     }
                     _ => {
-                        // "Cancel" — undo the archive.
-                        // Re-save the thread metadata to un-archive it.
-                        if let Some(metadata) = &thread_metadata {
-                            store.update(cx, |store, cx| {
-                                store.unarchive(&metadata.session_id, cx);
-                            });
-                        }
+                        // "Cancel" — undo the archive so the thread
+                        // reappears in the sidebar.
+                        unarchive(cx);
                         return anyhow::Ok(());
                     }
                 }
@@ -2985,45 +2999,70 @@ impl Sidebar {
                             Ok(Ok(Some(_))) => unreachable!(),
                         };
                         log::error!("{reason} after WIP commit; attempting to undo");
-                        // Try to undo the WIP commit so we don't leave
-                        // phantom commits in the worktree.
-                        let reset_receiver = worktree_repo.update(cx, |repo, cx| {
-                            repo.reset("HEAD~".to_string(), ResetMode::Mixed, cx)
-                        });
-                        match reset_receiver.await {
-                            Ok(Ok(())) => {}
-                            Ok(Err(err)) => {
-                                log::error!("Failed to undo WIP commit: {err}");
-                            }
-                            Err(_) => {
-                                log::error!("WIP commit undo was canceled");
-                            }
-                        }
+                        undo_wip_commit(cx).await;
+                        unarchive(cx);
+                        cx.prompt(
+                            PromptLevel::Warning,
+                            "Failed to archive worktree",
+                            Some(
+                                "Could not read the commit hash after creating \
+                                 the WIP commit. The commit has been undone and \
+                                 the thread has been restored to the sidebar.",
+                            ),
+                            &["OK"],
+                        )
+                        .await
+                        .ok();
                         return anyhow::Ok(());
                     }
                 };
 
-                let row_id = store
+                let row_id_result = store
                     .update(cx, |store, cx| {
                         store.create_archived_worktree(
                             worktree_path_str,
                             main_repo_path_str,
-                            branch_name_clone, // moved
+                            branch_name_clone,
                             commit_hash.clone(),
                             cx,
                         )
                     })
-                    .await?;
+                    .await;
 
-                // Create a git ref on the main repo.
-                if let Some(main_repo) = &main_repo {
-                    let ref_name = format!("refs/archived-worktrees/{row_id}");
-                    let ref_result =
-                        main_repo.update(cx, |repo, _cx| repo.update_ref(ref_name, commit_hash));
-                    match ref_result.await {
-                        Ok(Ok(())) => {}
-                        Ok(Err(err)) => log::error!("Failed to create ref: {err}"),
-                        Err(_) => log::error!("Ref creation was canceled"),
+                match row_id_result {
+                    Ok(row_id) => {
+                        // Create a git ref on the main repo (non-fatal if
+                        // this fails — the commit hash is in the DB).
+                        if let Some(main_repo) = &main_repo {
+                            let ref_name = format!("refs/archived-worktrees/{row_id}");
+                            let ref_result = main_repo
+                                .update(cx, |repo, _cx| repo.update_ref(ref_name, commit_hash));
+                            match ref_result.await {
+                                Ok(Ok(())) => {}
+                                Ok(Err(err)) => {
+                                    log::warn!("Failed to create archive ref: {err}")
+                                }
+                                Err(_) => log::warn!("Archive ref creation was canceled"),
+                            }
+                        }
+                    }
+                    Err(err) => {
+                        log::error!("Failed to create archived worktree record: {err}");
+                        undo_wip_commit(cx).await;
+                        unarchive(cx);
+                        cx.prompt(
+                            PromptLevel::Warning,
+                            "Failed to archive worktree",
+                            Some(
+                                "Could not save the archived worktree record. \
+                                 The WIP commit has been undone and the thread \
+                                 has been restored to the sidebar.",
+                            ),
+                            &["OK"],
+                        )
+                        .await
+                        .ok();
+                        return anyhow::Ok(());
                     }
                 }
             }
@@ -3035,15 +3074,20 @@ impl Sidebar {
                 .as_nanos();
             let temp_path = std::env::temp_dir().join(format!("zed-removing-worktree-{timestamp}"));
 
-            fs.rename(
-                &worktree_path,
-                &temp_path,
-                fs::RenameOptions {
-                    overwrite: false,
-                    ..Default::default()
-                },
-            )
-            .await?;
+            if let Err(err) = fs
+                .rename(
+                    &worktree_path,
+                    &temp_path,
+                    fs::RenameOptions {
+                        overwrite: false,
+                        ..Default::default()
+                    },
+                )
+                .await
+            {
+                log::error!("Failed to move worktree to temp dir: {err}");
+                return anyhow::Ok(());
+            }
 
             if let Some(main_repo) = &main_repo {
                 let receiver =
@@ -3060,7 +3104,8 @@ impl Sidebar {
                     ignore_if_not_exists: true,
                 },
             )
-            .await?;
+            .await
+            .log_err();
 
             anyhow::Ok(())
         })
