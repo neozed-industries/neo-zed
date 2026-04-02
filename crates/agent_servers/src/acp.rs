@@ -58,7 +58,10 @@ fn into_foreground_future<T: JsonRpcResponse + Send + 'static>(
     });
     async move {
         spawn_result?;
-        rx.await.map_err(|_| acp::Error::internal_error())?
+        rx.await.map_err(|_| {
+            acp::Error::internal_error()
+                .data("response channel cancelled — connection may have dropped")
+        })?
     }
 }
 
@@ -229,15 +232,11 @@ macro_rules! dispatch_request_handler {
     ($dispatch_tx:expr, $handler:expr) => {{
         let dispatch_tx = $dispatch_tx.clone();
         async move |args, responder, _connection| {
-            if dispatch_tx.is_closed() {
-                respond_err(responder, acp::Error::internal_error());
-            } else {
-                dispatch_tx
-                    .unbounded_send(Box::new(move |cx, ctx| {
-                        $handler(args, responder, cx, ctx);
-                    }))
-                    .log_err();
-            }
+            dispatch_tx
+                .unbounded_send(Box::new(move |cx, ctx| {
+                    $handler(args, responder, cx, ctx);
+                }))
+                .log_err();
             Ok(())
         }
     }};
