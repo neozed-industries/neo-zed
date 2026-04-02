@@ -2344,7 +2344,7 @@ impl Sidebar {
 
         let Some(main_repo) = main_repo else {
             // Main repo not found — fall back to fresh worktree.
-            return Self::create_fresh_worktree(row, workspaces, cx).await;
+            return Self::create_fresh_worktree(row, cx).await;
         };
 
         // Check if the original worktree path is already in use.
@@ -2419,7 +2419,7 @@ impl Sidebar {
                         log::info!("Worktree creation failed ({err}) but path exists — reusing it");
                     } else {
                         log::error!("Failed to create worktree: {err}");
-                        return Self::create_fresh_worktree(row, workspaces, cx).await;
+                        return Self::create_fresh_worktree(row, cx).await;
                     }
                 }
                 Err(_) => {
@@ -2594,20 +2594,28 @@ impl Sidebar {
 
     async fn create_fresh_worktree(
         row: &ArchivedGitWorktree,
-        workspaces: &[Entity<Workspace>],
         cx: &mut AsyncWindowContext,
     ) -> anyhow::Result<PathBuf> {
-        // Find the main repo entity.
-        let main_repo = cx.update(|_window, cx| {
-            find_main_repo_in_workspaces(workspaces, &row.main_repo_path, cx)
-        })?;
+        let fs = cx.update(|_window, cx| <dyn fs::Fs>::global(cx))?;
+        let main_repo_path = row.main_repo_path.clone();
+        let dot_git_path = main_repo_path.join(".git");
 
-        let Some(main_repo) = main_repo else {
+        if fs.metadata(&dot_git_path).await?.is_none() {
             anyhow::bail!(
-                "Main repository at {} not found in any open workspace",
-                row.main_repo_path.display()
+                "Cannot unarchive worktree because there is no longer a git repository at {}",
+                main_repo_path.display()
             );
-        };
+        }
+
+        // Open the repo directly from disk — the main repo may not be
+        // open in any workspace.
+        let git_repo = cx
+            .background_spawn({
+                let fs = fs.clone();
+                let dot_git_path = dot_git_path.clone();
+                async move { fs.open_repo(&dot_git_path, None) }
+            })
+            .await?;
 
         // Generate a new branch name for the fresh worktree.
         let branch_name = {
@@ -2620,30 +2628,23 @@ impl Sidebar {
                 .collect::<String>();
             format!("restored-{suffix}")
         };
-        let worktree_path = main_repo.update(cx, |repo, _cx| {
-            let setting = git_store::worktrees_directory_for_repo(
-                &repo.snapshot().original_repo_abs_path,
-                git::repository::DEFAULT_WORKTREE_DIRECTORY,
-            )
-            .ok()
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_default();
-            repo.path_for_new_linked_worktree(&branch_name, &setting)
-        })?;
+
+        // Compute the worktree path (same logic as Repository::path_for_new_linked_worktree).
+        let project_name = main_repo_path
+            .file_name()
+            .ok_or_else(|| anyhow::anyhow!("git repo must have a directory name"))?
+            .to_string_lossy()
+            .to_string();
+        let worktree_directory = git_store::worktrees_directory_for_repo(
+            &main_repo_path,
+            git::repository::DEFAULT_WORKTREE_DIRECTORY,
+        )?;
+        let worktree_path = worktree_directory.join(&branch_name).join(&project_name);
 
         // Create the fresh worktree.
-        let create_receiver = main_repo.update(cx, |repo, _cx| {
-            repo.create_worktree(branch_name, worktree_path.clone(), None)
-        });
-        match create_receiver.await {
-            Ok(Ok(())) => {}
-            Ok(Err(err)) => {
-                anyhow::bail!("Failed to create fresh worktree: {err}");
-            }
-            Err(_) => {
-                anyhow::bail!("Fresh worktree creation was canceled");
-            }
-        }
+        git_repo
+            .create_worktree(Some(branch_name), worktree_path.clone(), None)
+            .await?;
 
         log::warn!(
             "Unable to restore the original git worktree. Created a fresh worktree instead."
