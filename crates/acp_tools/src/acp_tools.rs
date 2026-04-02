@@ -160,10 +160,10 @@ impl AcpConnectionRegistry {
 
                     this.subscribers.retain(|sender| !sender.is_closed());
                     for sender in &this.subscribers {
-                        sender.try_send(message.clone()).ok();
+                        sender.try_send(message.clone()).log_err();
                     }
                 })
-                .ok();
+                .log_err();
             }
 
             // The transport closed — clear state so observers (e.g. the ACP
@@ -173,7 +173,7 @@ impl AcpConnectionRegistry {
                 this.subscribers.clear();
                 cx.notify();
             })
-            .ok();
+            .log_err();
         }));
 
         cx.notify();
@@ -252,7 +252,7 @@ impl AcpTools {
                 this.update(cx, |this, cx| {
                     this.push_stream_message(message, cx);
                 })
-                .ok();
+                .log_err();
             }
         });
 
