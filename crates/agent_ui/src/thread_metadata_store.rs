@@ -241,6 +241,14 @@ impl ThreadMetadataStore {
         self.entries().filter(|t| t.archived)
     }
 
+    /// Returns all session IDs for the given path list, including archived threads.
+    pub fn all_session_ids_for_path(
+        &self,
+        path_list: &PathList,
+    ) -> impl Iterator<Item = &acp::SessionId> + '_ {
+        self.threads_by_paths.get(path_list).into_iter().flatten()
+    }
+
     /// Returns all threads for the given path list, excluding archived threads.
     pub fn entries_for_path(
         &self,

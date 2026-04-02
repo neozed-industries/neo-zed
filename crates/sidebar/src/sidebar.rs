@@ -3317,12 +3317,28 @@ impl Sidebar {
 
             match create_result {
                 Ok(id) => {
-                    // Link the current thread to the archived worktree record.
-                    let link_result = store
-                        .update(cx, |store, cx| {
-                            store.link_thread_to_archived_worktree(session_id.0.to_string(), id, cx)
-                        })
-                        .await;
+                    // Link all threads on this worktree (including
+                    // previously archived ones) to the archived
+                    // worktree record so any of them can trigger a
+                    // restore later.
+                    let session_ids: Vec<String> = store.update(cx, |store, _cx| {
+                        store
+                            .all_session_ids_for_path(&folder_paths)
+                            .map(|s| s.0.to_string())
+                            .collect()
+                    });
+                    let mut link_result: anyhow::Result<()> = Ok(());
+                    for sid in session_ids {
+                        let result = store
+                            .update(cx, |store, cx| {
+                                store.link_thread_to_archived_worktree(sid, id, cx)
+                            })
+                            .await;
+                        if let Err(err) = result {
+                            link_result = Err(err);
+                            break;
+                        }
+                    }
 
                     if let Err(err) = link_result {
                         log::error!("Failed to link thread to archived worktree: {err}");
