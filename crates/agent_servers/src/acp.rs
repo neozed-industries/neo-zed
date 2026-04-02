@@ -229,17 +229,14 @@ macro_rules! dispatch_request_handler {
     ($dispatch_tx:expr, $handler:expr) => {{
         let dispatch_tx = $dispatch_tx.clone();
         async move |args, responder, _connection| {
-            if dispatch_tx.is_closed() {
+            if let Err(_) = dispatch_tx.unbounded_send(Box::new(move |cx, ctx| {
+                $handler(args, responder, cx, ctx);
+            })) {
+                // The dispatch channel is closed — the AcpConnection is being
+                // torn down and the child process is being killed. The responder
+                // inside the work item drops without responding; the agent won't
+                // be around to notice since the transport is also closing.
                 log::error!("dispatch channel closed, cannot handle request");
-                responder
-                    .respond_with_error(acp::Error::internal_error())
-                    .log_err();
-            } else {
-                dispatch_tx
-                    .unbounded_send(Box::new(move |cx, ctx| {
-                        $handler(args, responder, cx, ctx);
-                    }))
-                    .log_err();
             }
             Ok(())
         }
@@ -1835,28 +1832,30 @@ fn handle_session_notification(
                         .get("cwd")
                         .and_then(|v| v.as_str().map(PathBuf::from));
 
-                    let _ = thread.update(cx, |thread, cx| {
-                        let builder = TerminalBuilder::new_display_only(
-                            CursorShape::default(),
-                            AlternateScroll::On,
-                            None,
-                            0,
-                            cx.background_executor(),
-                            thread.project().read(cx).path_style(cx),
-                        )?;
-                        let lower = cx.new(|cx| builder.subscribe(cx));
-                        thread.on_terminal_provider_event(
-                            TerminalProviderEvent::Created {
-                                terminal_id,
-                                label: tc.title.clone(),
-                                cwd,
-                                output_byte_limit: None,
-                                terminal: lower,
-                            },
-                            cx,
-                        );
-                        anyhow::Ok(())
-                    });
+                    thread
+                        .update(cx, |thread, cx| {
+                            let builder = TerminalBuilder::new_display_only(
+                                CursorShape::default(),
+                                AlternateScroll::On,
+                                None,
+                                0,
+                                cx.background_executor(),
+                                thread.project().read(cx).path_style(cx),
+                            )?;
+                            let lower = cx.new(|cx| builder.subscribe(cx));
+                            thread.on_terminal_provider_event(
+                                TerminalProviderEvent::Created {
+                                    terminal_id,
+                                    label: tc.title.clone(),
+                                    cwd,
+                                    output_byte_limit: None,
+                                    terminal: lower,
+                                },
+                                cx,
+                            );
+                            anyhow::Ok(())
+                        })
+                        .log_err();
                 }
             }
         }
@@ -1883,12 +1882,14 @@ fn handle_session_notification(
                     let terminal_id = acp::TerminalId::new(id_str);
                     if let Some(s) = term_out.get("data").and_then(|v| v.as_str()) {
                         let data = s.as_bytes().to_vec();
-                        let _ = thread.update(cx, |thread, cx| {
-                            thread.on_terminal_provider_event(
-                                TerminalProviderEvent::Output { terminal_id, data },
-                                cx,
-                            );
-                        });
+                        thread
+                            .update(cx, |thread, cx| {
+                                thread.on_terminal_provider_event(
+                                    TerminalProviderEvent::Output { terminal_id, data },
+                                    cx,
+                                );
+                            })
+                            .log_err();
                     }
                 }
             }
@@ -1909,15 +1910,17 @@ fn handle_session_notification(
                                 .and_then(|v| v.as_str().map(|s| s.to_string())),
                         );
 
-                    let _ = thread.update(cx, |thread, cx| {
-                        thread.on_terminal_provider_event(
-                            TerminalProviderEvent::Exit {
-                                terminal_id,
-                                status,
-                            },
-                            cx,
-                        );
-                    });
+                    thread
+                        .update(cx, |thread, cx| {
+                            thread.on_terminal_provider_event(
+                                TerminalProviderEvent::Exit {
+                                    terminal_id,
+                                    status,
+                                },
+                                cx,
+                            );
+                        })
+                        .log_err();
                 }
             }
         }

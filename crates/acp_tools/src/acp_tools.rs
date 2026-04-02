@@ -71,7 +71,7 @@ impl StreamMessage {
                 let acp_err =
                     serde_json::from_value::<acp::Error>(error.clone()).unwrap_or_else(|err| {
                         log::warn!("Failed to deserialize ACP error: {err}");
-                        acp::Error::internal_error()
+                        acp::Error::internal_error().data(error.to_string())
                     });
                 StreamMessageContent::Response {
                     id: id.clone(),
@@ -165,6 +165,15 @@ impl AcpConnectionRegistry {
                 })
                 .ok();
             }
+
+            // The transport closed — clear state so observers (e.g. the ACP
+            // logs tab) can transition back to the disconnected state.
+            this.update(cx, |this, cx| {
+                this.active_agent_id = None;
+                this.subscribers.clear();
+                cx.notify();
+            })
+            .ok();
         }));
 
         cx.notify();
@@ -224,6 +233,7 @@ impl AcpTools {
         };
 
         let Some(agent_id) = agent_id else {
+            self.watched_connection = None;
             return;
         };
 
