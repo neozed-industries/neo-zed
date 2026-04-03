@@ -3322,64 +3322,50 @@ impl Sidebar {
             }
         }
 
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos();
-        let temp_path = std::env::temp_dir().join(format!("zed-removing-worktree-{timestamp}"));
-
-        let dir_removed = if fs
-            .rename(
-                &worktree_path,
-                &temp_path,
-                fs::RenameOptions {
-                    overwrite: false,
-                    ..Default::default()
-                },
-            )
-            .await
-            .is_ok()
-        {
-            if let Some(main_repo) = &main_repo {
-                let receiver = main_repo.update(cx, |repo, _cx| {
-                    repo.remove_worktree(worktree_path.clone(), true)
-                });
-                if let Ok(result) = receiver.await {
-                    result.log_err();
+        // Use `git worktree remove --force` which handles both the git
+        // bookkeeping and directory deletion. Fall back to manual removal
+        // only if git can't do it.
+        let dir_removed = if let Some(main_repo) = &main_repo {
+            let receiver = main_repo.update(cx, |repo, _cx| {
+                repo.remove_worktree(worktree_path.clone(), true)
+            });
+            match receiver.await {
+                Ok(Ok(())) => true,
+                Ok(Err(err)) => {
+                    log::warn!("git worktree remove failed: {err}, trying manual removal");
+                    fs.remove_dir(
+                        &worktree_path,
+                        fs::RemoveOptions {
+                            recursive: true,
+                            ignore_if_not_exists: true,
+                        },
+                    )
+                    .await
+                    .is_ok()
+                }
+                Err(_) => {
+                    log::warn!("git worktree remove was canceled, trying manual removal");
+                    fs.remove_dir(
+                        &worktree_path,
+                        fs::RemoveOptions {
+                            recursive: true,
+                            ignore_if_not_exists: true,
+                        },
+                    )
+                    .await
+                    .is_ok()
                 }
             }
-            fs.remove_dir(
-                &temp_path,
-                fs::RemoveOptions {
-                    recursive: true,
-                    ignore_if_not_exists: true,
-                },
-            )
-            .await
-            .log_err();
-            true
-        } else if fs
-            .remove_dir(
-                &worktree_path,
-                fs::RemoveOptions {
-                    recursive: true,
-                    ignore_if_not_exists: true,
-                },
-            )
-            .await
-            .is_ok()
-        {
-            if let Some(main_repo) = &main_repo {
-                let receiver = main_repo.update(cx, |repo, _cx| {
-                    repo.remove_worktree(worktree_path.clone(), true)
-                });
-                if let Ok(result) = receiver.await {
-                    result.log_err();
-                }
-            }
-            true
         } else {
-            false
+            fs.remove_dir(
+                &worktree_path,
+                fs::RemoveOptions {
+                    recursive: true,
+                    ignore_if_not_exists: true,
+                },
+            )
+            .await
+            .is_ok()
         };
 
         if !dir_removed {
