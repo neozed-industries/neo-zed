@@ -15880,6 +15880,7 @@ dependencies = [
  "language_model",
  "log",
  "menu",
+ "notifications",
  "platform_title_bar",
  "pretty_assertions",
  "project",

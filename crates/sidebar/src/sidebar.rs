@@ -24,6 +24,7 @@ use gpui::{
 use menu::{
     Cancel, Confirm, SelectChild, SelectFirst, SelectLast, SelectNext, SelectParent, SelectPrevious,
 };
+use notifications::status_toast::{StatusToast, ToastIcon};
 use project::git_store;
 use project::{AgentId, AgentRegistryStore, Event as ProjectEvent, linked_worktree_short_name};
 use recent_projects::sidebar_recent_projects::SidebarRecentProjects;
@@ -2331,24 +2332,43 @@ impl Sidebar {
                         }
                     }
                     Err(err) => {
-                        log::error!("Failed to restore worktree: {err}");
+                        let worktree_dir = row
+                            .worktree_path
+                            .file_name()
+                            .map(|n| n.to_string_lossy().to_string())
+                            .unwrap_or_else(|| row.worktree_path.to_string_lossy().to_string());
+                        log::error!(
+                            "Failed to restore worktree: {err}\n\
+                             worktree path: {}\n\
+                             main repo path: {}\n\
+                             step: git worktree restoration",
+                            row.worktree_path.display(),
+                            main_repo_path.display(),
+                        );
 
                         // Clear pending state — leave thread on main repo.
                         store.update(cx, |store, cx| {
                             store.set_pending_worktree_restore(&metadata.session_id, None, cx);
                         });
 
-                        cx.prompt(
-                            PromptLevel::Warning,
-                            "Worktree restoration failed",
-                            Some(&format!(
-                                "Could not restore the git worktree. \
-                                 The thread has been associated with {} instead.",
-                                main_repo_path.display()
-                            )),
-                            &["OK"],
-                        )
-                        .await
+                        this.update_in(cx, |this, _window, cx| {
+                            let Some(multi_workspace) = this.multi_workspace.upgrade() else {
+                                return;
+                            };
+                            let workspace = multi_workspace.read(cx).workspace().clone();
+                            workspace.update(cx, |workspace, cx| {
+                                let toast = StatusToast::new(
+                                    format!("Failed to restore worktree \"{worktree_dir}\""),
+                                    cx,
+                                    |this, _cx| {
+                                        this.icon(
+                                            ToastIcon::new(IconName::XCircle).color(Color::Error),
+                                        )
+                                    },
+                                );
+                                workspace.toggle_status_toast(toast, cx);
+                            });
+                        })
                         .ok();
                     }
                 }
@@ -3144,6 +3164,10 @@ impl Sidebar {
 
         let worktree_path_str = worktree_path.to_string_lossy().to_string();
         let main_repo_path_str = main_repo_path.to_string_lossy().to_string();
+        let worktree_dir_name = worktree_path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| worktree_path_str.clone());
 
         let mut archived_worktree_id: Option<i64> = None;
 
@@ -3187,26 +3211,36 @@ impl Sidebar {
                         Err(_) => "HEAD SHA operation was canceled".into(),
                         Ok(Ok(Some(_))) => unreachable!(),
                     };
-                    log::error!("{reason} after WIP commits; attempting to undo");
+                    log::error!(
+                        "{reason} after WIP commits; attempting to undo\n\
+                         worktree path: {worktree_path_str}\n\
+                         main repo path: {main_repo_path_str}\n\
+                         step: reading HEAD SHA after WIP commits",
+                    );
                     let undo_ok = undo_wip_commits(cx).await;
                     unarchive(cx);
-                    let detail = if undo_ok {
-                        "Could not read the commit hash after creating \
-                         the WIP commit. The commit has been undone and \
-                         the thread has been restored to the sidebar."
-                    } else {
-                        "Could not read the commit hash after creating \
-                         the WIP commit. The commit could not be automatically \
-                         undone \u{2014} you may need to manually run `git reset HEAD~2` \
-                         on the worktree. The thread has been restored to the sidebar."
-                    };
-                    cx.prompt(
-                        PromptLevel::Warning,
-                        "Failed to archive worktree",
-                        Some(detail),
-                        &["OK"],
-                    )
-                    .await
+                    if !undo_ok {
+                        log::error!(
+                            "Failed to undo WIP commits during rollback for worktree: {worktree_path_str}"
+                        );
+                    }
+                    let worktree_dir_name = worktree_dir_name.clone();
+                    cx.update(|window, cx| {
+                        if let Some(workspace) = Workspace::for_window(window, cx) {
+                            workspace.update(cx, |workspace, cx| {
+                                let toast = StatusToast::new(
+                                    format!("Failed to archive worktree \"{worktree_dir_name}\""),
+                                    cx,
+                                    |this, _cx| {
+                                        this.icon(
+                                            ToastIcon::new(IconName::XCircle).color(Color::Error),
+                                        )
+                                    },
+                                );
+                                workspace.toggle_status_toast(toast, cx);
+                            });
+                        }
+                    })
                     .ok();
                     return anyhow::Ok(());
                 }
@@ -3216,7 +3250,7 @@ impl Sidebar {
                 .update(cx, |store, cx| {
                     store.create_archived_worktree(
                         worktree_path_str.clone(),
-                        main_repo_path_str,
+                        main_repo_path_str.clone(),
                         branch_name,
                         commit_hash.clone(),
                         cx,
@@ -3250,30 +3284,43 @@ impl Sidebar {
                     }
 
                     if let Err(err) = link_result {
-                        log::error!("Failed to link thread to archived worktree: {err}");
+                        log::error!(
+                            "Failed to link thread to archived worktree: {err}\n\
+                             worktree path: {worktree_path_str}\n\
+                             main repo path: {main_repo_path_str}\n\
+                             step: linking thread to archived worktree record",
+                        );
                         store
                             .update(cx, |store, cx| store.delete_archived_worktree(id, cx))
                             .await
                             .log_err();
                         let undo_ok = undo_wip_commits(cx).await;
                         unarchive(cx);
-                        let detail = if undo_ok {
-                            "Could not link the thread to the archived worktree record. \
-                             The WIP commit has been undone and the thread \
-                             has been restored to the sidebar."
-                        } else {
-                            "Could not link the thread to the archived worktree record. \
-                             The WIP commit could not be automatically \
-                             undone \u{2014} you may need to manually run `git reset HEAD~2` \
-                             on the worktree. The thread has been restored to the sidebar."
-                        };
-                        cx.prompt(
-                            PromptLevel::Warning,
-                            "Failed to archive worktree",
-                            Some(detail),
-                            &["OK"],
-                        )
-                        .await
+                        if !undo_ok {
+                            log::error!(
+                                "Failed to undo WIP commits during rollback for worktree: {worktree_path_str}"
+                            );
+                        }
+                        let worktree_dir_name = worktree_dir_name.clone();
+                        cx.update(|window, cx| {
+                            if let Some(workspace) = Workspace::for_window(window, cx) {
+                                workspace.update(cx, |workspace, cx| {
+                                    let toast = StatusToast::new(
+                                        format!(
+                                            "Failed to archive worktree \"{worktree_dir_name}\""
+                                        ),
+                                        cx,
+                                        |this, _cx| {
+                                            this.icon(
+                                                ToastIcon::new(IconName::XCircle)
+                                                    .color(Color::Error),
+                                            )
+                                        },
+                                    );
+                                    workspace.toggle_status_toast(toast, cx);
+                                });
+                            }
+                        })
                         .ok();
                         return anyhow::Ok(());
                     }
@@ -3296,26 +3343,36 @@ impl Sidebar {
                     }
                 }
                 Err(err) => {
-                    log::error!("Failed to create archived worktree record: {err}");
+                    log::error!(
+                        "Failed to create archived worktree record: {err}\n\
+                         worktree path: {worktree_path_str}\n\
+                         main repo path: {main_repo_path_str}\n\
+                         step: creating archived worktree database record",
+                    );
                     let undo_ok = undo_wip_commits(cx).await;
                     unarchive(cx);
-                    let detail = if undo_ok {
-                        "Could not save the archived worktree record. \
-                         The WIP commit has been undone and the thread \
-                         has been restored to the sidebar."
-                    } else {
-                        "Could not save the archived worktree record. \
-                         The WIP commit could not be automatically \
-                         undone \u{2014} you may need to manually run `git reset HEAD~2` \
-                         on the worktree. The thread has been restored to the sidebar."
-                    };
-                    cx.prompt(
-                        PromptLevel::Warning,
-                        "Failed to archive worktree",
-                        Some(detail),
-                        &["OK"],
-                    )
-                    .await
+                    if !undo_ok {
+                        log::error!(
+                            "Failed to undo WIP commits during rollback for worktree: {worktree_path_str}"
+                        );
+                    }
+                    let worktree_dir_name = worktree_dir_name.clone();
+                    cx.update(|window, cx| {
+                        if let Some(workspace) = Workspace::for_window(window, cx) {
+                            workspace.update(cx, |workspace, cx| {
+                                let toast = StatusToast::new(
+                                    format!("Failed to archive worktree \"{worktree_dir_name}\""),
+                                    cx,
+                                    |this, _cx| {
+                                        this.icon(
+                                            ToastIcon::new(IconName::XCircle).color(Color::Error),
+                                        )
+                                    },
+                                );
+                                workspace.toggle_status_toast(toast, cx);
+                            });
+                        }
+                    })
                     .ok();
                     return anyhow::Ok(());
                 }
@@ -3388,24 +3445,31 @@ impl Sidebar {
                     .log_err();
             }
             unarchive(cx);
-            let detail = if undo_ok {
-                "Could not remove the worktree directory from disk. \
-                 Any WIP commits and archive records have been rolled \
-                 back, and the thread has been restored to the sidebar."
-            } else {
-                "Could not remove the worktree directory from disk. \
-                 The archive records have been rolled back, but the WIP \
-                 commits could not be automatically undone \u{2014} you may need \
-                 to manually run `git reset HEAD~2` on the worktree. \
-                 The thread has been restored to the sidebar."
-            };
-            cx.prompt(
-                PromptLevel::Warning,
-                "Failed to delete worktree",
-                Some(detail),
-                &["OK"],
-            )
-            .await
+            if !undo_ok {
+                log::error!(
+                    "Failed to undo WIP commits during rollback for worktree: {worktree_path_str}"
+                );
+            }
+            log::error!(
+                "Failed to delete worktree directory from disk\n\
+                 worktree path: {worktree_path_str}\n\
+                 main repo path: {main_repo_path_str}\n\
+                 step: removing worktree directory",
+            );
+            cx.update(|window, cx| {
+                if let Some(workspace) = Workspace::for_window(window, cx) {
+                    workspace.update(cx, |workspace, cx| {
+                        let toast = StatusToast::new(
+                            format!("Failed to delete worktree \"{worktree_dir_name}\""),
+                            cx,
+                            |this, _cx| {
+                                this.icon(ToastIcon::new(IconName::XCircle).color(Color::Error))
+                            },
+                        );
+                        workspace.toggle_status_toast(toast, cx);
+                    });
+                }
+            })
             .ok();
         }
 
