@@ -949,11 +949,11 @@ impl Render for ConfigurationView {
             let weak_state = self.state.downgrade();
             return v_flex()
                 .child(
-                    ConfiguredApiCard::new(SharedString::from(label)).on_click(cx.listener(
-                        move |_this, _, _window, cx| {
+                    ConfiguredApiCard::new(SharedString::from(label))
+                        .button_label("Sign Out")
+                        .on_click(cx.listener(move |_this, _, _window, cx| {
                             do_sign_out(&weak_state, cx);
-                        },
-                    )),
+                        })),
                 )
                 .into_any_element();
         }
