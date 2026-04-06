@@ -11,20 +11,17 @@ use language_model::{
     LanguageModelProviderId, LanguageModelProviderName, LanguageModelProviderState,
     LanguageModelRequest, LanguageModelToolChoice, RateLimiter,
 };
-use open_ai::responses::stream_response;
+use open_ai::{ReasoningEffort, responses::stream_response};
 use rand::RngCore as _;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use smol::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use strum::IntoEnumIterator as _;
 use ui::{ConfiguredApiCard, prelude::*};
 use util::ResultExt as _;
 
-use crate::provider::open_ai::{
-    OpenAiResponseEventMapper, count_open_ai_tokens, into_open_ai_response,
-};
+use crate::provider::open_ai::{OpenAiResponseEventMapper, into_open_ai_response};
 
 const PROVIDER_ID: LanguageModelProviderId = LanguageModelProviderId::new("openai-subscribed");
 const PROVIDER_NAME: LanguageModelProviderName =
@@ -194,7 +191,7 @@ impl OpenAiSubscribedProvider {
         .detach();
     }
 
-    fn create_language_model(&self, model: open_ai::Model) -> Arc<dyn LanguageModel> {
+    fn create_language_model(&self, model: ChatGptModel) -> Arc<dyn LanguageModel> {
         Arc::new(OpenAiSubscribedLanguageModel {
             id: LanguageModelId::from(model.id().to_string()),
             model,
@@ -227,30 +224,18 @@ impl LanguageModelProvider for OpenAiSubscribedProvider {
     }
 
     fn default_model(&self, _cx: &App) -> Option<Arc<dyn LanguageModel>> {
-        Some(self.create_language_model(open_ai::Model::default()))
+        Some(self.create_language_model(ChatGptModel::Gpt53Codex))
     }
 
     fn default_fast_model(&self, _cx: &App) -> Option<Arc<dyn LanguageModel>> {
-        Some(self.create_language_model(open_ai::Model::default_fast()))
+        Some(self.create_language_model(ChatGptModel::Gpt54Mini))
     }
 
     fn provided_models(&self, _cx: &App) -> Vec<Arc<dyn LanguageModel>> {
-        let mut models: Vec<Arc<dyn LanguageModel>> = open_ai::Model::iter()
-            .filter(|m| !matches!(m, open_ai::Model::Custom { .. }))
+        ChatGptModel::all()
+            .into_iter()
             .map(|m| self.create_language_model(m))
-            .collect();
-
-        models.push(self.create_language_model(open_ai::Model::Custom {
-            name: "codex-mini-latest".into(),
-            display_name: Some("Codex Mini".into()),
-            max_tokens: 200_000,
-            max_output_tokens: None,
-            max_completion_tokens: None,
-            reasoning_effort: None,
-            supports_chat_completions: false,
-        }));
-
-        models
+            .collect()
     }
 
     fn is_authenticated(&self, cx: &App) -> bool {
@@ -285,11 +270,116 @@ impl LanguageModelProvider for OpenAiSubscribedProvider {
     }
 }
 
+// --- Models available through the Codex backend ---
+//
+// The ChatGPT Subscription provider routes requests to chatgpt.com/backend-api/codex,
+// which only supports a subset of OpenAI models. This list is maintained separately
+// from the standard OpenAI API model list (open_ai::Model).
+
+#[derive(Clone, Debug, PartialEq)]
+enum ChatGptModel {
+    Gpt5,
+    Gpt5Codex,
+    Gpt5CodexMini,
+    Gpt51,
+    Gpt51Codex,
+    Gpt51CodexMax,
+    Gpt51CodexMini,
+    Gpt52,
+    Gpt52Codex,
+    Gpt53Codex,
+    Gpt53CodexSpark,
+    Gpt54,
+    Gpt54Mini,
+}
+
+impl ChatGptModel {
+    fn all() -> Vec<Self> {
+        vec![
+            Self::Gpt54,
+            Self::Gpt54Mini,
+            Self::Gpt53Codex,
+            Self::Gpt53CodexSpark,
+            Self::Gpt52Codex,
+            Self::Gpt52,
+            Self::Gpt51CodexMax,
+            Self::Gpt51Codex,
+            Self::Gpt51CodexMini,
+            Self::Gpt51,
+            Self::Gpt5Codex,
+            Self::Gpt5CodexMini,
+            Self::Gpt5,
+        ]
+    }
+
+    fn id(&self) -> &str {
+        match self {
+            Self::Gpt5 => "gpt-5",
+            Self::Gpt5Codex => "gpt-5-codex",
+            Self::Gpt5CodexMini => "gpt-5-codex-mini",
+            Self::Gpt51 => "gpt-5.1",
+            Self::Gpt51Codex => "gpt-5.1-codex",
+            Self::Gpt51CodexMax => "gpt-5.1-codex-max",
+            Self::Gpt51CodexMini => "gpt-5.1-codex-mini",
+            Self::Gpt52 => "gpt-5.2",
+            Self::Gpt52Codex => "gpt-5.2-codex",
+            Self::Gpt53Codex => "gpt-5.3-codex",
+            Self::Gpt53CodexSpark => "gpt-5.3-codex-spark",
+            Self::Gpt54 => "gpt-5.4",
+            Self::Gpt54Mini => "gpt-5.4-mini",
+        }
+    }
+
+    fn display_name(&self) -> &str {
+        match self {
+            Self::Gpt5 => "GPT-5",
+            Self::Gpt5Codex => "GPT-5 Codex",
+            Self::Gpt5CodexMini => "GPT-5 Codex Mini",
+            Self::Gpt51 => "GPT-5.1",
+            Self::Gpt51Codex => "GPT-5.1 Codex",
+            Self::Gpt51CodexMax => "GPT-5.1 Codex Max",
+            Self::Gpt51CodexMini => "GPT-5.1 Codex Mini",
+            Self::Gpt52 => "GPT-5.2",
+            Self::Gpt52Codex => "GPT-5.2 Codex",
+            Self::Gpt53Codex => "GPT-5.3 Codex",
+            Self::Gpt53CodexSpark => "GPT-5.3 Codex Spark",
+            Self::Gpt54 => "GPT-5.4",
+            Self::Gpt54Mini => "GPT-5.4 Mini",
+        }
+    }
+
+    fn max_token_count(&self) -> u64 {
+        match self {
+            Self::Gpt53CodexSpark => 128_000,
+            Self::Gpt54 | Self::Gpt54Mini => 1_050_000,
+            _ => 400_000,
+        }
+    }
+
+    fn max_output_tokens(&self) -> Option<u64> {
+        match self {
+            Self::Gpt53CodexSpark => Some(8_192),
+            _ => Some(128_000),
+        }
+    }
+
+    fn supports_images(&self) -> bool {
+        !matches!(self, Self::Gpt53CodexSpark)
+    }
+
+    fn reasoning_effort(&self) -> Option<ReasoningEffort> {
+        match self {
+            Self::Gpt54 | Self::Gpt54Mini => None,
+            _ => Some(ReasoningEffort::Medium),
+        }
+    }
+}
+
 // --- Language model ---
 
 struct OpenAiSubscribedLanguageModel {
     id: LanguageModelId,
-    model: open_ai::Model,
+    model: ChatGptModel,
     state: Entity<State>,
     http_client: Arc<dyn HttpClient>,
     request_limiter: RateLimiter,
@@ -317,29 +407,7 @@ impl LanguageModel for OpenAiSubscribedLanguageModel {
     }
 
     fn supports_images(&self) -> bool {
-        use open_ai::Model;
-        match &self.model {
-            Model::FourOmniMini
-            | Model::FourPointOneNano
-            | Model::Five
-            | Model::FiveCodex
-            | Model::FiveMini
-            | Model::FiveNano
-            | Model::FivePointOne
-            | Model::FivePointTwo
-            | Model::FivePointTwoCodex
-            | Model::FivePointThreeCodex
-            | Model::FivePointFour
-            | Model::FivePointFourPro
-            | Model::O1
-            | Model::O3
-            | Model::O4Mini => true,
-            Model::ThreePointFiveTurbo
-            | Model::Four
-            | Model::FourTurbo
-            | Model::O3Mini
-            | Model::Custom { .. } => false,
-        }
+        self.model.supports_images()
     }
 
     fn supports_tool_choice(&self, _choice: LanguageModelToolChoice) -> bool {
@@ -368,10 +436,10 @@ impl LanguageModel for OpenAiSubscribedLanguageModel {
 
     fn count_tokens(
         &self,
-        request: LanguageModelRequest,
-        cx: &App,
+        _request: LanguageModelRequest,
+        _cx: &App,
     ) -> BoxFuture<'static, Result<u64>> {
-        count_open_ai_tokens(request, self.model.clone(), cx)
+        futures::future::ready(Ok(0)).boxed()
     }
 
     fn stream_completion(
@@ -391,7 +459,7 @@ impl LanguageModel for OpenAiSubscribedLanguageModel {
         let mut responses_request = into_open_ai_response(
             request,
             self.model.id(),
-            self.model.supports_parallel_tool_calls(),
+            true,  // supports_parallel_tool_calls
             false, // supports_prompt_cache_key
             None,  // max_output_tokens — not supported by Codex backend
             self.model.reasoning_effort(),
