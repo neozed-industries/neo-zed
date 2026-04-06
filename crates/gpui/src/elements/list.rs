@@ -527,6 +527,13 @@ impl ListState {
         )
     }
 
+    /// Returns whether the list is scrolled to the bottom
+    pub fn is_at_bottom(&self) -> bool {
+        let current_offset = self.scroll_px_offset_for_scrollbar().y.abs();
+        let max_offset = self.max_offset_for_scrollbar().y;
+        current_offset >= max_offset - px(1.0)
+    }
+
     /// Scroll the list to the given offset
     pub fn scroll_to(&self, mut scroll_top: ListOffset) {
         let state = &mut *self.0.borrow_mut();

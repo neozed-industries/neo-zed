@@ -4936,7 +4936,8 @@ impl ThreadView {
     }
 
     pub fn scroll_to_end(&mut self, cx: &mut Context<Self>) {
-        self.list_state.scroll_to_end();
+        // Setting follow mode to Tail will scroll to the bottom of the list
+        self.list_state.set_follow_mode(gpui::FollowMode::Tail);
         cx.notify();
     }
 
@@ -4958,6 +4959,7 @@ impl ThreadView {
     }
 
     pub(crate) fn scroll_to_top(&mut self, cx: &mut Context<Self>) {
+        self.list_state.set_follow_mode(gpui::FollowMode::Normal);
         self.list_state.scroll_to(ListOffset::default());
         cx.notify();
     }
@@ -4969,8 +4971,7 @@ impl ThreadView {
         cx: &mut Context<Self>,
     ) {
         let page_height = self.list_state.viewport_bounds().size.height;
-        self.list_state.scroll_by(-page_height * 0.9);
-        cx.notify();
+        self.manual_scroll_by(-page_height * 0.9, cx);
     }
 
     fn scroll_output_page_down(
@@ -4980,8 +4981,7 @@ impl ThreadView {
         cx: &mut Context<Self>,
     ) {
         let page_height = self.list_state.viewport_bounds().size.height;
-        self.list_state.scroll_by(page_height * 0.9);
-        cx.notify();
+        self.manual_scroll_by(page_height * 0.9, cx);
     }
 
     fn scroll_output_line_up(
@@ -4990,8 +4990,7 @@ impl ThreadView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.list_state.scroll_by(-window.line_height() * 3.);
-        cx.notify();
+        self.manual_scroll_by(-window.line_height() * 3., cx);
     }
 
     fn scroll_output_line_down(
@@ -5000,7 +4999,17 @@ impl ThreadView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.list_state.scroll_by(window.line_height() * 3.);
+        self.manual_scroll_by(window.line_height() * 3., cx);
+    }
+
+    fn manual_scroll_by(&mut self, amount: Pixels, cx: &mut Context<Self>) {
+        self.list_state.scroll_by(amount);
+        let mode = if self.list_state.is_at_bottom() {
+            gpui::FollowMode::Tail
+        } else {
+            gpui::FollowMode::Normal
+        };
+        self.list_state.set_follow_mode(mode);
         cx.notify();
     }
 
@@ -5034,6 +5043,7 @@ impl ThreadView {
             .rev()
             .find(|&i| matches!(entries.get(i), Some(AgentThreadEntry::UserMessage(_))))
         {
+            self.list_state.set_follow_mode(gpui::FollowMode::Normal);
             self.list_state.scroll_to(ListOffset {
                 item_ix: target_ix,
                 offset_in_item: px(0.),
@@ -5053,6 +5063,7 @@ impl ThreadView {
         if let Some(target_ix) = (current_ix + 1..entries.len())
             .find(|&i| matches!(entries.get(i), Some(AgentThreadEntry::UserMessage(_))))
         {
+            self.list_state.set_follow_mode(gpui::FollowMode::Normal);
             self.list_state.scroll_to(ListOffset {
                 item_ix: target_ix,
                 offset_in_item: px(0.),
