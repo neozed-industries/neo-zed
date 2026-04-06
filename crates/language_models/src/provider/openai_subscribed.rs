@@ -118,85 +118,8 @@ impl OpenAiSubscribedProvider {
         .detach();
     }
 
-    fn sign_in(&self, cx: &mut App) {
-        if self.state.read(cx).is_signing_in() {
-            return;
-        }
-
-        let state = self.state.downgrade();
-        let http_client = self.http_client.clone();
-
-        let task = cx.spawn(async move |cx| {
-            match do_oauth_flow(http_client, &*cx).await {
-                Ok(creds) => {
-                    let persist_result = async {
-                        let credentials_provider =
-                            state.read_with(&*cx, |s, _| s.credentials_provider.clone())?;
-                        let json = serde_json::to_vec(&creds)?;
-                        credentials_provider
-                            .write_credentials(CREDENTIALS_KEY, "Bearer", &json, &*cx)
-                            .await?;
-                        anyhow::Ok(())
-                    }
-                    .await;
-
-                    match persist_result {
-                        Ok(()) => {
-                            state
-                                .update(cx, |s, cx| {
-                                    s.credentials = Some(creds);
-                                    s.sign_in_task = None;
-                                    cx.notify();
-                                })
-                                .log_err();
-                        }
-                        Err(err) => {
-                            log::error!("ChatGPT subscription sign-in failed to persist credentials: {err:?}");
-                            state
-                                .update(cx, |s, cx| {
-                                    s.sign_in_task = None;
-                                    cx.notify();
-                                })
-                                .log_err();
-                        }
-                    }
-                }
-                Err(err) => {
-                    log::error!("ChatGPT subscription sign-in failed: {err:?}");
-                    state
-                        .update(cx, |s, cx| {
-                            s.sign_in_task = None;
-                            cx.notify();
-                        })
-                        .log_err();
-                }
-            }
-            anyhow::Ok(())
-        });
-
-        self.state.update(cx, |s, cx| {
-            s.sign_in_task = Some(task);
-            cx.notify();
-        });
-    }
-
     fn sign_out(&self, cx: &mut App) {
-        let state = self.state.downgrade();
-        cx.spawn(async move |cx| {
-            let credentials_provider =
-                state.read_with(&*cx, |s, _| s.credentials_provider.clone())?;
-            credentials_provider
-                .delete_credentials(CREDENTIALS_KEY, &*cx)
-                .await
-                .log_err();
-            state.update(cx, |s, cx| {
-                s.credentials = None;
-                s.sign_in_task = None;
-                cx.notify();
-            })?;
-            anyhow::Ok(())
-        })
-        .detach();
+        do_sign_out(&self.state.downgrade(), cx);
     }
 
     fn create_language_model(&self, model: ChatGptModel) -> Arc<dyn LanguageModel> {
@@ -895,6 +818,89 @@ fn percent_decode(s: &str) -> String {
     result
 }
 
+fn do_sign_in(state: &Entity<State>, http_client: &Arc<dyn HttpClient>, cx: &mut App) {
+    if state.read(cx).is_signing_in() {
+        return;
+    }
+
+    let weak_state = state.downgrade();
+    let http_client = http_client.clone();
+
+    let task = cx.spawn(async move |cx| {
+        match do_oauth_flow(http_client, &*cx).await {
+            Ok(creds) => {
+                let persist_result = async {
+                    let credentials_provider =
+                        weak_state.read_with(&*cx, |s, _| s.credentials_provider.clone())?;
+                    let json = serde_json::to_vec(&creds)?;
+                    credentials_provider
+                        .write_credentials(CREDENTIALS_KEY, "Bearer", &json, &*cx)
+                        .await?;
+                    anyhow::Ok(())
+                }
+                .await;
+
+                match persist_result {
+                    Ok(()) => {
+                        weak_state
+                            .update(cx, |s, cx| {
+                                s.credentials = Some(creds);
+                                s.sign_in_task = None;
+                                cx.notify();
+                            })
+                            .log_err();
+                    }
+                    Err(err) => {
+                        log::error!(
+                            "ChatGPT subscription sign-in failed to persist credentials: {err:?}"
+                        );
+                        weak_state
+                            .update(cx, |s, cx| {
+                                s.sign_in_task = None;
+                                cx.notify();
+                            })
+                            .log_err();
+                    }
+                }
+            }
+            Err(err) => {
+                log::error!("ChatGPT subscription sign-in failed: {err:?}");
+                weak_state
+                    .update(cx, |s, cx| {
+                        s.sign_in_task = None;
+                        cx.notify();
+                    })
+                    .log_err();
+            }
+        }
+        anyhow::Ok(())
+    });
+
+    state.update(cx, |s, cx| {
+        s.sign_in_task = Some(task);
+        cx.notify();
+    });
+}
+
+fn do_sign_out(state: &gpui::WeakEntity<State>, cx: &mut App) {
+    let weak_state = state.clone();
+    cx.spawn(async move |cx| {
+        let credentials_provider =
+            weak_state.read_with(&*cx, |s, _| s.credentials_provider.clone())?;
+        credentials_provider
+            .delete_credentials(CREDENTIALS_KEY, &*cx)
+            .await
+            .log_err();
+        weak_state.update(cx, |s, cx| {
+            s.credentials = None;
+            s.sign_in_task = None;
+            cx.notify();
+        })?;
+        anyhow::Ok(())
+    })
+    .detach();
+}
+
 // --- Configuration view ---
 
 struct ConfigurationView {
@@ -917,21 +923,7 @@ impl Render for ConfigurationView {
                 .child(
                     ConfiguredApiCard::new(SharedString::from(label)).on_click(cx.listener(
                         move |_this, _, _window, cx| {
-                            let weak_state = weak_state.clone();
-                            cx.spawn(async move |_this, cx| {
-                                let credentials_provider = weak_state
-                                    .read_with(&*cx, |s, _| s.credentials_provider.clone())?;
-                                credentials_provider
-                                    .delete_credentials(CREDENTIALS_KEY, &*cx)
-                                    .await
-                                    .log_err();
-                                weak_state.update(cx, |s, cx| {
-                                    s.credentials = None;
-                                    cx.notify();
-                                })?;
-                                anyhow::Ok(())
-                            })
-                            .detach();
+                            do_sign_out(&weak_state, cx);
                         },
                     )),
                 )
@@ -955,11 +947,7 @@ impl Render for ConfigurationView {
             .child(
                 Button::new("sign-in", "Sign in with ChatGPT")
                     .on_click(move |_, _window, cx| {
-                        let provider = OpenAiSubscribedProvider {
-                            state: provider_state.clone(),
-                            http_client: http_client.clone(),
-                        };
-                        provider.sign_in(cx);
+                        do_sign_in(&provider_state, &http_client, cx);
                     }),
             )
             .into_any_element()
