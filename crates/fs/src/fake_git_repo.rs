@@ -1306,6 +1306,10 @@ impl GitRepository for FakeGitRepository {
         })
     }
 
+    fn repair_worktrees(&self) -> BoxFuture<'_, Result<()>> {
+        async { Ok(()) }.boxed()
+    }
+
     fn set_trusted(&self, trusted: bool) {
         self.is_trusted
             .store(trusted, std::sync::atomic::Ordering::Release);
