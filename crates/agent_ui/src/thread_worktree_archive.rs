@@ -971,10 +971,10 @@ pub async fn restore_worktree_via_git(
 
     let commit_exists = main_repo
         .update(cx, |repo, _cx| {
-            repo.resolve_commit(row.original_commit_hash.clone())
+            repo.commit_exists(row.original_commit_hash.clone())
         })
         .await
-        .map_err(|_| anyhow!("resolve_commit was canceled"))?
+        .map_err(|_| anyhow!("commit_exists check was canceled"))?
         .context("failed to check if original commit exists")?;
 
     if !commit_exists {
