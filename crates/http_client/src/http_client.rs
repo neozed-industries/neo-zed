@@ -291,6 +291,92 @@ impl HttpClient for HttpClientWithUrl {
     }
 }
 
+/// Generate a styled HTML page for OAuth callback responses.
+///
+/// Returns a complete HTML document (no HTTP headers) with a centered card
+/// layout styled to match Zed's dark theme. The `title` is rendered as a
+/// heading and `message` as body text below it.
+pub fn oauth_callback_page(title: &str, message: &str) -> String {
+    format!(
+        r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{title} — Zed</title>
+<style>
+  * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+  body {{
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+    background: #1e1e2e;
+    color: #cdd6f4;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 1rem;
+  }}
+  .card {{
+    background: #313244;
+    border-radius: 12px;
+    padding: 2.5rem;
+    max-width: 420px;
+    width: 100%;
+    text-align: center;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+  }}
+  .icon {{
+    width: 48px;
+    height: 48px;
+    margin: 0 auto 1.5rem;
+    background: #a6e3a1;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }}
+  .icon svg {{
+    width: 24px;
+    height: 24px;
+    stroke: #1e1e2e;
+    stroke-width: 3;
+    fill: none;
+  }}
+  h1 {{
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin-bottom: 0.75rem;
+    color: #cdd6f4;
+  }}
+  p {{
+    font-size: 0.925rem;
+    line-height: 1.5;
+    color: #a6adc8;
+  }}
+  .brand {{
+    margin-top: 1.5rem;
+    font-size: 0.8rem;
+    color: #585b70;
+    letter-spacing: 0.05em;
+  }}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="icon">
+    <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+  </div>
+  <h1>{title}</h1>
+  <p>{message}</p>
+  <div class="brand">Zed</div>
+</div>
+</body>
+</html>"#,
+        title = title,
+        message = message,
+    )
+}
+
 pub fn read_proxy_from_env() -> Option<Url> {
     const ENV_VARS: &[&str] = &[
         "ALL_PROXY",

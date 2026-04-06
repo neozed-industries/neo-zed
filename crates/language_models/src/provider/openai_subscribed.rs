@@ -684,11 +684,16 @@ async fn await_oauth_callback(expected_state: &str) -> Result<String> {
         }
     }
 
-    let html = b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n\
-        <html><body><h1>Signed in to Zed</h1>\
-        <p>Authentication successful. You can close this tab.</p>\
-        </body></html>";
-    stream.write_all(html).await.log_err();
+    let page = http_client::oauth_callback_page(
+        "Signed In",
+        "You've signed into Zed via your ChatGPT subscription. You can close this tab and return to Zed.",
+    );
+    let response = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\n\r\n{}",
+        page.len(),
+        page
+    );
+    stream.write_all(response.as_bytes()).await.log_err();
 
     let received_state =
         received_state.ok_or_else(|| anyhow!("Missing state in OAuth callback"))?;

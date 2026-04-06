@@ -1107,15 +1107,19 @@ pub async fn start_callback_server() -> Result<(
             let (status_code, body) = match &result {
                 Ok(_) => (
                     200,
-                    "<html><body><h1>Authorization successful</h1>\
-                     <p>You can close this tab and return to Zed.</p></body></html>",
+                    http_client::oauth_callback_page(
+                        "Authorization Successful",
+                        "You can close this tab and return to Zed.",
+                    ),
                 ),
                 Err(err) => {
                     log::error!("OAuth callback error: {}", err);
                     (
                         400,
-                        "<html><body><h1>Authorization failed</h1>\
-                         <p>Something went wrong. Please try again from Zed.</p></body></html>",
+                        http_client::oauth_callback_page(
+                            "Authorization Failed",
+                            "Something went wrong. Please try again from Zed.",
+                        ),
                     )
                 }
             };
