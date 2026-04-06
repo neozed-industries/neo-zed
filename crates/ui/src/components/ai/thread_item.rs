@@ -229,6 +229,8 @@ impl ThreadItem {
 
 impl RenderOnce for ThreadItem {
     fn render(mut self, _: &mut Window, cx: &mut App) -> impl IntoElement {
+        let pending_worktree_restore = self.pending_worktree_restore;
+        let action_slot = self.action_slot.take();
         let color = cx.theme().colors();
         let sidebar_base_bg = color
             .title_bar_background
@@ -311,7 +313,16 @@ impl RenderOnce for ThreadItem {
             (None, None)
         };
 
-        let icon = if self.status == AgentThreadStatus::Running {
+        let icon = if self.pending_worktree_restore {
+            icon_container()
+                .child(
+                    Icon::new(IconName::LoadCircle)
+                        .size(IconSize::Small)
+                        .color(Color::Muted)
+                        .with_rotate_animation(2),
+                )
+                .into_any_element()
+        } else if self.status == AgentThreadStatus::Running {
             icon_container()
                 .child(
                     Icon::new(IconName::LoadCircle)
@@ -413,8 +424,8 @@ impl RenderOnce for ThreadItem {
                             .when_some(self.tooltip, |this, tooltip| this.tooltip(tooltip)),
                     )
                     .child(gradient_overlay)
-                    .when(self.hovered, |this| {
-                        this.when_some(self.action_slot, |this, slot| {
+                    .when(!pending_worktree_restore && self.hovered, |this| {
+                        this.when_some(action_slot, |this, slot| {
                             let overlay = GradientFade::new(base_bg, hover_bg, hover_bg)
                                 .width(px(64.0))
                                 .right(px(6.))

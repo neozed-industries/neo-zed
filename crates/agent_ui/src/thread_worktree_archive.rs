@@ -968,10 +968,10 @@ pub async fn restore_worktree_via_git(
 
     let commit_exists = main_repo
         .update(cx, |repo, _cx| {
-            repo.commit_exists(row.original_commit_hash.clone())
+            repo.resolve_commit(row.original_commit_hash.clone())
         })
         .await
-        .map_err(|_| anyhow!("commit_exists check was canceled"))?
+        .map_err(|_| anyhow!("resolve_commit was canceled"))?
         .context("failed to check if original commit exists")?;
 
     if !commit_exists {
@@ -993,9 +993,7 @@ pub async fn restore_worktree_via_git(
         // a `.git` file (worktrees have a `.git` file, not a directory).
         let dot_git_path = worktree_path.join(".git");
         let dot_git_metadata = app_state.fs.metadata(&dot_git_path).await?;
-        let is_git_worktree = dot_git_metadata
-            .as_ref()
-            .is_some_and(|meta| !meta.is_dir);
+        let is_git_worktree = dot_git_metadata.as_ref().is_some_and(|meta| !meta.is_dir);
 
         if is_git_worktree {
             // Already a git worktree — another thread on the same worktree
@@ -1047,11 +1045,7 @@ pub async fn restore_worktree_via_git(
 
     let soft_reset_ok = if mixed_reset_ok {
         let rx = wt_repo.update(cx, |repo, cx| {
-            repo.reset(
-                row.original_commit_hash.clone(),
-                ResetMode::Soft,
-                cx,
-            )
+            repo.reset(row.original_commit_hash.clone(), ResetMode::Soft, cx)
         });
         match rx.await {
             Ok(Ok(())) => true,
@@ -1077,11 +1071,7 @@ pub async fn restore_worktree_via_git(
             row.original_commit_hash
         );
         let rx = wt_repo.update(cx, |repo, cx| {
-            repo.reset(
-                row.original_commit_hash.clone(),
-                ResetMode::Mixed,
-                cx,
-            )
+            repo.reset(row.original_commit_hash.clone(), ResetMode::Mixed, cx)
         });
         match rx.await {
             Ok(Ok(())) => {}
@@ -1142,11 +1132,7 @@ pub async fn restore_worktree_via_git(
                     row.original_commit_hash
                 );
                 let rx = wt_repo.update(cx, |repo, cx| {
-                    repo.reset(
-                        row.original_commit_hash.clone(),
-                        ResetMode::Mixed,
-                        cx,
-                    )
+                    repo.reset(row.original_commit_hash.clone(), ResetMode::Mixed, cx)
                 });
                 let _ = rx.await;
                 // Delete the old branch and create fresh

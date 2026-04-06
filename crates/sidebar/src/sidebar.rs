@@ -18,8 +18,8 @@ use editor::Editor;
 use feature_flags::{AgentV2FeatureFlag, FeatureFlagViewExt as _};
 use gpui::{
     Action as _, AnyElement, App, ClickEvent, Context, Entity, FocusHandle, Focusable, KeyContext,
-    ListState, Pixels, Render, SharedString, WeakEntity, Window, WindowHandle, linear_color_stop,
-    linear_gradient, list, prelude::*, px,
+    ListState, Pixels, Render, SharedString, Task, WeakEntity, Window, WindowHandle,
+    linear_color_stop, linear_gradient, list, prelude::*, px,
 };
 use menu::{
     Cancel, Confirm, SelectChild, SelectFirst, SelectLast, SelectNext, SelectParent, SelectPrevious,
@@ -372,6 +372,7 @@ pub struct Sidebar {
     view: SidebarView,
     recent_projects_popover_handle: PopoverMenuHandle<SidebarRecentProjects>,
     project_header_menu_ix: Option<usize>,
+    worktree_restore_tasks: HashMap<acp::SessionId, Task<()>>,
     _subscriptions: Vec<gpui::Subscription>,
     pending_worktree_restores: HashSet<acp::SessionId>,
     _draft_observation: Option<gpui::Subscription>,
@@ -464,6 +465,7 @@ impl Sidebar {
             view: SidebarView::default(),
             recent_projects_popover_handle: PopoverMenuHandle::default(),
             project_header_menu_ix: None,
+            worktree_restore_tasks: HashMap::new(),
             _subscriptions: Vec::new(),
             pending_worktree_restores: HashSet::default(),
             _draft_observation: None,
@@ -2209,8 +2211,10 @@ impl Sidebar {
             .read(cx)
             .get_archived_worktrees_for_thread(session_id.0.to_string(), cx);
         let path_list = metadata.folder_paths.clone();
+        let cleanup_session_id = session_id.clone();
+        let insert_session_id = session_id.clone();
 
-        cx.spawn_in(window, async move |this, cx| {
+        let restore_task = cx.spawn_in(window, async move |this, cx| {
             let archived_worktrees = task.await?;
 
             if archived_worktrees.is_empty() {
@@ -2307,8 +2311,27 @@ impl Sidebar {
             }
 
             anyhow::Ok(())
-        })
-        .detach_and_log_err(cx);
+        });
+
+        let monitor_task = cx.spawn(async move |this, _cx| {
+            let result = restore_task.await;
+            if let Err(err) = &result {
+                log::error!("{err:#}");
+            }
+            let _ = this.update(_cx, |this, cx| {
+                this.worktree_restore_tasks.remove(&cleanup_session_id);
+                cx.notify();
+            });
+        });
+
+        self.worktree_restore_tasks
+            .insert(insert_session_id, monitor_task);
+        cx.notify();
+    }
+
+    fn cancel_worktree_restore(&mut self, session_id: &acp::SessionId, cx: &mut Context<Self>) {
+        self.worktree_restore_tasks.remove(session_id);
+        cx.notify();
     }
 
     fn expand_selected_entry(
@@ -2893,6 +2916,10 @@ impl Sidebar {
         let session_id_for_delete = thread.metadata.session_id.clone();
         let focus_handle = self.focus_handle.clone();
 
+        let is_restoring_worktree = self
+            .worktree_restore_tasks
+            .contains_key(&thread.metadata.session_id);
+
         let id = SharedString::from(format!("thread-entry-{}", ix));
 
         let color = cx.theme().colors();
@@ -2956,6 +2983,13 @@ impl Sidebar {
             .selected(is_selected)
             .focused(is_focused)
             .hovered(is_hovered)
+            .pending_worktree_restore(is_restoring_worktree)
+            .when(is_restoring_worktree, |this| {
+                let session_id = session_id_for_delete.clone();
+                this.on_cancel_restore(cx.listener(move |this, _, _window, cx| {
+                    this.cancel_worktree_restore(&session_id, cx);
+                }))
+            })
             .on_hover(cx.listener(move |this, is_hovered: &bool, _window, cx| {
                 if *is_hovered {
                     this.hovered_thread_index = Some(ix);
