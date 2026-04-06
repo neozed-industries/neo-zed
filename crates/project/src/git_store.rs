@@ -329,6 +329,12 @@ pub struct GraphDataResponse<'a> {
     pub error: Option<SharedString>,
 }
 
+#[derive(Clone, Debug)]
+enum CreateWorktreeStartPoint {
+    Detached,
+    Branched { name: String },
+}
+
 pub struct Repository {
     this: WeakEntity<Self>,
     snapshot: RepositorySnapshot,
@@ -2407,12 +2413,15 @@ impl GitStore {
         let repository_id = RepositoryId::from_proto(envelope.payload.repository_id);
         let repository_handle = Self::repository_for_request(&this, repository_id, &mut cx)?;
         let directory = PathBuf::from(envelope.payload.directory);
-        let name = envelope.payload.name;
+        let start_point = match envelope.payload.name {
+            Some(name) => CreateWorktreeStartPoint::Branched { name },
+            None => CreateWorktreeStartPoint::Detached,
+        };
         let commit = envelope.payload.commit;
 
         repository_handle
             .update(&mut cx, |repository_handle, _| {
-                repository_handle.create_worktree(name, directory, commit)
+                repository_handle.create_worktree_with_start_point(start_point, directory, commit)
             })
             .await??;
 
@@ -5976,37 +5985,57 @@ impl Repository {
         })
     }
 
+    fn create_worktree_with_start_point(
+        &mut self,
+        start_point: CreateWorktreeStartPoint,
+        path: PathBuf,
+        commit: Option<String>,
+    ) -> oneshot::Receiver<Result<()>> {
+        let id = self.id;
+        let message = match &start_point {
+            CreateWorktreeStartPoint::Detached => "git worktree add (detached)".into(),
+            CreateWorktreeStartPoint::Branched { name } => {
+                format!("git worktree add: {name}").into()
+            }
+        };
+
+        self.send_job(Some(message), move |repo, _cx| async move {
+            let branch_name = match start_point {
+                CreateWorktreeStartPoint::Detached => None,
+                CreateWorktreeStartPoint::Branched { name } => Some(name),
+            };
+
+            match repo {
+                RepositoryState::Local(LocalRepositoryState { backend, .. }) => {
+                    backend.create_worktree(branch_name, path, commit).await
+                }
+                RepositoryState::Remote(RemoteRepositoryState { project_id, client }) => {
+                    client
+                        .request(proto::GitCreateWorktree {
+                            project_id: project_id.0,
+                            repository_id: id.to_proto(),
+                            name: branch_name,
+                            directory: path.to_string_lossy().to_string(),
+                            commit,
+                        })
+                        .await?;
+
+                    Ok(())
+                }
+            }
+        })
+    }
+
     pub fn create_worktree(
         &mut self,
         branch_name: String,
         path: PathBuf,
         commit: Option<String>,
     ) -> oneshot::Receiver<Result<()>> {
-        let id = self.id;
-        self.send_job(
-            Some(format!("git worktree add: {}", branch_name).into()),
-            move |repo, _cx| async move {
-                match repo {
-                    RepositoryState::Local(LocalRepositoryState { backend, .. }) => {
-                        backend
-                            .create_worktree(Some(branch_name), path, commit)
-                            .await
-                    }
-                    RepositoryState::Remote(RemoteRepositoryState { project_id, client }) => {
-                        client
-                            .request(proto::GitCreateWorktree {
-                                project_id: project_id.0,
-                                repository_id: id.to_proto(),
-                                name: branch_name,
-                                directory: path.to_string_lossy().to_string(),
-                                commit,
-                            })
-                            .await?;
-
-                        Ok(())
-                    }
-                }
-            },
+        self.create_worktree_with_start_point(
+            CreateWorktreeStartPoint::Branched { name: branch_name },
+            path,
+            commit,
         )
     }
 
@@ -6015,20 +6044,10 @@ impl Repository {
         path: PathBuf,
         commit: String,
     ) -> oneshot::Receiver<Result<()>> {
-        self.send_job(
-            Some("git worktree add (detached)".into()),
-            move |repo, _cx| async move {
-                match repo {
-                    RepositoryState::Local(LocalRepositoryState { backend, .. }) => {
-                        backend.create_worktree(None, path, Some(commit)).await
-                    }
-                    RepositoryState::Remote(_) => {
-                        anyhow::bail!(
-                            "create_worktree_detached is not supported for remote repositories"
-                        )
-                    }
-                }
-            },
+        self.create_worktree_with_start_point(
+            CreateWorktreeStartPoint::Detached,
+            path,
+            Some(commit),
         )
     }
 
