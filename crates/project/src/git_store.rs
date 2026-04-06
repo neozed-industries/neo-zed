@@ -2414,9 +2414,12 @@ impl GitStore {
         let repository_id = RepositoryId::from_proto(envelope.payload.repository_id);
         let repository_handle = Self::repository_for_request(&this, repository_id, &mut cx)?;
         let directory = PathBuf::from(envelope.payload.directory);
-        let start_point = match envelope.payload.name {
-            Some(name) => CreateWorktreeStartPoint::Branched { name },
-            None => CreateWorktreeStartPoint::Detached,
+        let start_point = if envelope.payload.name.is_empty() {
+            CreateWorktreeStartPoint::Detached
+        } else {
+            CreateWorktreeStartPoint::Branched {
+                name: envelope.payload.name,
+            }
         };
         let commit = envelope.payload.commit;
 
@@ -6007,6 +6010,17 @@ impl Repository {
         path: PathBuf,
         commit: Option<String>,
     ) -> oneshot::Receiver<Result<()>> {
+        if matches!(
+            &start_point,
+            CreateWorktreeStartPoint::Branched { name } if name.is_empty()
+        ) {
+            let (sender, receiver) = oneshot::channel();
+            sender
+                .send(Err(anyhow!("branch name cannot be empty")))
+                .ok();
+            return receiver;
+        }
+
         let id = self.id;
         let message = match &start_point {
             CreateWorktreeStartPoint::Detached => "git worktree add (detached)".into(),
@@ -6020,6 +6034,7 @@ impl Repository {
                 CreateWorktreeStartPoint::Detached => None,
                 CreateWorktreeStartPoint::Branched { name } => Some(name),
             };
+            let remote_name = branch_name.clone().unwrap_or_default();
 
             match repo {
                 RepositoryState::Local(LocalRepositoryState { backend, .. }) => {
@@ -6030,7 +6045,7 @@ impl Repository {
                         .request(proto::GitCreateWorktree {
                             project_id: project_id.0,
                             repository_id: id.to_proto(),
-                            name: branch_name,
+                            name: remote_name,
                             directory: path.to_string_lossy().to_string(),
                             commit,
                         })
