@@ -650,8 +650,21 @@ async fn await_oauth_callback(expected_state: &str) -> Result<String> {
     };
 
     let mut buffer = vec![0u8; 4096];
-    let n = stream.read(&mut buffer).await?;
-    let request_text = std::str::from_utf8(&buffer[..n])?;
+    let mut total = 0;
+    loop {
+        if total >= buffer.len() {
+            return Err(anyhow!("OAuth callback request too large"));
+        }
+        let n = stream.read(&mut buffer[total..]).await?;
+        if n == 0 {
+            break;
+        }
+        total += n;
+        if buffer[..total].windows(4).any(|w| w == b"\r\n\r\n") {
+            break;
+        }
+    }
+    let request_text = std::str::from_utf8(&buffer[..total])?;
 
     // First line: "GET /auth/callback?code=...&state=... HTTP/1.1"
     let path = request_text
