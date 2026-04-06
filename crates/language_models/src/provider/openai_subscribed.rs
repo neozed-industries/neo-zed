@@ -604,7 +604,7 @@ async fn do_oauth_flow(
 
     cx.update(|cx| cx.open_url(auth_url.as_str()));
 
-    let code = await_oauth_callback(&oauth_state)
+    let code = await_oauth_callback(&oauth_state, cx)
         .await
         .context("OAuth callback failed")?;
 
@@ -627,13 +627,13 @@ async fn do_oauth_flow(
     })
 }
 
-async fn await_oauth_callback(expected_state: &str) -> Result<String> {
+async fn await_oauth_callback(expected_state: &str, cx: &AsyncApp) -> Result<String> {
     let listener = smol::net::TcpListener::bind("127.0.0.1:1455")
         .await
         .context("Failed to bind to port 1455 for OAuth callback. Another application may be using this port.")?;
 
     let accept_future = listener.accept();
-    let timeout_future = smol::Timer::after(Duration::from_secs(120));
+    let timeout_future = cx.background_executor().timer(Duration::from_secs(120));
 
     let (mut stream, _) = match futures::future::select(
         std::pin::pin!(accept_future),
