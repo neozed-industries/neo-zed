@@ -10,6 +10,7 @@ use git::{
         GRAPH_CHUNK_SIZE, GitRepository, GitRepositoryCheckpoint, InitialGraphCommitData, LogOrder,
         LogSource, PushOptions, Remote, RepoPath, ResetMode, SearchCommitArgs, Worktree,
     },
+    stash::GitStash,
     status::{
         DiffTreeType, FileStatus, GitStatus, StatusCode, TrackedStatus, TreeDiff, TreeDiffStatus,
         UnmergedStatus,
@@ -53,6 +54,7 @@ pub struct FakeGitRepositoryState {
     pub simulated_create_worktree_error: Option<String>,
     pub refs: HashMap<String, String>,
     pub graph_commits: Vec<Arc<InitialGraphCommitData>>,
+    pub stash_entries: GitStash,
 }
 
 impl FakeGitRepositoryState {
@@ -72,6 +74,7 @@ impl FakeGitRepositoryState {
             oids: Default::default(),
             remotes: HashMap::default(),
             graph_commits: Vec::new(),
+            stash_entries: Default::default(),
         }
     }
 }
@@ -378,13 +381,13 @@ impl GitRepository for FakeGitRepository {
     }
 
     fn stash_entries(&self) -> BoxFuture<'_, Result<git::stash::GitStash>> {
-        async { Ok(git::stash::GitStash::default()) }.boxed()
+        self.with_state_async(false, |state| Ok(state.stash_entries.clone()))
     }
 
     fn branches(&self) -> BoxFuture<'_, Result<Vec<Branch>>> {
         self.with_state_async(false, move |state| {
             let current_branch = &state.current_branch_name;
-            Ok(state
+            let mut branches = state
                 .branches
                 .iter()
                 .map(|branch_name| {
@@ -402,7 +405,11 @@ impl GitRepository for FakeGitRepository {
                         upstream: None,
                     }
                 })
-                .collect())
+                .collect::<Vec<_>>();
+            // compute snapshot expects these to be sorted by ref_name
+            // because that's what git itself does
+            branches.sort_by(|a, b| a.ref_name.cmp(&b.ref_name));
+            Ok(branches)
         })
     }
 
@@ -1053,10 +1060,88 @@ impl GitRepository for FakeGitRepository {
 
     fn diff_checkpoints(
         &self,
-        _base_checkpoint: GitRepositoryCheckpoint,
-        _target_checkpoint: GitRepositoryCheckpoint,
+        base_checkpoint: GitRepositoryCheckpoint,
+        target_checkpoint: GitRepositoryCheckpoint,
     ) -> BoxFuture<'_, Result<String>> {
-        unimplemented!()
+        let executor = self.executor.clone();
+        let checkpoints = self.checkpoints.clone();
+        async move {
+            executor.simulate_random_delay().await;
+            let checkpoints = checkpoints.lock();
+            let base = checkpoints
+                .get(&base_checkpoint.commit_sha)
+                .context(format!(
+                    "invalid base checkpoint: {}",
+                    base_checkpoint.commit_sha
+                ))?;
+            let target = checkpoints
+                .get(&target_checkpoint.commit_sha)
+                .context(format!(
+                    "invalid target checkpoint: {}",
+                    target_checkpoint.commit_sha
+                ))?;
+
+            fn collect_files(
+                entry: &FakeFsEntry,
+                prefix: String,
+                out: &mut std::collections::BTreeMap<String, String>,
+            ) {
+                match entry {
+                    FakeFsEntry::File { content, .. } => {
+                        out.insert(prefix, String::from_utf8_lossy(content).into_owned());
+                    }
+                    FakeFsEntry::Dir { entries, .. } => {
+                        for (name, child) in entries {
+                            let path = if prefix.is_empty() {
+                                name.clone()
+                            } else {
+                                format!("{prefix}/{name}")
+                            };
+                            collect_files(child, path, out);
+                        }
+                    }
+                    FakeFsEntry::Symlink { .. } => {}
+                }
+            }
+
+            let mut base_files = std::collections::BTreeMap::new();
+            let mut target_files = std::collections::BTreeMap::new();
+            collect_files(base, String::new(), &mut base_files);
+            collect_files(target, String::new(), &mut target_files);
+
+            let all_paths: std::collections::BTreeSet<&String> =
+                base_files.keys().chain(target_files.keys()).collect();
+
+            let mut diff = String::new();
+            for path in all_paths {
+                match (base_files.get(path), target_files.get(path)) {
+                    (Some(base_content), Some(target_content))
+                        if base_content != target_content =>
+                    {
+                        diff.push_str(&format!("diff --git a/{path} b/{path}\n"));
+                        diff.push_str(&format!("--- a/{path}\n"));
+                        diff.push_str(&format!("+++ b/{path}\n"));
+                        for line in base_content.lines() {
+                            diff.push_str(&format!("-{line}\n"));
+                        }
+                        for line in target_content.lines() {
+                            diff.push_str(&format!("+{line}\n"));
+                        }
+                    }
+                    (Some(_), None) => {
+                        diff.push_str(&format!("diff --git a/{path} /dev/null\n"));
+                        diff.push_str("deleted file\n");
+                    }
+                    (None, Some(_)) => {
+                        diff.push_str(&format!("diff --git /dev/null b/{path}\n"));
+                        diff.push_str("new file\n");
+                    }
+                    _ => {}
+                }
+            }
+            Ok(diff)
+        }
+        .boxed()
     }
 
     fn default_branch(

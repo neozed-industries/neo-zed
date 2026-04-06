@@ -173,6 +173,22 @@ actions!(
         ToggleThinkingEffortMenu,
         /// Toggles fast mode for models that support it.
         ToggleFastMode,
+        /// Scroll the output by one page up.
+        ScrollOutputPageUp,
+        /// Scroll the output by one page down.
+        ScrollOutputPageDown,
+        /// Scroll the output up by three lines.
+        ScrollOutputLineUp,
+        /// Scroll the output down by three lines.
+        ScrollOutputLineDown,
+        /// Scroll the output to the top.
+        ScrollOutputToTop,
+        /// Scroll the output to the bottom.
+        ScrollOutputToBottom,
+        /// Scroll the output to the previous user message.
+        ScrollOutputToPreviousMessage,
+        /// Scroll the output to the next user message.
+        ScrollOutputToNextMessage,
     ]
 );
 
@@ -718,6 +734,7 @@ mod tests {
             message_editor_min_lines: 1,
             tool_permissions: Default::default(),
             show_turn_stats: false,
+            show_merge_conflict_indicator: true,
             new_thread_location: Default::default(),
             sidebar_side: Default::default(),
             thinking_display: Default::default(),
