@@ -10,10 +10,7 @@ use collections::HashMap;
 use git::repository::{AskPassDelegate, CommitOptions, ResetMode};
 use gpui::{App, AsyncApp, Entity, Global, Task, WindowHandle};
 use parking_lot::Mutex;
-use project::{
-    LocalProjectFlags, Project, WorktreeId,
-    git_store::{Repository, resolve_git_worktree_to_main_repo},
-};
+use project::{LocalProjectFlags, Project, WorktreeId, git_store::Repository};
 use util::ResultExt;
 use workspace::{
     AppState, MultiWorkspace, OpenMode, OpenOptions, PathList, Toast, Workspace,
@@ -992,10 +989,13 @@ pub async fn restore_worktree_via_git(
     let already_exists = app_state.fs.metadata(worktree_path).await?.is_some();
 
     let needs_reset = if already_exists {
-        let is_git_worktree =
-            resolve_git_worktree_to_main_repo(app_state.fs.as_ref(), worktree_path)
-                .await
-                .is_some();
+        // Check if the existing path is actually a git worktree by looking for
+        // a `.git` file (worktrees have a `.git` file, not a directory).
+        let dot_git_path = worktree_path.join(".git");
+        let dot_git_metadata = app_state.fs.metadata(&dot_git_path).await?;
+        let is_git_worktree = dot_git_metadata
+            .as_ref()
+            .is_some_and(|meta| !meta.is_dir);
 
         if is_git_worktree {
             // Already a git worktree — another thread on the same worktree
