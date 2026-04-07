@@ -45,7 +45,7 @@ use util::ResultExt as _;
 use util::path_list::{PathList, SerializedPathList};
 use workspace::{
     AddFolderToProject, CloseWindow, FocusWorkspaceSidebar, MoveWorkspaceToNewWindow,
-    MultiWorkspace, MultiWorkspaceEvent, NextProjectGroup, NextThread, Open, PreviousProjectGroup,
+    MultiWorkspace, MultiWorkspaceEvent, NextProject, NextThread, Open, PreviousProject,
     PreviousThread, ShowFewerThreads, ShowMoreThreads, Sidebar as WorkspaceSidebar, SidebarSide,
     ToggleWorkspaceSidebar, Workspace, WorkspaceId, sidebar_side_context_menu,
 };
@@ -3084,7 +3084,7 @@ impl Sidebar {
         Some(mw.workspace().read(cx).project_group_key(cx))
     }
 
-    fn cycle_project_group_impl(
+    fn cycle_project_impl(
         &mut self,
         forward: bool,
         window: &mut Window,
@@ -3134,22 +3134,22 @@ impl Sidebar {
         }
     }
 
-    fn on_next_project_group(
+    fn on_next_project(
         &mut self,
-        _: &NextProjectGroup,
+        _: &NextProject,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.cycle_project_group_impl(true, window, cx);
+        self.cycle_project_impl(true, window, cx);
     }
 
-    fn on_previous_project_group(
+    fn on_previous_project(
         &mut self,
-        _: &PreviousProjectGroup,
+        _: &PreviousProject,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.cycle_project_group_impl(false, window, cx);
+        self.cycle_project_impl(false, window, cx);
     }
 
     fn cycle_thread_impl(&mut self, forward: bool, window: &mut Window, cx: &mut Context<Self>) {
@@ -3842,8 +3842,8 @@ impl WorkspaceSidebar for Sidebar {
         self.toggle_thread_switcher_impl(select_last, window, cx);
     }
 
-    fn cycle_project_group(&mut self, forward: bool, window: &mut Window, cx: &mut Context<Self>) {
-        self.cycle_project_group_impl(forward, window, cx);
+    fn cycle_project(&mut self, forward: bool, window: &mut Window, cx: &mut Context<Self>) {
+        self.cycle_project_impl(forward, window, cx);
     }
 
     fn cycle_thread(&mut self, forward: bool, window: &mut Window, cx: &mut Context<Self>) {
@@ -3949,8 +3949,8 @@ impl Render for Sidebar {
             .on_action(cx.listener(Self::toggle_archive))
             .on_action(cx.listener(Self::focus_sidebar_filter))
             .on_action(cx.listener(Self::on_toggle_thread_switcher))
-            .on_action(cx.listener(Self::on_next_project_group))
-            .on_action(cx.listener(Self::on_previous_project_group))
+            .on_action(cx.listener(Self::on_next_project))
+            .on_action(cx.listener(Self::on_previous_project))
             .on_action(cx.listener(Self::on_next_thread))
             .on_action(cx.listener(Self::on_previous_thread))
             .on_action(cx.listener(Self::on_show_more_threads))
