@@ -625,7 +625,6 @@ pub enum LogSource {
 }
 
 impl LogSource {
-    // todo! clean this up
     fn get_arg(&self) -> Result<&str> {
         match self {
             LogSource::All => Ok("--all"),
