@@ -1461,21 +1461,21 @@ impl Render for MultiWorkspace {
                             this.dispatch_to_sidebar(action.boxed_clone(), window, cx);
                         },
                     ))
-                    .on_action(cx.listener(
-                        |this: &mut Self, action: &NextProject, window, cx| {
+                    .on_action(
+                        cx.listener(|this: &mut Self, action: &NextProject, window, cx| {
                             this.dispatch_to_sidebar(action.boxed_clone(), window, cx);
-                        },
-                    ))
+                        }),
+                    )
                     .on_action(cx.listener(
                         |this: &mut Self, action: &PreviousProject, window, cx| {
                             this.dispatch_to_sidebar(action.boxed_clone(), window, cx);
                         },
                     ))
-                    .on_action(cx.listener(
-                        |this: &mut Self, action: &NextThread, window, cx| {
+                    .on_action(
+                        cx.listener(|this: &mut Self, action: &NextThread, window, cx| {
                             this.dispatch_to_sidebar(action.boxed_clone(), window, cx);
-                        },
-                    ))
+                        }),
+                    )
                     .on_action(cx.listener(
                         |this: &mut Self, action: &PreviousThread, window, cx| {
                             this.dispatch_to_sidebar(action.boxed_clone(), window, cx);
