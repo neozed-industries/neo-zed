@@ -82,8 +82,7 @@ impl ResizableColumnsState {
         let left_edge: Pixels = self.widths.as_slice()[..col_idx]
             .iter()
             .map(|width| width.to_pixels(rem_size))
-            .fold(px(0.), |acc, x| acc + x)
-            + px(col_idx as f32 * RESIZE_DIVIDER_WIDTH);
+            .fold(px(0.), |acc, x| acc + x);
 
         let new_width = drag_x - left_edge;
         let new_width = self.apply_min_size(new_width, self.resize_behavior[col_idx], rem_size);
@@ -305,8 +304,7 @@ impl ColumnWidthConfig {
                     .as_slice()
                     .iter()
                     .map(|abs| abs.to_pixels(rem_size))
-                    .fold(px(0.), |acc, x| acc + x)
-                    + px((state.widths.cols().saturating_sub(1)) as f32 * RESIZE_DIVIDER_WIDTH);
+                    .fold(px(0.), |acc, x| acc + x);
                 Some(Length::Definite(DefiniteLength::Absolute(
                     AbsoluteLength::Pixels(total),
                 )))
@@ -714,34 +712,38 @@ fn render_resize_handles_resizable(
     window: &mut Window,
     cx: &mut App,
 ) -> AnyElement {
-    let (column_widths, resize_behavior) = {
+    let (widths, resize_behavior) = {
         let state = columns_state.read(cx);
-        (
-            state
-                .widths
-                .map_cloned(|abs| Length::Definite(DefiniteLength::Absolute(abs))),
-            state.resize_behavior.clone(),
-        )
+        (state.widths.clone(), state.resize_behavior.clone())
     };
 
+    let rem_size = window.rem_size();
     let resize_behavior = Rc::new(resize_behavior);
-    // Each column contributes a spacer; between columns there is a resize divider.
-    // Structure: [spacer_0][divider_0][spacer_1][divider_1]...[spacer_N-1]
-    let n_cols = column_widths.cols();
-    let mut elements: Vec<AnyElement> = Vec::with_capacity(n_cols * 2 - 1);
+    let n_cols = widths.cols();
+    let mut dividers: Vec<AnyElement> = Vec::with_capacity(n_cols);
+    let mut accumulated_px = px(0.);
 
-    for (col_idx, width) in column_widths.as_slice().iter().copied().enumerate() {
-        elements.push(div().w(width).h_full().into_any_element());
+    for col_idx in 0..n_cols {
+        let col_width_px = widths[col_idx].to_pixels(rem_size);
+        accumulated_px = accumulated_px + col_width_px;
 
-        // Add a resize divider after every column except the last.
-        if col_idx + 1 < n_cols {
+        // Add a resize divider after every column, including the last.
+        // For the last column the divider is pulled 1px inward so it isn't clipped
+        // by the overflow_hidden content container.
+        {
+            let divider_left = if col_idx + 1 == n_cols {
+                accumulated_px - px(RESIZE_DIVIDER_WIDTH)
+            } else {
+                accumulated_px
+            };
             let resize_behavior = Rc::clone(&resize_behavior);
             let columns_state = columns_state.clone();
             let divider = window.with_id(col_idx, |window| {
                 let mut resize_divider = div()
                     .id(col_idx)
-                    .relative()
+                    .absolute()
                     .top_0()
+                    .left(divider_left)
                     .w(px(RESIZE_DIVIDER_WIDTH))
                     .h_full()
                     .bg(cx.theme().colors().border.opacity(0.8));
@@ -791,16 +793,16 @@ fn render_resize_handles_resizable(
 
                 resize_divider.child(resize_handle).into_any_element()
             });
-            elements.push(divider);
+            dividers.push(divider);
         }
     }
 
-    h_flex()
+    div()
         .id("resize-handles")
         .absolute()
         .inset_0()
         .w_full()
-        .children(elements)
+        .children(dividers)
         .into_any_element()
 }
 
