@@ -344,7 +344,8 @@ impl ThreadView {
     ) -> Self {
         let id = thread.read(cx).session_id().clone();
 
-        let placeholder = placeholder_text(agent_display_name.as_ref(), false);
+        let has_commands = !session_capabilities.read().available_commands().is_empty();
+        let placeholder = placeholder_text(agent_display_name.as_ref(), has_commands);
 
         let history_subscription = history.as_ref().map(|h| {
             cx.observe(h, |this, history, cx| {
@@ -7389,9 +7390,8 @@ impl ThreadView {
             .gap_2()
             .map(|this| {
                 if card_layout {
-                    this.when(context_ix > 0, |this| {
-                        this.pt_2()
-                            .border_t_1()
+                    this.p_2().when(context_ix > 0, |this| {
+                        this.border_t_1()
                             .border_color(self.tool_card_border_color(cx))
                     })
                 } else {
