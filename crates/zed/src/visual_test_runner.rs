@@ -3295,7 +3295,7 @@ fn run_sidebar_duplicate_project_names_visual_tests(
 
     let mut has_baseline_update = None;
 
-    // --- Test 1: Two single-worktree projects whose leaf name is "zed" ---
+    // Two single-worktree projects whose leaf name is "zed"
     {
         let project1 = create_project_with_worktree(&code_zed, &app_state, cx)?;
         let project2 = create_project_with_worktree(&foo_zed, &app_state, cx)?;
@@ -3318,7 +3318,7 @@ fn run_sidebar_duplicate_project_names_visual_tests(
         }
     }
 
-    // --- Test 2: Three projects, third has two worktrees (all leaf names "zed") ---
+    // Three projects, third has two worktrees (all leaf names "zed")
     //
     // project1: code/zed
     // project2: code/foo/zed
