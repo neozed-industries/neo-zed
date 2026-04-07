@@ -5,16 +5,23 @@ description: How Zed Business handles data privacy across your organization, inc
 
 # Privacy for Business
 
-Zed Business removes the per-member data-sharing options that Free and Pro expose. Administrators control these settings for the whole organization; individual members can't opt in or out.
+Zed Business removes the per-member data-sharing options that Free and Pro
+expose. These protections are on by default for every Business organization.
+Administrators can adjust them from
+[Admin Controls](./admin-controls.md); individual members can't opt in or out.
 
-<!-- TODO: confirm with Cloud team whether these protections are on by default at org creation or require admin configuration before launch -->
-
-## What's enforced
+## What's enforced by default
 
 For all members of a Zed Business organization:
 
-- **No prompt sharing:** Conversations and prompts are never shared with Zed. Members can't opt into [AI feedback via ratings](../ai/ai-improvement.md#ai-feedback-with-ratings).
-- **No training data sharing:** Code context is never shared with Zed for [Edit Prediction model training](../ai/ai-improvement.md#edit-predictions). Members can't opt in individually.
+- **No prompt sharing:** Conversations and prompts are never shared with Zed.
+  Members can't opt into
+  [AI feedback via ratings](../ai/ai-improvement.md#ai-feedback-with-ratings).
+  Administrators can enable Agent Thread Feedback to allow this.
+- **No training data sharing:** Code context is never shared with Zed for
+  [Edit Prediction model training](../ai/ai-improvement.md#edit-predictions).
+  Members can't opt in individually. Administrators can enable Edit Prediction
+  Feedback to allow this.
 
 These protections are enforced server-side and apply to all org members.
 
@@ -37,8 +44,11 @@ These controls cover what Zed stores and trains on. They don't change how AI inf
 
 Administrators have additional options in [Admin Controls](./admin-controls.md):
 
-- Disable Zed-hosted models entirely, so no prompts reach Zed's infrastructure
+- Disable Zed-hosted models entirely via the Zed Model Provider toggle, so no
+  prompts reach Zed's infrastructure
 - Disable Edit Predictions org-wide
+- Disable Edit Prediction Feedback
+- Disable Agent Thread Feedback
 - Disable real-time collaboration
 
 See [Admin Controls](./admin-controls.md) for the full list.
