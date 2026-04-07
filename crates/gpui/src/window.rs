@@ -1156,7 +1156,6 @@ impl Window {
                 show,
                 display_id,
                 window_min_size,
-                #[cfg(any(target_os = "linux", target_os = "freebsd"))]
                 icon,
                 #[cfg(target_os = "macos")]
                 tabbing_identifier,
