@@ -838,6 +838,27 @@ impl Buffer {
         self.snapshot
     }
 
+    /// Returns a preview snapshot derived by applying one synthetic local-branch edit.
+    ///
+    /// This is intended for one-off preview workflows like syntax interpolation, not for
+    /// repeatedly mutating or composing synthetic snapshot histories.
+    pub fn snapshot_with_edits<I, S, T>(&self, edits: I) -> BufferSnapshot
+    where
+        I: IntoIterator<Item = (Range<S>, T)>,
+        S: ToOffset,
+        T: Into<Arc<str>>,
+    {
+        let mut snapshot = self.snapshot.clone();
+        let timestamp = Lamport::new(ReplicaId::LOCAL_BRANCH).tick();
+        let edits: Vec<_> = edits
+            .into_iter()
+            .map(|(range, new_text)| (range.to_offset(&snapshot), new_text.into()))
+            .collect();
+        snapshot.apply_edit_internal(edits, timestamp);
+        snapshot.version.observe(timestamp);
+        snapshot
+    }
+
     pub fn replica_id(&self) -> ReplicaId {
         self.lamport_clock.replica_id
     }
@@ -1854,24 +1875,6 @@ impl Deref for Buffer {
 }
 
 impl BufferSnapshot {
-    /// Edits the snapshot in place, applying the given edits to the text content.
-    /// This is useful for creating a modified snapshot without needing a full Buffer.
-    pub fn edit<I, S, T>(&mut self, edits: I)
-    where
-        I: IntoIterator<Item = (Range<S>, T)>,
-        S: ToOffset,
-        T: Into<Arc<str>>,
-    {
-        let mut lamport_clock = clock::Lamport::new(ReplicaId::LOCAL_BRANCH);
-        let timestamp = lamport_clock.tick();
-        let edits: Vec<_> = edits
-            .into_iter()
-            .map(|(range, new_text)| (range.to_offset(self), new_text.into()))
-            .collect();
-        self.apply_edit_internal(edits, timestamp);
-        self.version.observe(timestamp);
-    }
-
     fn apply_edit_internal(
         &mut self,
         edits: Vec<(Range<usize>, Arc<str>)>,

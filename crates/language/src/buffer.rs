@@ -1245,7 +1245,7 @@ impl Buffer {
         let registry = self.language_registry();
         let language = self.language().cloned();
         let old_snapshot = self.text.snapshot().clone();
-        let mut new_snapshot = old_snapshot.clone();
+        let new_snapshot = self.text.snapshot_with_edits(edits.iter().cloned());
         let mut syntax_snapshot = self.syntax_map.lock().snapshot();
         cx.background_spawn(async move {
             if !edits.is_empty() {
@@ -1253,7 +1253,6 @@ impl Buffer {
                     syntax_snapshot.reparse(&old_snapshot, registry.clone(), language);
                 }
 
-                new_snapshot.edit(edits.iter().cloned());
                 syntax_snapshot.interpolate(&new_snapshot);
 
                 if let Some(language) = language {
