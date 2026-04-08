@@ -14,7 +14,7 @@ use gpui::{Corner, List};
 use heapless::Vec as ArrayVec;
 use language_model::{LanguageModelEffortLevel, Speed};
 use settings::update_settings_file;
-use ui::{ButtonLike, SplitButton, SplitButtonStyle, Tab};
+use ui::{ButtonLike, SpinnerLabel, SpinnerVariant, SplitButton, SplitButtonStyle, Tab};
 use workspace::SERIALIZATION_THROTTLE_TIME;
 
 use super::*;
@@ -161,6 +161,46 @@ impl ThreadFeedbackState {
 
         editor.read(cx).focus_handle(cx).focus(window, cx);
         editor
+    }
+}
+
+struct GeneratingSpinner {
+    variant: SpinnerVariant,
+}
+
+impl GeneratingSpinner {
+    fn new(variant: SpinnerVariant) -> Self {
+        Self { variant }
+    }
+}
+
+impl Render for GeneratingSpinner {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        SpinnerLabel::with_variant(self.variant).size(LabelSize::Small)
+    }
+}
+
+#[derive(IntoElement)]
+struct GeneratingSpinnerElement {
+    variant: SpinnerVariant,
+}
+
+impl GeneratingSpinnerElement {
+    fn new(variant: SpinnerVariant) -> Self {
+        Self { variant }
+    }
+}
+
+impl RenderOnce for GeneratingSpinnerElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let id = match self.variant {
+            SpinnerVariant::Dots => "generating-spinner-view",
+            SpinnerVariant::Sand => "confirmation-spinner-view",
+            _ => "spinner-view",
+        };
+        window.with_id(id, |window| {
+            window.use_state(cx, |_, _| GeneratingSpinner::new(self.variant))
+        })
     }
 }
 
@@ -344,7 +384,8 @@ impl ThreadView {
     ) -> Self {
         let id = thread.read(cx).session_id().clone();
 
-        let placeholder = placeholder_text(agent_display_name.as_ref(), false);
+        let has_commands = !session_capabilities.read().available_commands().is_empty();
+        let placeholder = placeholder_text(agent_display_name.as_ref(), has_commands);
 
         let history_subscription = history.as_ref().map(|h| {
             cx.observe(h, |this, history, cx| {
@@ -868,7 +909,10 @@ impl ThreadView {
                 .upgrade()
                 .and_then(|workspace| workspace.read(cx).panel::<AgentPanel>(cx))
                 .is_some_and(|panel| {
-                    panel.read(cx).start_thread_in() == &StartThreadIn::NewWorktree
+                    !matches!(
+                        panel.read(cx).start_thread_in(),
+                        StartThreadIn::LocalProject
+                    )
                 });
 
         if intercept_first_send {
@@ -3010,14 +3054,12 @@ impl ThreadView {
         let is_done = thread.read(cx).status() == ThreadStatus::Idle;
         let is_canceled_or_failed = self.is_subagent_canceled_or_failed(cx);
 
+        let max_content_width = AgentSettings::get_global(cx).max_content_width;
+
         Some(
             h_flex()
-                .h(Tab::container_height(cx))
-                .pl_2()
-                .pr_1p5()
                 .w_full()
-                .justify_between()
-                .gap_1()
+                .h(Tab::container_height(cx))
                 .border_b_1()
                 .when(is_done && is_canceled_or_failed, |this| {
                     this.border_dashed()
@@ -3026,50 +3068,61 @@ impl ThreadView {
                 .bg(cx.theme().colors().editor_background.opacity(0.2))
                 .child(
                     h_flex()
-                        .flex_1()
-                        .gap_2()
+                        .size_full()
+                        .max_w(max_content_width)
+                        .mx_auto()
+                        .pl_2()
+                        .pr_1()
+                        .flex_shrink_0()
+                        .justify_between()
+                        .gap_1()
                         .child(
-                            Icon::new(IconName::ForwardArrowUp)
-                                .size(IconSize::Small)
-                                .color(Color::Muted),
-                        )
-                        .child(self.title_editor.clone())
-                        .when(is_done && is_canceled_or_failed, |this| {
-                            this.child(Icon::new(IconName::Close).color(Color::Error))
-                        })
-                        .when(is_done && !is_canceled_or_failed, |this| {
-                            this.child(Icon::new(IconName::Check).color(Color::Success))
-                        }),
-                )
-                .child(
-                    h_flex()
-                        .gap_0p5()
-                        .when(!is_done, |this| {
-                            this.child(
-                                IconButton::new("stop_subagent", IconName::Stop)
-                                    .icon_size(IconSize::Small)
-                                    .icon_color(Color::Error)
-                                    .tooltip(Tooltip::text("Stop Subagent"))
-                                    .on_click(move |_, _, cx| {
-                                        thread.update(cx, |thread, cx| {
-                                            thread.cancel(cx).detach();
-                                        });
-                                    }),
-                            )
-                        })
-                        .child(
-                            IconButton::new("minimize_subagent", IconName::Minimize)
-                                .icon_size(IconSize::Small)
-                                .tooltip(Tooltip::text("Minimize Subagent"))
-                                .on_click(move |_, window, cx| {
-                                    let _ = server_view.update(cx, |server_view, cx| {
-                                        server_view.navigate_to_session(
-                                            parent_session_id.clone(),
-                                            window,
-                                            cx,
-                                        );
-                                    });
+                            h_flex()
+                                .flex_1()
+                                .gap_2()
+                                .child(
+                                    Icon::new(IconName::ForwardArrowUp)
+                                        .size(IconSize::Small)
+                                        .color(Color::Muted),
+                                )
+                                .child(self.title_editor.clone())
+                                .when(is_done && is_canceled_or_failed, |this| {
+                                    this.child(Icon::new(IconName::Close).color(Color::Error))
+                                })
+                                .when(is_done && !is_canceled_or_failed, |this| {
+                                    this.child(Icon::new(IconName::Check).color(Color::Success))
                                 }),
+                        )
+                        .child(
+                            h_flex()
+                                .gap_0p5()
+                                .when(!is_done, |this| {
+                                    this.child(
+                                        IconButton::new("stop_subagent", IconName::Stop)
+                                            .icon_size(IconSize::Small)
+                                            .icon_color(Color::Error)
+                                            .tooltip(Tooltip::text("Stop Subagent"))
+                                            .on_click(move |_, _, cx| {
+                                                thread.update(cx, |thread, cx| {
+                                                    thread.cancel(cx).detach();
+                                                });
+                                            }),
+                                    )
+                                })
+                                .child(
+                                    IconButton::new("minimize_subagent", IconName::Dash)
+                                        .icon_size(IconSize::Small)
+                                        .tooltip(Tooltip::text("Minimize Subagent"))
+                                        .on_click(move |_, window, cx| {
+                                            let _ = server_view.update(cx, |server_view, cx| {
+                                                server_view.navigate_to_session(
+                                                    parent_session_id.clone(),
+                                                    window,
+                                                    cx,
+                                                );
+                                            });
+                                        }),
+                                ),
                         ),
                 ),
         )
@@ -3088,12 +3141,14 @@ impl ThreadView {
         let editor_bg_color = cx.theme().colors().editor_background;
         let editor_expanded = self.editor_expanded;
         let has_messages = self.list_state.item_count() > 0;
-        let v2_empty_state = cx.has_flag::<AgentV2FeatureFlag>() && !has_messages;
+        let v2_empty_state = !has_messages;
         let (expand_icon, expand_tooltip) = if editor_expanded {
             (IconName::Minimize, "Minimize Message Editor")
         } else {
             (IconName::Maximize, "Expand Message Editor")
         };
+
+        let max_content_width = AgentSettings::get_global(cx).max_content_width;
 
         v_flex()
             .on_action(cx.listener(Self::expand_message_editor))
@@ -3109,47 +3164,59 @@ impl ThreadView {
             })
             .child(
                 v_flex()
-                    .relative()
-                    .size_full()
-                    .when(v2_empty_state, |this| this.flex_1())
-                    .pt_1()
-                    .pr_2p5()
-                    .child(self.message_editor.clone())
-                    .when(!v2_empty_state, |this| {
-                        this.child(
-                            h_flex()
-                                .absolute()
-                                .top_0()
-                                .right_0()
-                                .opacity(0.5)
-                                .hover(|this| this.opacity(1.0))
-                                .child(
-                                    IconButton::new("toggle-height", expand_icon)
-                                        .icon_size(IconSize::Small)
-                                        .icon_color(Color::Muted)
-                                        .tooltip({
-                                            move |_window, cx| {
-                                                Tooltip::for_action_in(
-                                                    expand_tooltip,
-                                                    &ExpandMessageEditor,
-                                                    &focus_handle,
-                                                    cx,
-                                                )
-                                            }
-                                        })
-                                        .on_click(cx.listener(|this, _, window, cx| {
-                                            this.expand_message_editor(
-                                                &ExpandMessageEditor,
-                                                window,
-                                                cx,
-                                            );
-                                        })),
-                                ),
-                        )
-                    }),
+                    .flex_1()
+                    .min_h_0()
+                    .w_full()
+                    .max_w(max_content_width)
+                    .mx_auto()
+                    .child(
+                        v_flex()
+                            .relative()
+                            .min_h_0()
+                            .size_full()
+                            .when(v2_empty_state, |this| this.flex_1())
+                            .pt_1()
+                            .pr_2p5()
+                            .child(self.message_editor.clone())
+                            .when(!v2_empty_state, |this| {
+                                this.child(
+                                    h_flex()
+                                        .absolute()
+                                        .top_0()
+                                        .right_0()
+                                        .opacity(0.5)
+                                        .hover(|this| this.opacity(1.0))
+                                        .child(
+                                            IconButton::new("toggle-height", expand_icon)
+                                                .icon_size(IconSize::Small)
+                                                .icon_color(Color::Muted)
+                                                .tooltip({
+                                                    move |_window, cx| {
+                                                        Tooltip::for_action_in(
+                                                            expand_tooltip,
+                                                            &ExpandMessageEditor,
+                                                            &focus_handle,
+                                                            cx,
+                                                        )
+                                                    }
+                                                })
+                                                .on_click(cx.listener(|this, _, window, cx| {
+                                                    this.expand_message_editor(
+                                                        &ExpandMessageEditor,
+                                                        window,
+                                                        cx,
+                                                    );
+                                                })),
+                                        ),
+                                )
+                            }),
+                    ),
             )
             .child(
                 h_flex()
+                    .w_full()
+                    .max_w(max_content_width)
+                    .mx_auto()
                     .flex_none()
                     .flex_wrap()
                     .justify_between()
@@ -4253,10 +4320,10 @@ impl Render for TokenUsageTooltip {
 }
 
 impl ThreadView {
-    pub(crate) fn render_entries(&mut self, cx: &mut Context<Self>) -> List {
+    fn render_entries(&mut self, cx: &mut Context<Self>) -> List {
         list(
             self.list_state.clone(),
-            cx.processor(|this, index: usize, window, cx| {
+            cx.processor(move |this, index: usize, window, cx| {
                 let entries = this.thread.read(cx).entries();
                 if let Some(entry) = entries.get(index) {
                     this.render_entry(index, entries.len(), entry, window, cx)
@@ -5096,7 +5163,7 @@ impl ThreadView {
 
     pub(crate) fn sync_editor_mode_for_empty_state(&mut self, cx: &mut Context<Self>) {
         let has_messages = self.list_state.item_count() > 0;
-        let v2_empty_state = cx.has_flag::<AgentV2FeatureFlag>() && !has_messages;
+        let v2_empty_state = !has_messages;
 
         let mode = if v2_empty_state {
             EditorMode::Full {
@@ -5171,7 +5238,8 @@ impl ThreadView {
                     this.child(
                         h_flex()
                             .w_2()
-                            .child(SpinnerLabel::sand().size(LabelSize::Small)),
+                            .justify_center()
+                            .child(GeneratingSpinnerElement::new(SpinnerVariant::Sand)),
                     )
                     .child(
                         div().min_w(rems(8.)).child(
@@ -5183,7 +5251,12 @@ impl ThreadView {
                 } else if is_blocked_on_terminal_command {
                     this
                 } else {
-                    this.child(SpinnerLabel::new().size(LabelSize::Small))
+                    this.child(
+                        h_flex()
+                            .w_2()
+                            .justify_center()
+                            .child(GeneratingSpinnerElement::new(SpinnerVariant::Dots)),
+                    )
                 }
             })
             .when_some(elapsed_label, |this, elapsed| {
@@ -6325,7 +6398,6 @@ impl ThreadView {
                                     .when(is_collapsible || failed_or_canceled, |this| {
                                         let diff_for_discard = if has_revealed_diff
                                             && is_cancelled_edit
-                                            && cx.has_flag::<AgentV2FeatureFlag>()
                                         {
                                             tool_call.diffs().next().cloned()
                                         } else {
@@ -7389,9 +7461,8 @@ impl ThreadView {
             .gap_2()
             .map(|this| {
                 if card_layout {
-                    this.when(context_ix > 0, |this| {
-                        this.pt_2()
-                            .border_t_1()
+                    this.p_2().when(context_ix > 0, |this| {
+                        this.border_t_1()
                             .border_color(self.tool_card_border_color(cx))
                     })
                 } else {
@@ -8554,10 +8625,14 @@ impl ThreadView {
 impl Render for ThreadView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let has_messages = self.list_state.item_count() > 0;
-        let v2_empty_state = cx.has_flag::<AgentV2FeatureFlag>() && !has_messages;
+        let v2_empty_state = !has_messages;
+
+        let max_content_width = AgentSettings::get_global(cx).max_content_width;
 
         let conversation = v_flex()
-            .when(!v2_empty_state, |this| this.flex_1())
+            .mx_auto()
+            .max_w(max_content_width)
+            .when(!v2_empty_state, |this| this.flex_1().size_full())
             .map(|this| {
                 let this = this.when(self.resumed_without_history, |this| {
                     this.child(Self::render_resume_notice(cx))
