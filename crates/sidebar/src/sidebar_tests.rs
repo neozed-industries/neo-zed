@@ -5901,22 +5901,6 @@ async fn test_clicking_closed_remote_thread_opens_remote_workspace(
         mw.add_project_group_key(stale_key);
     });
 
-    // Also save a thread whose main_worktree_paths uses the stale
-    // path. This simulates a thread created while the workspace's
-    // project_group_key was still using the fallback abs_path.
-    cx.update(|_window, cx| {
-        let metadata = ThreadMetadata {
-            session_id: acp::SessionId::new(Arc::from("stale-thread")),
-            agent_id: agent::ZED_AGENT_ID.clone(),
-            title: "Stale Thread".into(),
-            updated_at: chrono::TimeZone::with_ymd_and_hms(&Utc, 2024, 1, 1, 0, 0, 2).unwrap(),
-            created_at: None,
-            folder_paths: PathList::new(&[PathBuf::from("/project-wt-1")]),
-            main_worktree_paths: PathList::new(&[PathBuf::from("/project-wt-1")]),
-            archived: false,
-        };
-        ThreadMetadataStore::global(cx).update(cx, |store, cx| store.save_manually(metadata, cx));
-    });
     cx.run_until_parked();
 
     // After adding the linked worktree workspace, the sidebar should

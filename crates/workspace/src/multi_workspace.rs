@@ -582,6 +582,13 @@ impl MultiWorkspace {
                         this.add_project_group_key(workspace.read(cx).project_group_key(cx));
                     }
                 }
+                project::Event::WorktreeUpdatedRootRepoCommonDir(_) => {
+                    if let Some(workspace) = workspace.upgrade() {
+                        this.add_project_group_key(workspace.read(cx).project_group_key(cx));
+                        this.remove_stale_project_group_keys(cx);
+                        cx.notify();
+                    }
+                }
                 _ => {}
             }
         })
@@ -603,6 +610,16 @@ impl MultiWorkspace {
             return;
         }
         self.project_group_keys.push(project_group_key);
+    }
+
+    fn remove_stale_project_group_keys(&mut self, cx: &App) {
+        let workspace_keys: std::collections::HashSet<ProjectGroupKey> = self
+            .workspaces
+            .iter()
+            .map(|ws| ws.read(cx).project_group_key(cx))
+            .collect();
+        self.project_group_keys
+            .retain(|key| workspace_keys.contains(key));
     }
 
     pub fn restore_project_group_keys(&mut self, keys: Vec<ProjectGroupKey>) {
