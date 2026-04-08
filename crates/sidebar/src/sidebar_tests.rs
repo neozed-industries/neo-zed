@@ -5802,19 +5802,16 @@ async fn test_remote_project_integration_does_not_briefly_render_as_separate_pro
         .await;
     server_fs.set_branch_name(Path::new("/project/.git"), Some("main"));
 
-    // Create a linked worktree on the remote server so that opening
-    // /project-wt-1 succeeds and the worktree has a .git file pointing
-    // back to the main repo.
+    // Create the linked worktree checkout path on the remote server,
+    // but do not yet register it as a git-linked worktree. The real
+    // regrouping update in this test should happen only after the
+    // sidebar opens the closed remote thread.
     server_fs
-        .add_linked_worktree_for_repo(
-            Path::new("/project/.git"),
-            false,
-            git::repository::Worktree {
-                path: PathBuf::from("/project-wt-1"),
-                ref_name: Some("refs/heads/feature-wt".into()),
-                sha: "abc123".into(),
-                is_main: false,
-            },
+        .insert_tree(
+            "/project-wt-1",
+            serde_json::json!({
+                "src": { "main.rs": "fn main() {}" }
+            }),
         )
         .await;
 
@@ -5926,43 +5923,128 @@ async fn test_remote_project_integration_does_not_briefly_render_as_separate_pro
     });
     cx.run_until_parked();
 
-    let main_thread_id_for_observer = main_thread_id.clone();
-    let remote_thread_id_for_observer = remote_thread_id.clone();
+    focus_sidebar(&sidebar, cx);
+    sidebar.update_in(cx, |sidebar, _window, _cx| {
+        sidebar.selection = sidebar.contents.entries.iter().position(|entry| {
+            matches!(
+                entry,
+                ListEntry::Thread(thread) if thread.metadata.session_id == remote_thread_id
+            )
+        });
+    });
+
+    let saw_separate_project_header = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let saw_separate_project_header_for_observer = saw_separate_project_header.clone();
 
     sidebar
         .update(cx, |_, cx| {
             cx.observe_self(move |sidebar, _cx| {
-                assert_remote_project_integration_sidebar_state(
-                    sidebar,
-                    &main_thread_id_for_observer,
-                    &remote_thread_id_for_observer,
-                );
+                let mut project_headers = sidebar.contents.entries.iter().filter_map(|entry| {
+                    if let ListEntry::ProjectHeader { label, .. } = entry {
+                        Some(label.as_ref())
+                    } else {
+                        None
+                    }
+                });
+
+                let Some(project_header) = project_headers.next() else {
+                    saw_separate_project_header_for_observer
+                        .store(true, std::sync::atomic::Ordering::SeqCst);
+                    return;
+                };
+
+                if project_header != "project" || project_headers.next().is_some() {
+                    saw_separate_project_header_for_observer
+                        .store(true, std::sync::atomic::Ordering::SeqCst);
+                }
             })
         })
         .detach();
 
-    // Simulate what happens in production when a new remote workspace
-    // is opened for a linked worktree: insert_workspace() computes
-    // project_group_key() before root_repo_common_dir is populated.
-    // The fallback uses abs_path(), producing key ("/project-wt-1")
-    // instead of the correct ("/project").
-    let remote_host = project.read_with(cx, |p, cx| p.remote_connection_options(cx));
-    let stale_key = ProjectGroupKey::new(
-        remote_host,
-        PathList::new(&[PathBuf::from("/project-wt-1")]),
-    );
-    multi_workspace.update(cx, |mw, _cx| {
-        mw.add_project_group_key(stale_key);
+    multi_workspace.update(cx, |multi_workspace, cx| {
+        let workspace = multi_workspace.workspace().clone();
+        workspace.update(cx, |workspace: &mut Workspace, cx| {
+            let remote_client = workspace
+                .project()
+                .read(cx)
+                .remote_client()
+                .expect("main remote project should have a remote client");
+            remote_client.update(cx, |remote_client: &mut remote::RemoteClient, cx| {
+                remote_client.force_server_not_running(cx);
+            });
+        });
     });
+    cx.run_until_parked();
 
-    // Force the sidebar to rebuild immediately from the current
-    // MultiWorkspace state so the observer can detect transient
-    // duplicate headers instead of only checking the final settled view.
-    sidebar.update(cx, |sidebar, cx| {
-        sidebar.update_entries(cx);
+    let (server_session_2, connect_guard_2) =
+        remote::RemoteClient::fake_server_with_opts(&original_opts, cx, server_cx);
+    let _headless_2 = server_cx.new(|cx| {
+        remote_server::HeadlessProject::new(
+            remote_server::HeadlessAppState {
+                session: server_session_2,
+                fs: server_fs.clone(),
+                http_client: Arc::new(http_client::BlockedHttpClient),
+                node_runtime: node_runtime::NodeRuntime::unavailable(),
+                languages: Arc::new(language::LanguageRegistry::new(server_executor.clone())),
+                extension_host_proxy: Arc::new(extension::ExtensionHostProxy::new()),
+                startup_time: std::time::Instant::now(),
+            },
+            false,
+            cx,
+        )
     });
+    drop(connect_guard_2);
+
+    let window = cx.windows()[0];
+    cx.update_window(window, |_, window, cx| {
+        window.dispatch_action(Confirm.boxed_clone(), cx);
+    })
+    .unwrap();
 
     cx.run_until_parked();
+
+    let new_workspace = multi_workspace.read_with(cx, |mw, _| {
+        assert_eq!(
+            mw.workspaces().count(),
+            2,
+            "confirming a closed remote thread should open a second workspace"
+        );
+        mw.workspaces()
+            .find(|workspace| workspace.entity_id() != mw.workspace().entity_id())
+            .unwrap()
+            .clone()
+    });
+
+    server_fs
+        .add_linked_worktree_for_repo(
+            Path::new("/project/.git"),
+            true,
+            git::repository::Worktree {
+                path: PathBuf::from("/project-wt-1"),
+                ref_name: Some("refs/heads/feature-wt".into()),
+                sha: "abc123".into(),
+                is_main: false,
+            },
+        )
+        .await;
+
+    server_cx.run_until_parked();
+    cx.run_until_parked();
+    server_cx.run_until_parked();
+    cx.run_until_parked();
+
+    let entries_after_update = visible_entries_as_strings(&sidebar, cx);
+    let group_after_update = new_workspace.read_with(cx, |workspace, cx| {
+        workspace.project().read(cx).project_group_key(cx)
+    });
+
+    assert_eq!(
+        group_after_update,
+        project.read_with(cx, |project, cx| project.project_group_key(cx)),
+        "expected the remote worktree workspace to be grouped under the main remote project after the real update; \
+         final sidebar entries: {:?}",
+        entries_after_update,
+    );
 
     sidebar.update(cx, |sidebar, _cx| {
         assert_remote_project_integration_sidebar_state(
@@ -5971,4 +6053,12 @@ async fn test_remote_project_integration_does_not_briefly_render_as_separate_pro
             &remote_thread_id,
         );
     });
+
+    assert!(
+        !saw_separate_project_header.load(std::sync::atomic::Ordering::SeqCst),
+        "sidebar briefly rendered the remote worktree as a separate project during the real remote open/update sequence; \
+         final group: {:?}; final sidebar entries: {:?}",
+        group_after_update,
+        entries_after_update,
+    );
 }
