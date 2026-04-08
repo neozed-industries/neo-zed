@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use gpui::{
     AbsoluteLength, AppContext as _, Bounds, DefiniteLength, DragMoveEvent, Empty, Entity,
-    EntityId, Length, WeakEntity,
+    EntityId, Length, Stateful, WeakEntity,
 };
 use itertools::intersperse_with;
 
@@ -442,74 +442,35 @@ pub fn render_redistributable_columns_resize_handles(
             let columns_state = columns_state.clone();
             column_ix += 1;
 
-            window.with_id(current_column_ix, |window| {
-                let mut resize_divider = div()
-                    .id(current_column_ix)
-                    .relative()
-                    .top_0()
-                    .w(px(RESIZE_DIVIDER_WIDTH))
-                    .h_full()
-                    .bg(cx.theme().colors().border.opacity(0.8));
-
-                let mut resize_handle = div()
-                    .id("column-resize-handle")
-                    .absolute()
-                    .left_neg_0p5()
-                    .w(px(RESIZE_COLUMN_WIDTH))
-                    .h_full();
-
-                if resize_behavior[current_column_ix].is_resizable() {
-                    let is_highlighted = window.use_state(cx, |_window, _cx| false);
-
-                    resize_divider = resize_divider.when(*is_highlighted.read(cx), |div| {
-                        div.bg(cx.theme().colors().border_focused)
-                    });
-
-                    resize_handle = resize_handle
-                        .on_hover({
-                            let is_highlighted = is_highlighted.clone();
-                            move |&was_hovered, _, cx| is_highlighted.write(cx, was_hovered)
-                        })
-                        .cursor_col_resize()
-                        .on_click({
-                            let columns_state = columns_state.clone();
-                            move |event, window, cx| {
-                                if event.click_count() >= 2 {
-                                    columns_state.update(cx, |columns, cx| {
-                                        columns.reset_column_to_initial_width(
-                                            current_column_ix,
-                                            window,
-                                        );
-                                        cx.notify();
-                                    });
-                                }
-
-                                cx.stop_propagation();
-                            }
-                        })
-                        .on_drag(
-                            DraggedColumn {
-                                col_idx: current_column_ix,
-                                state_id: columns_state.entity_id(),
-                            },
-                            {
-                                let is_highlighted = is_highlighted.clone();
-                                move |_, _offset, _window, cx| {
-                                    is_highlighted.write(cx, true);
-                                    cx.new(|_cx| Empty)
-                                }
-                            },
-                        )
-                        .on_drop::<DraggedColumn>(move |_, _, cx| {
-                            is_highlighted.write(cx, false);
-                            columns_state.update(cx, |state, _| {
-                                state.commit_preview();
-                            });
+            {
+                let divider = div().id(current_column_ix).relative().top_0();
+                let entity_id = columns_state.entity_id();
+                let on_reset: Rc<dyn Fn(&mut Window, &mut App)> = {
+                    let columns_state = columns_state.clone();
+                    Rc::new(move |window, cx| {
+                        columns_state.update(cx, |columns, cx| {
+                            columns.reset_column_to_initial_width(current_column_ix, window);
+                            cx.notify();
                         });
-                }
-
-                resize_divider.child(resize_handle).into_any_element()
-            })
+                    })
+                };
+                let on_drag_end: Option<Rc<dyn Fn(&mut App)>> = {
+                    let columns_state = columns_state.clone();
+                    Some(Rc::new(move |cx| {
+                        columns_state.update(cx, |state, _| state.commit_preview());
+                    }))
+                };
+                render_column_resize_divider(
+                    divider,
+                    current_column_ix,
+                    resize_behavior[current_column_ix].is_resizable(),
+                    entity_id,
+                    on_reset,
+                    on_drag_end,
+                    window,
+                    cx,
+                )
+            }
         },
     );
 
@@ -520,6 +481,83 @@ pub fn render_redistributable_columns_resize_handles(
         .w_full()
         .children(dividers)
         .into_any_element()
+}
+
+/// Builds a single column resize divider with an interactive drag handle.
+///
+/// The caller provides:
+/// - `divider`: a pre-positioned divider element (with absolute or relative positioning)
+/// - `col_idx`: which column this divider is for
+/// - `is_resizable`: whether the column supports resizing
+/// - `entity_id`: the `EntityId` of the owning column state (for the drag payload)
+/// - `on_reset`: called on double-click to reset the column to its initial width
+/// - `on_drag_end`: called when the drag ends (e.g. to commit preview widths)
+pub(crate) fn render_column_resize_divider(
+    divider: Stateful<Div>,
+    col_idx: usize,
+    is_resizable: bool,
+    entity_id: EntityId,
+    on_reset: Rc<dyn Fn(&mut Window, &mut App)>,
+    on_drag_end: Option<Rc<dyn Fn(&mut App)>>,
+    window: &mut Window,
+    cx: &mut App,
+) -> AnyElement {
+    window.with_id(col_idx, |window| {
+        let mut resize_divider = divider.w(px(RESIZE_DIVIDER_WIDTH)).h_full().bg(cx
+            .theme()
+            .colors()
+            .border
+            .opacity(0.8));
+
+        let mut resize_handle = div()
+            .id("column-resize-handle")
+            .absolute()
+            .left_neg_0p5()
+            .w(px(RESIZE_COLUMN_WIDTH))
+            .h_full();
+
+        if is_resizable {
+            let is_highlighted = window.use_state(cx, |_window, _cx| false);
+
+            resize_divider = resize_divider.when(*is_highlighted.read(cx), |div| {
+                div.bg(cx.theme().colors().border_focused)
+            });
+
+            resize_handle = resize_handle
+                .on_hover({
+                    let is_highlighted = is_highlighted.clone();
+                    move |&was_hovered, _, cx| is_highlighted.write(cx, was_hovered)
+                })
+                .cursor_col_resize()
+                .on_click(move |event, window, cx| {
+                    if event.click_count() >= 2 {
+                        on_reset(window, cx);
+                    }
+                    cx.stop_propagation();
+                })
+                .on_drag(
+                    DraggedColumn {
+                        col_idx,
+                        state_id: entity_id,
+                    },
+                    {
+                        let is_highlighted = is_highlighted.clone();
+                        move |_, _offset, _window, cx| {
+                            is_highlighted.write(cx, true);
+                            cx.new(|_cx| Empty)
+                        }
+                    },
+                )
+                .on_drop::<DraggedColumn>(move |_, _, cx| {
+                    is_highlighted.write(cx, false);
+                    if let Some(on_drag_end) = &on_drag_end {
+                        on_drag_end(cx);
+                    }
+                });
+        }
+
+        resize_divider.child(resize_handle).into_any_element()
+    })
 }
 
 fn resize_spacer(width: Length) -> Div {

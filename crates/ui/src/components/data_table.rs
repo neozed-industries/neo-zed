@@ -4,19 +4,18 @@ use crate::{
     ActiveTheme as _, AnyElement, App, Button, ButtonCommon as _, ButtonStyle, Color, Component,
     ComponentScope, Context, Div, DraggedColumn, ElementId, FixedWidth as _, FluentBuilder as _,
     HeaderResizeInfo, Indicator, InteractiveElement, IntoElement, ParentElement, Pixels,
-    RESIZE_COLUMN_WIDTH, RESIZE_DIVIDER_WIDTH, RedistributableColumnsState, RegisterComponent,
-    RenderOnce, ScrollAxes, ScrollableHandle, Scrollbars, SharedString, StatefulInteractiveElement,
-    Styled, StyledExt as _, StyledTypography, TableResizeBehavior, Window, WithScrollbar,
-    bind_redistributable_columns, div, example_group_with_title, h_flex, px,
+    RESIZE_DIVIDER_WIDTH, RedistributableColumnsState, RegisterComponent, RenderOnce, ScrollAxes,
+    ScrollableHandle, Scrollbars, SharedString, StatefulInteractiveElement, Styled, StyledExt as _,
+    StyledTypography, TableResizeBehavior, Window, WithScrollbar, bind_redistributable_columns,
+    div, example_group_with_title, h_flex, px, render_column_resize_divider,
     render_redistributable_columns_resize_handles, single_example,
     table_row::{IntoTableRow as _, TableRow},
     v_flex,
 };
 use gpui::{
-    AbsoluteLength, AppContext as _, ClickEvent, DefiniteLength, DragMoveEvent, Empty, Entity,
-    EntityId, FocusHandle, Length, ListHorizontalSizingBehavior, ListSizingBehavior, ListState,
-    Point, ScrollHandle, Stateful, UniformListScrollHandle, WeakEntity, list, transparent_black,
-    uniform_list,
+    AbsoluteLength, DefiniteLength, DragMoveEvent, Entity, EntityId, FocusHandle, Length,
+    ListHorizontalSizingBehavior, ListSizingBehavior, ListState, Point, ScrollHandle, Stateful,
+    UniformListScrollHandle, WeakEntity, list, transparent_black, uniform_list,
 };
 
 pub mod table_row;
@@ -707,71 +706,27 @@ fn render_resize_handles_resizable(
             } else {
                 accumulated_px
             };
-            let resize_behavior = Rc::clone(&resize_behavior);
-            let columns_state = columns_state.clone();
-            let divider = window.with_id(col_idx, |window| {
-                let mut resize_divider = div()
-                    .id(col_idx)
-                    .absolute()
-                    .top_0()
-                    .left(divider_left)
-                    .w(px(RESIZE_DIVIDER_WIDTH))
-                    .h_full()
-                    .bg(cx.theme().colors().border.opacity(0.8));
-
-                let mut resize_handle = div()
-                    .id("column-resize-handle")
-                    .absolute()
-                    .left_neg_0p5()
-                    .w(px(RESIZE_COLUMN_WIDTH))
-                    .h_full();
-
-                if resize_behavior[col_idx].is_resizable() {
-                    let is_highlighted = window.use_state(cx, |_window, _cx| false);
-
-                    resize_divider = resize_divider.when(*is_highlighted.read(cx), |div| {
-                        div.bg(cx.theme().colors().border_focused)
+            let divider = div().id(col_idx).absolute().top_0().left(divider_left);
+            let entity_id = columns_state.entity_id();
+            let on_reset: Rc<dyn Fn(&mut Window, &mut App)> = {
+                let columns_state = columns_state.clone();
+                Rc::new(move |_window, cx| {
+                    columns_state.update(cx, |state, cx| {
+                        state.reset_column_to_initial_width(col_idx);
+                        cx.notify();
                     });
-
-                    resize_handle = resize_handle
-                        .on_hover({
-                            let is_highlighted = is_highlighted.clone();
-                            move |&was_hovered, _, cx| is_highlighted.write(cx, was_hovered)
-                        })
-                        .cursor_col_resize()
-                        .on_click({
-                            let columns_state = columns_state.clone();
-                            move |event: &ClickEvent, _window, cx| {
-                                if event.click_count() >= 2 {
-                                    columns_state.update(cx, |state, cx| {
-                                        state.reset_column_to_initial_width(col_idx);
-                                        cx.notify();
-                                    });
-                                }
-                                cx.stop_propagation();
-                            }
-                        })
-                        .on_drag(
-                            DraggedColumn {
-                                col_idx,
-                                state_id: columns_state.entity_id(),
-                            },
-                            {
-                                let is_highlighted = is_highlighted.clone();
-                                move |_, _offset, _window, cx| {
-                                    is_highlighted.write(cx, true);
-                                    cx.new(|_cx| Empty)
-                                }
-                            },
-                        )
-                        .on_drop::<DraggedColumn>(move |_, _, cx| {
-                            is_highlighted.write(cx, false);
-                        });
-                }
-
-                resize_divider.child(resize_handle).into_any_element()
-            });
-            dividers.push(divider);
+                })
+            };
+            dividers.push(render_column_resize_divider(
+                divider,
+                col_idx,
+                resize_behavior[col_idx].is_resizable(),
+                entity_id,
+                on_reset,
+                None,
+                window,
+                cx,
+            ));
         }
     }
 
