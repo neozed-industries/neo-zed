@@ -958,11 +958,9 @@ impl RenderOnce for Table {
                 },
             );
 
-        // For resizable mode, wrap in a horizontal-scroll container
-        let table_wrapper = div().size_full();
-
-        if is_resizable {
-            if let Some(state) = interaction_state.as_ref() {
+        if let Some(state) = interaction_state.as_ref() {
+            // Resizable mode: wrap table in a horizontal scroll container first
+            let content = if is_resizable {
                 let mut h_scroll_container = div()
                     .id("table-h-scroll")
                     .overflow_x_scroll()
@@ -971,68 +969,41 @@ impl RenderOnce for Table {
                     .track_scroll(&state.read(cx).horizontal_scroll_handle)
                     .child(table);
                 h_scroll_container.style().restrict_scroll_to_axis = Some(true);
+                div().size_full().child(h_scroll_container)
+            } else {
+                table
+            };
 
-                let outer = table_wrapper.child(h_scroll_container).custom_scrollbars(
+            // Attach vertical scrollbars (converts Div → Stateful<Div>)
+            let scrollbars = state
+                .read(cx)
+                .custom_scrollbar
+                .clone()
+                .unwrap_or_else(|| Scrollbars::new(ScrollAxes::Both));
+            let mut content = if let Some(list_state) = variable_list_state {
+                content.custom_scrollbars(scrollbars.tracked_scroll_handle(&list_state), window, cx)
+            } else {
+                content.custom_scrollbars(
+                    scrollbars.tracked_scroll_handle(&state.read(cx).scroll_handle),
+                    window,
+                    cx,
+                )
+            };
+
+            // Add horizontal scrollbar when in resizable mode
+            if is_resizable {
+                content = content.custom_scrollbars(
                     Scrollbars::new(ScrollAxes::Horizontal)
                         .tracked_scroll_handle(&state.read(cx).horizontal_scroll_handle),
                     window,
                     cx,
                 );
-
-                let scrollbars = state
-                    .read(cx)
-                    .custom_scrollbar
-                    .clone()
-                    .unwrap_or_else(|| Scrollbars::new(ScrollAxes::Both));
-                let mut outer = if let Some(list_state) = variable_list_state {
-                    outer.custom_scrollbars(
-                        scrollbars.tracked_scroll_handle(&list_state),
-                        window,
-                        cx,
-                    )
-                } else {
-                    outer.custom_scrollbars(
-                        scrollbars.tracked_scroll_handle(&state.read(cx).scroll_handle),
-                        window,
-                        cx,
-                    )
-                };
-                // Prevent horizontal scroll events from being routed to the vertical axis
-                // (the overflow_x_scroll added by custom_scrollbars for the H scrollbar would
-                // otherwise trigger the fallback delta_y = delta.x when overflow.y != Scroll).
-                outer.style().restrict_scroll_to_axis = Some(true);
-
-                if let Some(interaction_state) = interaction_state.as_ref() {
-                    outer
-                        .track_focus(&interaction_state.read(cx).focus_handle)
-                        .id(("table", interaction_state.entity_id()))
-                        .into_any_element()
-                } else {
-                    outer.into_any_element()
-                }
-            } else {
-                table.into_any_element()
             }
-        } else if let Some(interaction_state) = interaction_state.as_ref() {
-            let scrollbars = interaction_state
-                .read(cx)
-                .custom_scrollbar
-                .clone()
-                .unwrap_or_else(|| Scrollbars::new(ScrollAxes::Both));
-            let mut table_with_scrollbar = if let Some(list_state) = variable_list_state {
-                table.custom_scrollbars(scrollbars.tracked_scroll_handle(&list_state), window, cx)
-            } else {
-                table.custom_scrollbars(
-                    scrollbars.tracked_scroll_handle(&interaction_state.read(cx).scroll_handle),
-                    window,
-                    cx,
-                )
-            };
-            // Prevent horizontal events from routing into the vertical scroll axis via fallback.
-            table_with_scrollbar.style().restrict_scroll_to_axis = Some(true);
-            table_with_scrollbar
-                .track_focus(&interaction_state.read(cx).focus_handle)
-                .id(("table", interaction_state.entity_id()))
+            content.style().restrict_scroll_to_axis = Some(true);
+
+            content
+                .track_focus(&state.read(cx).focus_handle)
+                .id(("table", state.entity_id()))
                 .into_any_element()
         } else {
             table.into_any_element()
