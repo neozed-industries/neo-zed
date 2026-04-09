@@ -36,7 +36,7 @@ By default, the Agent Panel uses Zed's first-party agent.
 
 To choose another agent, go to the plus button in the top-right of the Agent Panel and pick one of the [external agents](./external-agents.md) installed out of the box.
 
-To start and manage multiple threads at once, use the [Threads Sidebar](./parallel-agents.md#threads-sidebar).
+Manage multiple threads at once with the [Threads Sidebar](./parallel-agents.md#threads-sidebar).
 
 ### Editing Messages {#editing-messages}
 

@@ -27,9 +27,9 @@ The archive holds threads you've hidden or are no longer actively working in. To
 
 The archive has a search bar at the top. Type to search thread titles by fuzzy match.
 
-### Importing ACP Threads {#importing-threads}
+### Importing External Agent Threads {#importing-threads}
 
-When the archive is open, an **Import ACP Threads** button appears in the sidebar bottom bar. Click it to open the import modal, which lists your installed external agents. Select the agents whose threads you want to import and confirm. Zed finds threads from those agents, whether they were started in Zed or in another client, and adds them to your thread history.
+When the archive is open, an **Import ACP Threads** button appears in the sidebar bottom bar. Click it to open the import modal, which lists your installed external agents. Select the agents whose threads you want to import and confirm. Zed finds threads from those agents, whether they were started in Zed or in another client, and adds them to your thread archive.
 
 ## Running Multiple Threads {#running-multiple-threads}
 
@@ -37,21 +37,19 @@ Start a new thread with {#action agent::NewThread}. Each thread runs independent
 
 To start a new thread scoped to the currently selected project in the sidebar, use {#action agents_sidebar::NewThreadInGroup}.
 
-Each thread can use a different agent. Select the agent from the model selector in that thread's Agent Panel. You might run Zed's built-in agent in one thread and an [external agent](./external-agents.md) like Claude Code in another.
+Each thread can use a different agent. Select the agent from the model selector in that thread's Agent Panel. You might run Zed's built-in agent in one thread and an [external agent](./external-agents.md) like Claude and Codex in another.
 
 ## Multiple Projects {#multiple-projects}
 
 The Threads Sidebar can hold multiple projects at once. Each project gets its own group with its own threads and conversation history.
 
-Within a project, you can add multiple folders. Use {#action workspace::AddFolderToProject} from the command palette, or select **Add Folder to Project** from the project header menu in the sidebar. Agents can then read and write across all of those folders in a single thread.
-
-Agents have access to every project and folder in the sidebar, not just the one a thread was started in.
+Within a project, you can add multiple folders from a local or remote project. Use {#action workspace::AddFolderToProject} from the command palette, or select **Add Folder to Project** from the project header menu in the sidebar. Agents can then read and write across all of those folders in a single thread.
 
 ## Worktree Isolation {#worktree-isolation}
 
-By default, all threads in a window share the same working copy. If two threads might edit the same files, start one in a new git worktree to give it an isolated checkout.
+If two threads might edit the same files, start one in a new git worktree to give it an isolated checkout.
 
-In the Agent Panel toolbar, click the worktree selector and choose **New Git Worktree**. You can also cycle between options with {#kb agent::CycleStartThreadIn}. When you send the first message, Zed creates a new worktree from the current branch and opens it in a new window.
+In the Agent Panel toolbar, click the worktree selector and choose **New Git Worktree**. You can also cycle between options with {#kb agent::CycleStartThreadIn}. When you send the first message, Zed creates a new worktree from the current branch.
 
 After the agent finishes, review the diff, merge the changes through your normal git workflow, and delete the worktree when done.
 
