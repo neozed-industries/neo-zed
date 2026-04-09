@@ -4385,8 +4385,7 @@ impl Sidebar {
     }
 
     fn render_acp_import_onboarding(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
-        let description =
-            "Import threads from your ACP agents — whether started in Zed or another client.";
+        let description = "Import threads from agents like Claude Agent, Codex, and more, whether started in Zed or another client.";
 
         let bg = cx.theme().colors().text_accent;
 
@@ -4407,7 +4406,7 @@ impl Sidebar {
                     .w_full()
                     .gap_1()
                     .justify_between()
-                    .child(Label::new("Looking for ACP threads?"))
+                    .child(Label::new("Looking for threads from external agents?"))
                     .child(
                         IconButton::new("close-onboarding", IconName::Close)
                             .icon_size(IconSize::Small)
@@ -4416,7 +4415,7 @@ impl Sidebar {
             )
             .child(Label::new(description).color(Color::Muted).mb_2())
             .child(
-                Button::new("import-acp", "Import ACP Threads")
+                Button::new("import-acp", "Import Threads")
                     .full_width()
                     .style(ButtonStyle::OutlinedCustom(cx.theme().colors().border))
                     .label_size(LabelSize::Small)
