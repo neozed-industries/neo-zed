@@ -38,9 +38,9 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use theme::ActiveTheme;
 use ui::{
-    AgentThreadStatus, CommonAnimationExt, ContextMenu, Divider, HighlightedLabel, KeyBinding,
-    PopoverMenu, PopoverMenuHandle, Tab, ThreadItem, ThreadItemWorktreeInfo, TintColor, Tooltip,
-    WithScrollbar, prelude::*,
+    AgentThreadStatus, CommonAnimationExt, ContextMenu, Divider, GradientFade, HighlightedLabel,
+    KeyBinding, PopoverMenu, PopoverMenuHandle, Tab, ThreadItem, ThreadItemWorktreeInfo, TintColor,
+    Tooltip, WithScrollbar, prelude::*,
 };
 use util::ResultExt as _;
 use util::path_list::PathList;
@@ -1559,9 +1559,31 @@ impl Sidebar {
         };
 
         let color = cx.theme().colors();
+        let sidebar_base_bg = color
+            .title_bar_background
+            .blend(color.panel_background.opacity(0.25));
+
+        let base_bg = color.background.blend(sidebar_base_bg);
+
         let hover_color = color
             .element_active
             .blend(color.element_background.opacity(0.2));
+        let hover_bg = base_bg.blend(hover_color);
+
+        let effective_hover = if !has_threads && is_active {
+            base_bg
+        } else {
+            hover_bg
+        };
+
+        let group_name_for_gradient = group_name.clone();
+        let gradient_overlay = move || {
+            GradientFade::new(base_bg, effective_hover, effective_hover)
+                .width(px(64.0))
+                .right(px(-2.0))
+                .gradient_stop(0.75)
+                .group_name(group_name_for_gradient.clone())
+        };
 
         let is_ellipsis_menu_open = self.project_header_menu_ix == Some(ix);
 
@@ -1569,9 +1591,11 @@ impl Sidebar {
             .id(id)
             .group(&group_name)
             .h(Tab::content_height(cx))
+            .relative()
             .w_full()
             .pl(px(5.))
             .pr_1p5()
+            .justify_between()
             .border_1()
             .map(|this| {
                 if is_focused {
@@ -1580,7 +1604,6 @@ impl Sidebar {
                     this.border_color(gpui::transparent_black())
                 }
             })
-            .justify_between()
             .child(
                 h_flex()
                     .relative()
@@ -1633,11 +1656,13 @@ impl Sidebar {
                         })
                     }),
             )
+            .child(gradient_overlay())
             .child(
                 h_flex()
                     .when(!is_ellipsis_menu_open, |this| {
                         this.visible_on_hover(&group_name)
                     })
+                    .child(gradient_overlay())
                     .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| {
                         cx.stop_propagation();
                     })
@@ -1923,7 +1948,7 @@ impl Sidebar {
         let color = cx.theme().colors();
         let background = color
             .title_bar_background
-            .blend(color.panel_background.opacity(0.2));
+            .blend(color.panel_background.opacity(0.25));
 
         let element = v_flex()
             .absolute()
