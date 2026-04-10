@@ -322,7 +322,7 @@ fn connect_to_cli(
         futures::channel::mpsc::channel::<CliRequest>(16);
     thread::spawn(move || {
         while let Ok(cli_request) = request_rx.recv() {
-            if smol::block_on(async_request_tx.send(cli_request)).is_err() {
+            if gpui::block_on(async_request_tx.send(cli_request)).is_err() {
                 break;
             }
         }

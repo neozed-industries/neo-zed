@@ -2912,7 +2912,7 @@ impl Sidebar {
         session_id: &acp::SessionId,
         neighbor: Option<&ThreadMetadata>,
         thread_folder_paths: Option<&PathList>,
-        in_flight_archive: Option<(Task<()>, smol::channel::Sender<()>)>,
+        in_flight_archive: Option<(Task<()>, async_channel::Sender<()>)>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -2998,12 +2998,12 @@ impl Sidebar {
         session_id: &acp::SessionId,
         roots: Vec<thread_worktree_archive::RootPlan>,
         cx: &mut Context<Self>,
-    ) -> Option<(Task<()>, smol::channel::Sender<()>)> {
+    ) -> Option<(Task<()>, async_channel::Sender<()>)> {
         if roots.is_empty() {
             return None;
         }
 
-        let (cancel_tx, cancel_rx) = smol::channel::bounded::<()>(1);
+        let (cancel_tx, cancel_rx) = async_channel::bounded::<()>(1);
         let session_id = session_id.clone();
         let task = cx.spawn(async move |_this, cx| {
             match Self::archive_worktree_roots(roots, cancel_rx, cx).await {
@@ -3031,7 +3031,7 @@ impl Sidebar {
 
     async fn archive_worktree_roots(
         roots: Vec<thread_worktree_archive::RootPlan>,
-        cancel_rx: smol::channel::Receiver<()>,
+        cancel_rx: async_channel::Receiver<()>,
         cx: &mut gpui::AsyncApp,
     ) -> anyhow::Result<ArchiveWorktreeOutcome> {
         let mut completed_persists: Vec<(i64, thread_worktree_archive::RootPlan)> = Vec::new();

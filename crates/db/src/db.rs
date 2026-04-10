@@ -9,7 +9,6 @@ use gpui::{App, AppContext, Global};
 pub use indoc::indoc;
 pub use inventory;
 pub use paths::database_dir;
-pub use smol;
 pub use sqlez;
 pub use sqlez_macros;
 pub use uuid;
@@ -18,6 +17,7 @@ pub use release_channel::RELEASE_CHANNEL;
 use sqlez::domain::Migrator;
 use sqlez::thread_safe_connection::ThreadSafeConnection;
 use sqlez_macros::sql;
+use std::fs::create_dir_all;
 use std::future::Future;
 use std::path::Path;
 use std::sync::atomic::AtomicBool;
@@ -62,7 +62,7 @@ impl AppDatabase {
     pub fn new() -> Self {
         let db_dir = database_dir();
         let scope = RELEASE_CHANNEL.dev_name();
-        let connection = smol::block_on(open_db::<AppMigrator>(db_dir, scope));
+        let connection = gpui::block_on(open_db::<AppMigrator>(db_dir, scope));
         Self(connection)
     }
 
@@ -71,7 +71,7 @@ impl AppDatabase {
     #[cfg(any(test, feature = "test-support"))]
     pub fn test_new() -> Self {
         let name = format!("test-db-{}", uuid::Uuid::new_v4());
-        let connection = smol::block_on(open_test_db::<AppMigrator>(&name));
+        let connection = gpui::block_on(open_test_db::<AppMigrator>(&name));
         Self(connection)
     }
 
@@ -151,8 +151,7 @@ pub async fn open_db<M: Migrator + 'static>(db_dir: &Path, scope: &str) -> Threa
     let main_db_dir = db_dir.join(format!("0-{}", scope));
 
     let connection = maybe!(async {
-        smol::fs::create_dir_all(&main_db_dir)
-            .await
+        create_dir_all(&main_db_dir)
             .context("Could not create db directory")
             .log_err()?;
         let db_path = main_db_dir.join(Path::new(DB_FILE_NAME));
@@ -379,7 +378,7 @@ mod tests {
         for _ in 0..10 {
             let tmp_path = tempdir.path().to_path_buf();
             let guard = thread::spawn(move || {
-                let good_db = smol::block_on(open_db::<GoodDB>(
+                let good_db = gpui::block_on(open_db::<GoodDB>(
                     tmp_path.as_path(),
                     release_channel::ReleaseChannel::Dev.dev_name(),
                 ));
