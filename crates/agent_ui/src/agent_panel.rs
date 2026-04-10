@@ -3590,7 +3590,7 @@ impl AgentPanel {
                             .action("Toggle Threads Sidebar", Box::new(ToggleWorkspaceSidebar));
 
                         if has_auth_methods {
-                            menu = menu.action("Reauthenticate", Box::new(ReauthenticateAgent));
+                            menu = menu.action("Reauthenticate", Box::new(ReauthenticateAgent))
                         }
 
                         menu
