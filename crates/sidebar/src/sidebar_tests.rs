@@ -693,7 +693,7 @@ async fn test_view_more_batched_expansion(cx: &mut TestAppContext) {
             .unwrap_or(0);
         s.expanded_groups
             .insert(project_group_key.clone(), current + 1);
-        s.update_entries(cx);
+        s.update_entries("test", cx);
     });
     cx.run_until_parked();
 
@@ -711,7 +711,7 @@ async fn test_view_more_batched_expansion(cx: &mut TestAppContext) {
             .unwrap_or(0);
         s.expanded_groups
             .insert(project_group_key.clone(), current + 1);
-        s.update_entries(cx);
+        s.update_entries("test", cx);
     });
     cx.run_until_parked();
 
@@ -724,7 +724,7 @@ async fn test_view_more_batched_expansion(cx: &mut TestAppContext) {
     // Click collapse - should go back to showing 5 threads
     sidebar.update_in(cx, |s, _window, cx| {
         s.expanded_groups.remove(&project_group_key);
-        s.update_entries(cx);
+        s.update_entries("test", cx);
     });
     cx.run_until_parked();
 
@@ -5068,7 +5068,7 @@ async fn test_switch_to_workspace_with_archived_thread_shows_draft(cx: &mut Test
     cx.run_until_parked();
 
     sidebar.update_in(cx, |sidebar, _window, cx| {
-        sidebar.update_entries(cx);
+        sidebar.update_entries("test", cx);
     });
     cx.run_until_parked();
 
@@ -5650,7 +5650,7 @@ async fn test_linked_worktree_workspace_reachable_and_dismissable(cx: &mut TestA
     cx.run_until_parked();
 
     sidebar.update_in(cx, |sidebar, _window, cx| {
-        sidebar.update_entries(cx);
+        sidebar.update_entries("test", cx);
     });
     cx.run_until_parked();
 
@@ -6207,7 +6207,7 @@ async fn test_linked_worktree_workspace_reachable_after_adding_unrelated_project
         for group_key in group_keys {
             sidebar.expanded_groups.insert(group_key, 10_000);
         }
-        sidebar.update_entries(cx);
+        sidebar.update_entries("test", cx);
     });
     cx.run_until_parked();
 
@@ -6630,7 +6630,7 @@ mod property_test {
             for group_key in group_keys {
                 sidebar.expanded_groups.insert(group_key, 10_000);
             }
-            sidebar.update_entries(cx);
+            sidebar.update_entries("test", cx);
         });
     }
 

@@ -32,7 +32,8 @@ use ui::utils::platform_title_bar_height;
 
 use serde::{Deserialize, Serialize};
 use settings::Settings as _;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::hash::{Hash, Hasher};
 use std::mem;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -409,6 +410,68 @@ fn connect_remote(
     remote_connection::connect_with_modal(&modal_workspace, connection_options, window, cx)
 }
 
+/// A hash of the sidebar's entry list structure, used to detect flicker
+/// (rapid A→B→A oscillations in `rebuild_contents`).
+type ContentFingerprint = u64;
+
+fn compute_content_fingerprint(entries: &[ListEntry]) -> ContentFingerprint {
+    let mut hasher = std::hash::DefaultHasher::new();
+    entries.len().hash(&mut hasher);
+    for entry in entries {
+        match entry {
+            ListEntry::ProjectHeader {
+                key,
+                is_active,
+                has_running_threads,
+                waiting_thread_count,
+                has_threads,
+                ..
+            } => {
+                0u8.hash(&mut hasher);
+                key.hash(&mut hasher);
+                is_active.hash(&mut hasher);
+                has_running_threads.hash(&mut hasher);
+                waiting_thread_count.hash(&mut hasher);
+                has_threads.hash(&mut hasher);
+            }
+            ListEntry::Thread(thread) => {
+                1u8.hash(&mut hasher);
+                thread.metadata.session_id.hash(&mut hasher);
+                thread.is_live.hash(&mut hasher);
+                thread.is_background.hash(&mut hasher);
+                std::mem::discriminant(&thread.status).hash(&mut hasher);
+            }
+            ListEntry::ViewMore {
+                key,
+                is_fully_expanded,
+            } => {
+                2u8.hash(&mut hasher);
+                key.hash(&mut hasher);
+                is_fully_expanded.hash(&mut hasher);
+            }
+            ListEntry::DraftThread { key, workspace, .. } => {
+                3u8.hash(&mut hasher);
+                key.hash(&mut hasher);
+                workspace
+                    .as_ref()
+                    .map(|ws| ws.entity_id())
+                    .hash(&mut hasher);
+            }
+        }
+    }
+    hasher.finish()
+}
+
+const FLICKER_HISTORY_LEN: usize = 5;
+
+struct RebuildRecord {
+    fingerprint: ContentFingerprint,
+    caller: &'static std::panic::Location<'static>,
+    label: &'static str,
+    timestamp: std::time::Instant,
+    entry_count: usize,
+}
+
 /// The sidebar re-derives its entire entry list from scratch on every
 /// change via `update_entries` → `rebuild_contents`. Avoid adding
 /// incremental or inter-event coordination state — if something can
@@ -446,6 +509,7 @@ pub struct Sidebar {
     project_header_menu_ix: Option<usize>,
     _subscriptions: Vec<gpui::Subscription>,
     _draft_observation: Option<gpui::Subscription>,
+    rebuild_history: VecDeque<RebuildRecord>,
 }
 
 impl Sidebar {
@@ -471,14 +535,14 @@ impl Sidebar {
             |this, _multi_workspace, event: &MultiWorkspaceEvent, window, cx| match event {
                 MultiWorkspaceEvent::ActiveWorkspaceChanged => {
                     this.observe_draft_editor(cx);
-                    this.update_entries(cx);
+                    this.update_entries("ActiveWorkspaceChanged", cx);
                 }
                 MultiWorkspaceEvent::WorkspaceAdded(workspace) => {
                     this.subscribe_to_workspace(workspace, window, cx);
-                    this.update_entries(cx);
+                    this.update_entries("WorkspaceAdded", cx);
                 }
                 MultiWorkspaceEvent::WorkspaceRemoved(_) => {
-                    this.update_entries(cx);
+                    this.update_entries("WorkspaceRemoved", cx);
                 }
             },
         )
@@ -490,7 +554,7 @@ impl Sidebar {
                 if !query.is_empty() {
                     this.selection.take();
                 }
-                this.update_entries(cx);
+                this.update_entries("filter_editor::BufferEdited", cx);
                 if !query.is_empty() {
                     this.select_first_entry();
                 }
@@ -499,7 +563,7 @@ impl Sidebar {
         .detach();
 
         cx.observe(&ThreadMetadataStore::global(cx), |this, _store, cx| {
-            this.update_entries(cx);
+            this.update_entries("ThreadMetadataStore::changed", cx);
         })
         .detach();
 
@@ -508,7 +572,7 @@ impl Sidebar {
             for workspace in &workspaces {
                 this.subscribe_to_workspace(workspace, window, cx);
             }
-            this.update_entries(cx);
+            this.update_entries("Sidebar::new defer_in", cx);
         });
 
         Self {
@@ -534,6 +598,7 @@ impl Sidebar {
             project_header_menu_ix: None,
             _subscriptions: Vec::new(),
             _draft_observation: None,
+            rebuild_history: VecDeque::with_capacity(FLICKER_HISTORY_LEN),
         }
     }
 
@@ -565,7 +630,7 @@ impl Sidebar {
                 ProjectEvent::WorktreeAdded(_)
                 | ProjectEvent::WorktreeRemoved(_)
                 | ProjectEvent::WorktreeOrderChanged => {
-                    this.update_entries(cx);
+                    this.update_entries("ProjectEvent::WorktreeChanged", cx);
                 }
                 _ => {}
             },
@@ -585,7 +650,7 @@ impl Sidebar {
                         _,
                     )
                 ) {
-                    this.update_entries(cx);
+                    this.update_entries("GitWorktreeListChanged", cx);
                 }
             },
         )
@@ -637,14 +702,14 @@ impl Sidebar {
                         }
                     }
                     this.observe_draft_editor(cx);
-                    this.update_entries(cx);
+                    this.update_entries("AgentPanelEvent::ThreadChanged", cx);
                 }
                 AgentPanelEvent::ThreadFocused | AgentPanelEvent::BackgroundThreadChanged => {
-                    this.update_entries(cx);
+                    this.update_entries("AgentPanelEvent::ThreadFocused", cx);
                 }
                 AgentPanelEvent::MessageSentOrQueued { session_id } => {
                     this.record_thread_message_sent(session_id);
-                    this.update_entries(cx);
+                    this.update_entries("AgentPanelEvent::MessageSentOrQueued", cx);
                 }
             },
         )
@@ -790,7 +855,12 @@ impl Sidebar {
     ///     - If you have no threads, and two workspaces for the worktree and the main workspace, make sure at least one is shown
     /// - Should always show every thread, associated with each workspace in the multiworkspace
     /// - After every build_contents, our "active" state should exactly match the current workspace's, current agent panel's current thread.
-    fn rebuild_contents(&mut self, cx: &App) {
+    fn rebuild_contents(
+        &mut self,
+        caller: &'static std::panic::Location<'static>,
+        label: &'static str,
+        cx: &App,
+    ) {
         let Some(multi_workspace) = self.multi_workspace.upgrade() else {
             return;
         };
@@ -1308,10 +1378,117 @@ impl Sidebar {
             project_header_indices,
             has_open_projects,
         };
+
+        let fingerprint = compute_content_fingerprint(&self.contents.entries);
+
+        // Only record rebuilds that actually changed the list state.
+        // No-op rebuilds would fill the history window and push real
+        // state transitions out before we can detect oscillation.
+        let dominated_by_last = self
+            .rebuild_history
+            .back()
+            .is_some_and(|last| last.fingerprint == fingerprint);
+        if !dominated_by_last {
+            if self.rebuild_history.len() >= FLICKER_HISTORY_LEN {
+                self.rebuild_history.pop_front();
+            }
+            self.rebuild_history.push_back(RebuildRecord {
+                fingerprint,
+                caller,
+                label,
+                timestamp: std::time::Instant::now(),
+                entry_count: self.contents.entries.len(),
+            });
+        }
+
+        // Detect flicker: if any earlier rebuild within the history window
+        // produced the same fingerprint as the current one (with at least one
+        // different fingerprint in between), something is oscillating.
+        if self.rebuild_history.len() >= 2 {
+            let current = self.rebuild_history.back().expect("just pushed");
+            for (index, earlier) in self.rebuild_history.iter().enumerate() {
+                if index == self.rebuild_history.len() - 1 {
+                    break;
+                }
+                if earlier.fingerprint != current.fingerprint {
+                    continue;
+                }
+                // Same fingerprint found earlier — verify there's at least one
+                // *different* fingerprint in between so we don't fire on
+                // harmless no-op rebuilds (A→A→A).
+                let has_different_between = self
+                    .rebuild_history
+                    .iter()
+                    .skip(index + 1)
+                    .take(self.rebuild_history.len() - 1 - (index + 1))
+                    .any(|r| r.fingerprint != current.fingerprint);
+                if !has_different_between {
+                    continue;
+                }
+
+                // Assign a letter to each unique fingerprint for readability.
+                let mut fingerprint_labels: Vec<ContentFingerprint> = Vec::new();
+                for record in &self.rebuild_history {
+                    if !fingerprint_labels.contains(&record.fingerprint) {
+                        fingerprint_labels.push(record.fingerprint);
+                    }
+                }
+                let letter_for = |fp: ContentFingerprint| -> char {
+                    let pos = fingerprint_labels
+                        .iter()
+                        .position(|&f| f == fp)
+                        .unwrap_or(0);
+                    (b'A' + pos as u8) as char
+                };
+
+                // Build the match pair description.
+                let matching_fp = current.fingerprint;
+                let matching_indices: Vec<usize> = self
+                    .rebuild_history
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, r)| r.fingerprint == matching_fp)
+                    .map(|(i, _)| i)
+                    .collect();
+
+                use std::fmt::Write;
+                let mut message = format!(
+                    "Sidebar flicker detected: state '{}' repeats at indices {:?}\n\
+                     \nFull rebuild history ({} entries, {} distinct states):",
+                    letter_for(matching_fp),
+                    matching_indices,
+                    self.rebuild_history.len(),
+                    fingerprint_labels.len(),
+                );
+                let mut prev_ts: Option<std::time::Instant> = None;
+                for (i, record) in self.rebuild_history.iter().enumerate() {
+                    let delta = prev_ts
+                        .map(|prev| record.timestamp.duration_since(prev))
+                        .unwrap_or_default();
+                    let letter = letter_for(record.fingerprint);
+                    let marker = if record.fingerprint == matching_fp {
+                        " <--"
+                    } else {
+                        ""
+                    };
+                    write!(
+                        &mut message,
+                        "\n  [{}] state={} entries={:<3} delta={:<10.1?} {} ({}){}",
+                        i, letter, record.entry_count, delta, record.label, record.caller, marker,
+                    )
+                    .ok();
+                    prev_ts = Some(record.timestamp);
+                }
+                util::debug_panic!("{message}");
+                break;
+            }
+        }
     }
 
     /// Rebuilds the sidebar's visible entries from already-cached state.
-    fn update_entries(&mut self, cx: &mut Context<Self>) {
+    #[track_caller]
+    fn update_entries(&mut self, label: &'static str, cx: &mut Context<Self>) {
+        let caller = std::panic::Location::caller();
         let Some(multi_workspace) = self.multi_workspace.upgrade() else {
             return;
         };
@@ -1322,7 +1499,7 @@ impl Sidebar {
         let had_notifications = self.has_notifications(cx);
         let scroll_position = self.list_state.logical_scroll_top();
 
-        self.rebuild_contents(cx);
+        self.rebuild_contents(caller, label, cx);
 
         self.list_state.reset(self.contents.entries.len());
         self.list_state.scroll_to(scroll_position);
@@ -1601,7 +1778,7 @@ impl Sidebar {
                                     this.selection = None;
                                     this.expanded_groups.remove(&key_for_collapse);
                                     this.serialize(cx);
-                                    this.update_entries(cx);
+                                    this.update_entries("render_project_header::collapse", cx);
                                 }
                             })),
                         )
@@ -1895,7 +2072,7 @@ impl Sidebar {
             self.collapsed_groups.insert(project_group_key.clone());
         }
         self.serialize(cx);
-        self.update_entries(cx);
+        self.update_entries("toggle_collapse", cx);
     }
 
     fn dispatch_context(&self, window: &Window, cx: &Context<Self>) -> KeyContext {
@@ -1934,7 +2111,7 @@ impl Sidebar {
 
     fn cancel(&mut self, _: &Cancel, window: &mut Window, cx: &mut Context<Self>) {
         if self.reset_filter_editor_text(window, cx) {
-            self.update_entries(cx);
+            self.update_entries("cancel", cx);
         } else {
             self.selection = None;
             self.filter_editor.focus_handle(cx).focus(window, cx);
@@ -2210,7 +2387,7 @@ impl Sidebar {
 
         Self::load_agent_thread_in_workspace(workspace, metadata, true, window, cx);
 
-        self.update_entries(cx);
+        self.update_entries("activate_thread_locally", cx);
     }
 
     fn activate_thread_in_other_window(
@@ -2247,7 +2424,7 @@ impl Sidebar {
                         workspace: workspace_for_entry.clone(),
                     });
                     sidebar.record_thread_access(&target_session_id);
-                    sidebar.update_entries(cx);
+                    sidebar.update_entries("activate_thread_in_other_window", cx);
                 });
             }
         }
@@ -2539,7 +2716,7 @@ impl Sidebar {
             Some(ListEntry::ProjectHeader { key, .. }) => {
                 if self.collapsed_groups.contains(key) {
                     self.collapsed_groups.remove(key);
-                    self.update_entries(cx);
+                    self.update_entries("expand_selected_entry", cx);
                 } else if ix + 1 < self.contents.entries.len() {
                     self.selection = Some(ix + 1);
                     self.list_state.scroll_to_reveal_item(ix + 1);
@@ -2562,7 +2739,7 @@ impl Sidebar {
             Some(ListEntry::ProjectHeader { key, .. }) => {
                 if !self.collapsed_groups.contains(key) {
                     self.collapsed_groups.insert(key.clone());
-                    self.update_entries(cx);
+                    self.update_entries("collapse_selected_entry", cx);
                 }
             }
             Some(
@@ -2573,7 +2750,7 @@ impl Sidebar {
                     {
                         self.selection = Some(i);
                         self.collapsed_groups.insert(key.clone());
-                        self.update_entries(cx);
+                        self.update_entries("collapse_selected_entry", cx);
                         break;
                     }
                 }
@@ -2613,7 +2790,7 @@ impl Sidebar {
                     self.selection = Some(header_ix);
                     self.collapsed_groups.insert(key.clone());
                 }
-                self.update_entries(cx);
+                self.update_entries("toggle_selected_fold", cx);
             }
         }
     }
@@ -2629,7 +2806,7 @@ impl Sidebar {
                 self.collapsed_groups.insert(key.clone());
             }
         }
-        self.update_entries(cx);
+        self.update_entries("fold_all", cx);
     }
 
     fn unfold_all(
@@ -2639,7 +2816,7 @@ impl Sidebar {
         cx: &mut Context<Self>,
     ) {
         self.collapsed_groups.clear();
-        self.update_entries(cx);
+        self.update_entries("unfold_all", cx);
     }
 
     fn stop_thread(&mut self, session_id: &acp::SessionId, cx: &mut Context<Self>) {
@@ -3270,7 +3447,7 @@ impl Sidebar {
                         session_id: metadata.session_id.clone(),
                         workspace: workspace.clone(),
                     });
-                    this.update_entries(cx);
+                    this.update_entries("thread_switcher::Preview", cx);
                     Self::load_agent_thread_in_workspace(workspace, metadata, false, window, cx);
                     let focus = thread_switcher.focus_handle(cx);
                     window.focus(&focus, cx);
@@ -3290,7 +3467,7 @@ impl Sidebar {
                         session_id: metadata.session_id.clone(),
                         workspace: workspace.clone(),
                     });
-                    this.update_entries(cx);
+                    this.update_entries("thread_switcher::Confirmed", cx);
                     Self::load_agent_thread_in_workspace(workspace, metadata, false, window, cx);
                     this.dismiss_thread_switcher(cx);
                     workspace.update(cx, |workspace, cx| {
@@ -3312,7 +3489,7 @@ impl Sidebar {
                                 workspace: original_ws.clone(),
                             });
                         }
-                        this.update_entries(cx);
+                        this.update_entries("thread_switcher::Dismissed", cx);
                         if let Some(original_ws) = &original_workspace {
                             Self::load_agent_thread_in_workspace(
                                 original_ws,
@@ -3364,7 +3541,7 @@ impl Sidebar {
                 session_id: metadata.session_id.clone(),
                 workspace: workspace.clone(),
             });
-            self.update_entries(cx);
+            self.update_entries("thread_switcher::initial_preview", cx);
             Self::load_agent_thread_in_workspace(&workspace, &metadata, false, window, cx);
         }
 
@@ -3846,7 +4023,7 @@ impl Sidebar {
         self.expanded_groups
             .insert(project_group_key.clone(), current + 1);
         self.serialize(cx);
-        self.update_entries(cx);
+        self.update_entries("expand_thread_group", cx);
     }
 
     fn reset_thread_group_expansion(
@@ -3856,7 +4033,7 @@ impl Sidebar {
     ) {
         self.expanded_groups.remove(project_group_key);
         self.serialize(cx);
-        self.update_entries(cx);
+        self.update_entries("reset_thread_group_expansion", cx);
     }
 
     fn collapse_thread_group(
@@ -3875,7 +4052,7 @@ impl Sidebar {
             None => return,
         }
         self.serialize(cx);
-        self.update_entries(cx);
+        self.update_entries("collapse_thread_group", cx);
     }
 
     fn on_show_more_threads(
@@ -4148,7 +4325,7 @@ impl Sidebar {
                                         .tooltip(Tooltip::text("Clear Search"))
                                         .on_click(cx.listener(|this, _, window, cx| {
                                             this.reset_filter_editor_text(window, cx);
-                                            this.update_entries(cx);
+                                            this.update_entries("clear_filter", cx);
                                         })),
                                 )
                             }),
