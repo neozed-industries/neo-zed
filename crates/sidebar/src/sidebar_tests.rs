@@ -3715,7 +3715,7 @@ async fn test_git_worktree_added_live_updates_sidebar(cx: &mut TestAppContext) {
     // The chip name is derived from the path even before git discovery.
     assert_eq!(
         visible_entries_as_strings(&sidebar, cx),
-        vec!["v [project]", "  [~ Draft]"]
+        vec!["v [project]", "  Worktree Thread {rosewood}"]
     );
 
     // Now add the worktree to the git state and trigger a rescan.
