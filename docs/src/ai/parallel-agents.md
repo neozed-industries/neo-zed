@@ -5,11 +5,11 @@ description: Run multiple agent threads concurrently using the Threads Sidebar, 
 
 # Parallel Agents
 
-Parallel Agents lets you run multiple agent threads at once, each working independently with its own agent, context window, and conversation history. The Threads Sidebar is the component where you start, manage, and switch between them.
+Parallel Agents lets you run multiple agent threads at once, each working independently with its own agent, context window, and conversation history. The Threads Sidebar is where you start, manage, and switch between them.
 
 Open the Threads Sidebar with {#kb multi_workspace::ToggleWorkspaceSidebar}.
 
-## The Threads Sidebar {#threads-sidebar}
+## Threads Sidebar {#threads-sidebar}
 
 The sidebar shows your threads grouped by project. Each project gets its own section with a header. Threads appear below with their title, status indicator, and which agent is running them.
 
@@ -21,11 +21,11 @@ Click any thread in the sidebar to switch to it. The Agent Panel updates to show
 
 For quick switching without opening the sidebar, use the thread switcher: press {#kb agents_sidebar::ToggleThreadSwitcher} to cycle forward through recent threads, or hold `Shift` while pressing that binding to go backward. This works from both the Agent Panel and the Threads Sidebar.
 
-### The Archive {#archive}
+### Archive {#archive}
 
 The archive holds threads you've hidden or are no longer actively working in. Toggle the archive with {#kb agents_sidebar::ToggleArchive} or by clicking the archive icon in the sidebar bottom bar.
 
-The archive has a search bar at the top. Type to search thread titles by fuzzy match.
+You can search your archived threads; search will fuzzy match on thread titles.
 
 ### Importing External Agent Threads {#importing-threads}
 
@@ -37,7 +37,7 @@ Start a new thread with {#action agent::NewThread}. Each thread runs independent
 
 To start a new thread scoped to the currently selected project in the sidebar, use {#action agents_sidebar::NewThreadInGroup}.
 
-Each thread can use a different agent. Select the agent from the model selector in that thread's Agent Panel. You might run Zed's built-in agent in one thread and an [external agent](./external-agents.md) like Claude and Codex in another.
+Each thread can use a different agent. Select the agent from the model selector in that thread's Agent Panel. You might run Zed's built-in agent in one thread and an [external agent](./external-agents.md) like Claude or Codex in another.
 
 ## Multiple Projects {#multiple-projects}
 
