@@ -2569,7 +2569,7 @@ mod tests {
 
         // --- Remove the first workspace (index 0, which is not the active one) ---
         multi_workspace.update_in(cx, |mw, _window, cx| {
-            let ws = mw.workspaces().nth(0).unwrap().clone();
+            let ws = mw.workspaces(cx).into_iter().nth(0).unwrap();
             mw.remove([ws], |_, _, _| unreachable!(), _window, cx)
                 .detach_and_log_err(cx);
         });
@@ -4240,7 +4240,7 @@ mod tests {
 
         // Remove workspace at index 1 (the second workspace).
         multi_workspace.update_in(cx, |mw, window, cx| {
-            let ws = mw.workspaces().nth(1).unwrap().clone();
+            let ws = mw.workspaces(cx).into_iter().nth(1).unwrap();
             mw.remove([ws], |_, _, _| unreachable!(), window, cx)
                 .detach_and_log_err(cx);
         });
@@ -4350,7 +4350,7 @@ mod tests {
 
         // Remove workspace2 (index 1).
         multi_workspace.update_in(cx, |mw, window, cx| {
-            let ws = mw.workspaces().nth(1).unwrap().clone();
+            let ws = mw.workspaces(cx).into_iter().nth(1).unwrap();
             mw.remove([ws], |_, _, _| unreachable!(), window, cx)
                 .detach_and_log_err(cx);
         });
@@ -4433,7 +4433,7 @@ mod tests {
 
         // Remove workspace2 — this pushes a task to pending_removal_tasks.
         multi_workspace.update_in(cx, |mw, window, cx| {
-            let ws = mw.workspaces().nth(1).unwrap().clone();
+            let ws = mw.workspaces(cx).into_iter().nth(1).unwrap();
             mw.remove([ws], |_, _, _| unreachable!(), window, cx)
                 .detach_and_log_err(cx);
         });
@@ -4442,7 +4442,8 @@ mod tests {
         // removal tasks and await them all.
         let all_tasks = multi_workspace.update_in(cx, |mw, window, cx| {
             let mut tasks: Vec<Task<()>> = mw
-                .workspaces()
+                .workspaces(cx)
+                .iter()
                 .map(|workspace| {
                     workspace.update(cx, |workspace, cx| {
                         workspace.flush_serialization(window, cx)
@@ -4774,7 +4775,7 @@ mod tests {
         // Assign database IDs and set up session bindings so serialization
         // writes real rows.
         multi_workspace.update_in(cx, |mw, _, cx| {
-            for workspace in mw.workspaces() {
+            for workspace in mw.workspaces(cx) {
                 workspace.update(cx, |ws, _cx| {
                     ws.set_random_database_id();
                 });
@@ -4788,7 +4789,7 @@ mod tests {
             let window_id_u64 = window.window_handle().window_id().as_u64();
 
             let mut tasks: Vec<Task<()>> = Vec::new();
-            for workspace in mw.workspaces() {
+            for workspace in mw.workspaces(cx) {
                 tasks.push(workspace.update(cx, |ws, cx| ws.flush_serialization(window, cx)));
                 if let Some(db_id) = workspace.read(cx).database_id() {
                     let db = WorkspaceDb::global(cx);
@@ -4882,9 +4883,7 @@ mod tests {
 
         // The restored window should have the same project group keys.
         let restored_keys: Vec<ProjectGroupKey> = restored_handle
-            .read_with(cx, |mw: &MultiWorkspace, _cx| {
-                mw.project_group_keys().cloned().collect()
-            })
+            .read_with(cx, |mw: &MultiWorkspace, cx| mw.project_group_keys(cx))
             .unwrap();
         assert_eq!(
             restored_keys, expected_keys,
@@ -4959,8 +4958,9 @@ mod tests {
             let group_id = mw
                 .project_groups()
                 .iter()
-                .find(|g| g.key == key_b)
+                .find(|g| g.read(cx).key == key_b)
                 .unwrap()
+                .read(cx)
                 .id;
             mw.remove_project_group(group_id, window, cx)
                 .detach_and_log_err(cx);
@@ -4982,7 +4982,7 @@ mod tests {
         // Activate workspace A (the bottom) so removing it tests the
         // "fall back upward" path.
         let workspace_a =
-            multi_workspace.read_with(cx, |mw, _| mw.workspaces().next().cloned().unwrap());
+            multi_workspace.read_with(cx, |mw, cx| mw.workspaces(cx).into_iter().next().unwrap());
         multi_workspace.update_in(cx, |mw, window, cx| {
             mw.activate(workspace_a.clone(), window, cx);
         });
@@ -4994,8 +4994,9 @@ mod tests {
             let group_id = mw
                 .project_groups()
                 .iter()
-                .find(|g| g.key == key_a)
+                .find(|g| g.read(cx).key == key_a)
                 .unwrap()
+                .read(cx)
                 .id;
             mw.remove_project_group(group_id, window, cx)
                 .detach_and_log_err(cx);
@@ -5019,8 +5020,9 @@ mod tests {
             let group_id = mw
                 .project_groups()
                 .iter()
-                .find(|g| g.key == key_c)
+                .find(|g| g.read(cx).key == key_c)
                 .unwrap()
+                .read(cx)
                 .id;
             mw.remove_project_group(group_id, window, cx)
                 .detach_and_log_err(cx);

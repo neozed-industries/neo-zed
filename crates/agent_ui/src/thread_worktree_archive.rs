@@ -701,7 +701,7 @@ pub fn all_open_workspaces(cx: &App) -> Vec<Entity<Workspace>> {
         .flat_map(|multi_workspace| {
             multi_workspace
                 .read(cx)
-                .map(|multi_workspace| multi_workspace.workspaces().cloned().collect::<Vec<_>>())
+                .map(|multi_workspace| multi_workspace.workspaces(cx))
                 .unwrap_or_default()
         })
         .collect()

@@ -380,7 +380,7 @@ pub fn init(cx: &mut App) {
                     multi_workspace
                         .update(cx, |multi_workspace, window, cx| {
                             let window_project_groups: Vec<ProjectGroupKey> =
-                                multi_workspace.project_group_keys().cloned().collect();
+                                multi_workspace.project_group_keys(cx);
 
                             let workspace = multi_workspace.workspace().clone();
                             workspace.update(cx, |workspace, cx| {
@@ -1966,9 +1966,9 @@ impl RecentProjectsDelegate {
                         if let Some(group) = multi_workspace
                             .project_groups()
                             .iter()
-                            .find(|g| g.key == key_for_remove)
+                            .find(|g| g.read(cx).key == key_for_remove)
                         {
-                            let group_id = group.id;
+                            let group_id = group.read(cx).id;
                             multi_workspace
                                 .remove_project_group(group_id, window, cx)
                                 .detach_and_log_err(cx);

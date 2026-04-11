@@ -370,7 +370,8 @@ impl ThreadsArchiveView {
             .and_then(|mw| mw.upgrade())
             .map(|mw| {
                 mw.read(cx)
-                    .workspaces()
+                    .workspaces(cx)
+                    .iter()
                     .filter_map(|ws| ws.read(cx).database_id())
                     .collect()
             })

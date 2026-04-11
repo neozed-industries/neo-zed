@@ -1051,7 +1051,7 @@ pub fn show_app_notification<V: Notification + 'static>(
             if let Some(multi_workspace) = window.downcast::<MultiWorkspace>() {
                 multi_workspace
                     .update(cx, |multi_workspace, _window, cx| {
-                        for workspace in multi_workspace.workspaces() {
+                        for workspace in multi_workspace.workspaces(cx) {
                             workspace.update(cx, |workspace, cx| {
                                 workspace.show_notification_without_handling_dismiss_events(
                                     &id,
@@ -1077,7 +1077,7 @@ pub fn dismiss_app_notification(id: &NotificationId, cx: &mut App) {
                 let id = id.clone();
                 multi_workspace
                     .update(cx, |multi_workspace, _window, cx| {
-                        for workspace in multi_workspace.workspaces() {
+                        for workspace in multi_workspace.workspaces(cx) {
                             workspace.update(cx, |workspace, cx| {
                                 workspace.dismiss_notification(&id, cx)
                             });

@@ -97,10 +97,6 @@ struct SerializedSidebar {
     #[serde(default)]
     width: Option<f32>,
     #[serde(default)]
-    collapsed_groups: Vec<ProjectGroupId>,
-    #[serde(default)]
-    expanded_groups: Vec<(ProjectGroupId, usize)>,
-    #[serde(default)]
     active_view: SerializedSidebarView,
 }
 
@@ -241,8 +237,7 @@ impl ThreadEntry {
 #[derive(Clone)]
 enum ListEntry {
     ProjectHeader {
-        group_id: ProjectGroupId,
-        key: ProjectGroupKey,
+        group: Entity<ProjectGroup>,
         label: SharedString,
         highlight_positions: Vec<usize>,
         has_running_threads: bool,
@@ -252,15 +247,14 @@ enum ListEntry {
     },
     Thread(ThreadEntry),
     ViewMore {
-        group_id: ProjectGroupId,
-        key: ProjectGroupKey,
+        group: Entity<ProjectGroup>,
         is_fully_expanded: bool,
     },
     DraftThread {
         /// `None` for placeholder entries in empty groups with no open
         /// workspace. `Some` for drafts backed by an AgentPanel.
         draft_id: Option<DraftId>,
-        key: project::ProjectGroupKey,
+        group: Entity<ProjectGroup>,
         workspace: Option<Entity<Workspace>>,
         worktrees: Vec<WorktreeInfo>,
     },
@@ -277,8 +271,8 @@ impl ListEntry {
 
     fn reachable_workspaces<'a>(
         &'a self,
-        multi_workspace: &'a workspace::MultiWorkspace,
-        _cx: &'a App,
+        _multi_workspace: &'a workspace::MultiWorkspace,
+        cx: &'a App,
     ) -> Vec<Entity<Workspace>> {
         match self {
             ListEntry::Thread(thread) => match &thread.workspace {
@@ -286,10 +280,12 @@ impl ListEntry {
                 ThreadEntryWorkspace::Closed { .. } => Vec::new(),
             },
             ListEntry::DraftThread { workspace, .. } => workspace.iter().cloned().collect(),
-            ListEntry::ProjectHeader { group_id, .. } => multi_workspace
-                .workspaces_for_project_group(*group_id)
-                .map(|ws| ws.to_vec())
-                .unwrap_or_default(),
+            ListEntry::ProjectHeader { group, .. } => {
+                let group_id = group.read(cx).id;
+                _multi_workspace
+                    .workspaces_for_project_group(group_id, cx)
+                    .unwrap_or_default()
+            }
             ListEntry::ViewMore { .. } => Vec::new(),
         }
     }
@@ -457,8 +453,7 @@ pub struct Sidebar {
     /// Tracks which sidebar entry is currently active (highlighted).
     active_entry: Option<ActiveEntry>,
     hovered_thread_index: Option<usize>,
-    collapsed_groups: HashSet<ProjectGroupId>,
-    expanded_groups: HashMap<ProjectGroupId, usize>,
+
     /// Updated only in response to explicit user actions (clicking a
     /// thread, confirming in the thread switcher, etc.) — never from
     /// background data changes. Used to sort the thread switcher popup.
@@ -533,7 +528,7 @@ impl Sidebar {
         })
         .detach();
 
-        let workspaces: Vec<_> = multi_workspace.read(cx).workspaces().cloned().collect();
+        let workspaces = multi_workspace.read(cx).workspaces(cx);
         cx.defer_in(window, move |this, window, cx| {
             for workspace in &workspaces {
                 this.subscribe_to_workspace(workspace, window, cx);
@@ -551,8 +546,7 @@ impl Sidebar {
             selection: None,
             active_entry: None,
             hovered_thread_index: None,
-            collapsed_groups: HashSet::new(),
-            expanded_groups: HashMap::new(),
+
             thread_last_accessed: HashMap::new(),
             thread_last_message_sent_or_queued: HashMap::new(),
             thread_switcher: None,
@@ -824,7 +818,7 @@ impl Sidebar {
             return;
         };
         let mw = multi_workspace.read(cx);
-        let workspaces: Vec<_> = mw.workspaces().cloned().collect();
+        let workspaces = mw.workspaces(cx);
         let active_workspace = Some(mw.workspace().clone());
 
         let agent_server_store = workspaces
@@ -902,11 +896,11 @@ impl Sidebar {
             (icon, icon_from_external_svg)
         };
 
-        let groups: Vec<ProjectGroup> = mw.project_groups().to_vec();
+        let groups = mw.project_groups().to_vec();
 
         let mut all_paths: Vec<PathBuf> = groups
             .iter()
-            .flat_map(|g| g.key.path_list().paths().iter().cloned())
+            .flat_map(|g| g.read(cx).key.path_list().paths().iter().cloned())
             .collect();
         all_paths.sort();
         all_paths.dedup();
@@ -918,9 +912,10 @@ impl Sidebar {
             all_paths.into_iter().zip(path_details).collect();
 
         for group in &groups {
+            let group_entity = group.clone();
+            let group = group.read(cx);
             let group_key = &group.key;
             let group_workspaces = &group.workspaces;
-            let group_id = group.id;
 
             if group_key.path_list().paths().is_empty() {
                 continue;
@@ -928,7 +923,7 @@ impl Sidebar {
 
             let label = group_key.display_name(&path_detail_map);
 
-            let is_collapsed = self.collapsed_groups.contains(&group_id);
+            let is_collapsed = !group.expanded;
             let should_load_threads = !is_collapsed || !query.is_empty();
 
             let is_active = active_workspace
@@ -1169,8 +1164,7 @@ impl Sidebar {
 
                 project_header_indices.push(entries.len());
                 entries.push(ListEntry::ProjectHeader {
-                    group_id,
-                    key: group_key.clone(),
+                    group: group_entity.clone(),
                     label,
                     highlight_positions: workspace_highlight_positions,
                     has_running_threads,
@@ -1186,8 +1180,7 @@ impl Sidebar {
             } else {
                 project_header_indices.push(entries.len());
                 entries.push(ListEntry::ProjectHeader {
-                    group_id,
-                    key: group_key.clone(),
+                    group: group_entity.clone(),
                     label,
                     highlight_positions: Vec::new(),
                     has_running_threads,
@@ -1219,7 +1212,7 @@ impl Sidebar {
                     if !has_threads && group_draft_ids.is_empty() {
                         entries.push(ListEntry::DraftThread {
                             draft_id: None,
-                            key: group_key.clone(),
+                            group: group_entity.clone(),
                             workspace: group_workspaces.first().cloned(),
                             worktrees: Vec::new(),
                         });
@@ -1232,7 +1225,7 @@ impl Sidebar {
                             let worktrees = worktree_info_from_thread_paths(&ws_worktree_paths);
                             entries.push(ListEntry::DraftThread {
                                 draft_id: Some(*draft_id),
-                                key: group_key.clone(),
+                                group: group_entity.clone(),
                                 workspace: Some(ws.clone()),
                                 worktrees,
                             });
@@ -1242,7 +1235,7 @@ impl Sidebar {
 
                 let total = threads.len();
 
-                let extra_batches = self.expanded_groups.get(&group_id).copied().unwrap_or(0);
+                let extra_batches = group.visible_thread_count.unwrap_or(0);
                 let threads_to_show =
                     DEFAULT_THREADS_SHOWN + (extra_batches * DEFAULT_THREADS_SHOWN);
                 let count = threads_to_show.min(total);
@@ -1281,8 +1274,7 @@ impl Sidebar {
 
                 if total > DEFAULT_THREADS_SHOWN {
                     entries.push(ListEntry::ViewMore {
-                        group_id,
-                        key: group_key.clone(),
+                        group: group_entity.clone(),
                         is_fully_expanded,
                     });
                 }
@@ -1370,45 +1362,49 @@ impl Sidebar {
 
         let rendered = match entry {
             ListEntry::ProjectHeader {
-                group_id,
-                key,
+                group,
                 label,
                 highlight_positions,
                 has_running_threads,
                 waiting_thread_count,
                 is_active: is_active_group,
                 has_threads,
-            } => self.render_project_header(
-                ix,
-                false,
-                *group_id,
-                key,
-                label,
-                highlight_positions,
-                *has_running_threads,
-                *waiting_thread_count,
-                *is_active_group,
-                is_selected,
-                *has_threads,
-                cx,
-            ),
+            } => {
+                let group_id = group.read(cx).id;
+                let key = group.read(cx).key.clone();
+                self.render_project_header(
+                    ix,
+                    false,
+                    group_id,
+                    &key,
+                    label,
+                    highlight_positions,
+                    *has_running_threads,
+                    *waiting_thread_count,
+                    *is_active_group,
+                    is_selected,
+                    *has_threads,
+                    group.clone(),
+                    cx,
+                )
+            }
             ListEntry::Thread(thread) => self.render_thread(ix, thread, is_active, is_selected, cx),
             ListEntry::ViewMore {
-                group_id,
-                key,
+                group,
                 is_fully_expanded,
-            } => self.render_view_more(ix, *group_id, key, *is_fully_expanded, is_selected, cx),
+            } => self.render_view_more(ix, group.clone(), *is_fully_expanded, is_selected, cx),
             ListEntry::DraftThread {
                 draft_id,
-                key,
+                group,
                 workspace,
                 worktrees,
             } => {
+                let key = group.read(cx).key.clone();
                 let group_has_threads = self
                     .contents
                     .entries
                     .iter()
-                    .any(|e| matches!(e, ListEntry::ProjectHeader { key: hk, has_threads: true, .. } if hk == key));
+                    .any(|e| matches!(e, ListEntry::ProjectHeader { has_threads: true, group: g, .. } if g.read(cx).key == key));
                 // Count drafts in the AgentPanel for this group's workspaces.
                 let sibling_draft_count = workspace
                     .as_ref()
@@ -1419,7 +1415,7 @@ impl Sidebar {
                 self.render_draft_thread(
                     ix,
                     *draft_id,
-                    key,
+                    &key,
                     workspace.as_ref(),
                     is_active,
                     worktrees,
@@ -1479,6 +1475,7 @@ impl Sidebar {
         is_active: bool,
         is_focused: bool,
         has_threads: bool,
+        group_entity: Entity<ProjectGroup>,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let host = key.host();
@@ -1488,16 +1485,16 @@ impl Sidebar {
         let disclosure_id = SharedString::from(format!("disclosure-{ix}"));
         let group_name = SharedString::from(format!("{id_prefix}header-group-{ix}"));
 
-        let is_collapsed = self.collapsed_groups.contains(&group_id);
+        let is_collapsed = !group_entity.read(cx).expanded;
         let (disclosure_icon, disclosure_tooltip) = if is_collapsed {
             (IconName::ChevronRight, "Expand Project")
         } else {
             (IconName::ChevronDown, "Collapse Project")
         };
 
-        let key_for_toggle = group_id;
-        let key_for_collapse = group_id;
-        let view_more_expanded = self.expanded_groups.contains_key(&group_id);
+        let group_entity_for_toggle = group_entity.clone();
+        let group_entity_for_collapse = group_entity.clone();
+        let view_more_expanded = group_entity.read(cx).visible_thread_count.is_some();
 
         let label = if highlight_positions.is_empty() {
             Label::new(label.clone())
@@ -1562,9 +1559,12 @@ impl Sidebar {
                             .icon_size(IconSize::Small)
                             .icon_color(Color::Custom(cx.theme().colors().icon_muted.opacity(0.5)))
                             .tooltip(Tooltip::text(disclosure_tooltip))
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                this.selection = None;
-                                this.toggle_collapse(key_for_toggle, window, cx);
+                            .on_click(cx.listener({
+                                let group_entity = group_entity_for_toggle;
+                                move |this, _, window, cx| {
+                                    this.selection = None;
+                                    this.toggle_collapse(group_entity.clone(), window, cx);
+                                }
                             })),
                     )
                     .child(label)
@@ -1625,14 +1625,15 @@ impl Sidebar {
                             )
                             .icon_size(IconSize::Small)
                             .tooltip(Tooltip::text("Collapse Displayed Threads"))
-                            .on_click(cx.listener(
+                            .on_click(cx.listener({
+                                let group_entity = group_entity_for_collapse.clone();
                                 move |this, _, _window, cx| {
                                     this.selection = None;
-                                    this.expanded_groups.remove(&key_for_collapse);
+                                    group_entity.update(cx, |g, _| g.visible_thread_count = None);
                                     this.serialize(cx);
                                     this.update_entries(cx);
-                                },
-                            )),
+                                }
+                            })),
                         )
                     })
                     .child({
@@ -1654,10 +1655,9 @@ impl Sidebar {
                                 cx,
                             )
                         })
-                        .on_click(cx.listener({
-                            let key = key.clone();
+                        .on_click(cx.listener(
                             move |this, _, window, cx| {
-                                this.collapsed_groups.remove(&group_id);
+                                group_entity.update(cx, |g, _| g.expanded = true);
                                 this.selection = None;
                                 // If the active workspace belongs to this
                                 // group, use it (preserves linked worktree
@@ -1681,8 +1681,8 @@ impl Sidebar {
                                 } else {
                                     this.open_workspace_and_create_draft(&key, window, cx);
                                 }
-                            }
-                        }))
+                            },
+                        ))
                     }),
             )
             .map(|this| {
@@ -1859,8 +1859,7 @@ impl Sidebar {
         }
 
         let ListEntry::ProjectHeader {
-            group_id,
-            key,
+            group,
             label,
             highlight_positions,
             has_running_threads,
@@ -1872,14 +1871,17 @@ impl Sidebar {
             return None;
         };
 
+        let group_id = group.read(cx).id;
+        let key = group.read(cx).key.clone();
+
         let is_focused = self.focus_handle.is_focused(window);
         let is_selected = is_focused && self.selection == Some(header_idx);
 
         let header_element = self.render_project_header(
             header_idx,
             true,
-            *group_id,
-            key,
+            group_id,
+            &key,
             &label,
             &highlight_positions,
             *has_running_threads,
@@ -1887,6 +1889,7 @@ impl Sidebar {
             *is_active,
             *has_threads,
             is_selected,
+            group.clone(),
             cx,
         );
 
@@ -1926,15 +1929,11 @@ impl Sidebar {
 
     fn toggle_collapse(
         &mut self,
-        group_id: ProjectGroupId,
+        group: Entity<ProjectGroup>,
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.collapsed_groups.contains(&group_id) {
-            self.collapsed_groups.remove(&group_id);
-        } else {
-            self.collapsed_groups.insert(group_id);
-        }
+        group.update(cx, |g, _| g.expanded = !g.expanded);
         self.serialize(cx);
         self.update_entries(cx);
     }
@@ -2106,8 +2105,9 @@ impl Sidebar {
         };
 
         match entry {
-            ListEntry::ProjectHeader { group_id, .. } => {
-                self.toggle_collapse(*group_id, window, cx);
+            ListEntry::ProjectHeader { group, .. } => {
+                let group = group.clone();
+                self.toggle_collapse(group, window, cx);
             }
             ListEntry::Thread(thread) => {
                 let metadata = thread.metadata.clone();
@@ -2133,24 +2133,25 @@ impl Sidebar {
                 }
             }
             ListEntry::ViewMore {
-                group_id,
+                group,
                 is_fully_expanded,
                 ..
             } => {
+                let group = group.clone();
                 if *is_fully_expanded {
-                    self.reset_thread_group_expansion(*group_id, cx);
+                    self.reset_thread_group_expansion(group, cx);
                 } else {
-                    self.expand_thread_group(*group_id, cx);
+                    self.expand_thread_group(group, cx);
                 }
             }
             ListEntry::DraftThread {
                 draft_id,
-                key,
+                group,
                 workspace,
                 ..
             } => {
                 let draft_id = *draft_id;
-                let key = key.clone();
+                let key = group.read(cx).key.clone();
                 let workspace = workspace.clone();
                 if let Some(draft_id) = draft_id {
                     if let Some(workspace) = workspace {
@@ -2179,9 +2180,9 @@ impl Sidebar {
             .find_map(|window| {
                 let workspace = window.read(cx).ok().and_then(|multi_workspace| {
                     multi_workspace
-                        .workspaces()
+                        .workspaces(cx)
+                        .into_iter()
                         .find(|workspace| predicate(workspace, cx))
-                        .cloned()
                 })?;
                 Some((window, workspace))
             })
@@ -2195,9 +2196,9 @@ impl Sidebar {
         self.multi_workspace.upgrade().and_then(|multi_workspace| {
             multi_workspace
                 .read(cx)
-                .workspaces()
+                .workspaces(cx)
+                .into_iter()
                 .find(|workspace| predicate(workspace, cx))
-                .cloned()
         })
     }
 
@@ -2583,9 +2584,9 @@ impl Sidebar {
         let Some(ix) = self.selection else { return };
 
         match self.contents.entries.get(ix) {
-            Some(ListEntry::ProjectHeader { group_id, .. }) => {
-                if self.collapsed_groups.contains(group_id) {
-                    self.collapsed_groups.remove(group_id);
+            Some(ListEntry::ProjectHeader { group, .. }) => {
+                if !group.read(cx).expanded {
+                    group.update(cx, |g, _| g.expanded = true);
                     self.update_entries(cx);
                 } else if ix + 1 < self.contents.entries.len() {
                     self.selection = Some(ix + 1);
@@ -2606,9 +2607,9 @@ impl Sidebar {
         let Some(ix) = self.selection else { return };
 
         match self.contents.entries.get(ix) {
-            Some(ListEntry::ProjectHeader { group_id, .. }) => {
-                if !self.collapsed_groups.contains(group_id) {
-                    self.collapsed_groups.insert(*group_id);
+            Some(ListEntry::ProjectHeader { group, .. }) => {
+                if group.read(cx).expanded {
+                    group.update(cx, |g, _| g.expanded = false);
                     self.update_entries(cx);
                 }
             }
@@ -2616,11 +2617,11 @@ impl Sidebar {
                 ListEntry::Thread(_) | ListEntry::ViewMore { .. } | ListEntry::DraftThread { .. },
             ) => {
                 for i in (0..ix).rev() {
-                    if let Some(ListEntry::ProjectHeader { group_id, .. }) =
+                    if let Some(ListEntry::ProjectHeader { group, .. }) =
                         self.contents.entries.get(i)
                     {
                         self.selection = Some(i);
-                        self.collapsed_groups.insert(*group_id);
+                        group.update(cx, |g, _| g.expanded = false);
                         self.update_entries(cx);
                         break;
                     }
@@ -2653,14 +2654,14 @@ impl Sidebar {
         };
 
         if let Some(header_ix) = header_ix {
-            if let Some(ListEntry::ProjectHeader { group_id, .. }) =
+            if let Some(ListEntry::ProjectHeader { group, .. }) =
                 self.contents.entries.get(header_ix)
             {
-                if self.collapsed_groups.contains(group_id) {
-                    self.collapsed_groups.remove(group_id);
+                if !group.read(cx).expanded {
+                    group.update(cx, |g, _| g.expanded = true);
                 } else {
                     self.selection = Some(header_ix);
-                    self.collapsed_groups.insert(*group_id);
+                    group.update(cx, |g, _| g.expanded = false);
                 }
                 self.update_entries(cx);
             }
@@ -2674,8 +2675,8 @@ impl Sidebar {
         cx: &mut Context<Self>,
     ) {
         for entry in &self.contents.entries {
-            if let ListEntry::ProjectHeader { group_id, .. } = entry {
-                self.collapsed_groups.insert(*group_id);
+            if let ListEntry::ProjectHeader { group, .. } = entry {
+                group.update(cx, |g, _| g.expanded = false);
             }
         }
         self.update_entries(cx);
@@ -2687,7 +2688,11 @@ impl Sidebar {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.collapsed_groups.clear();
+        for entry in &self.contents.entries {
+            if let ListEntry::ProjectHeader { group, .. } = entry {
+                group.update(cx, |g, _| g.expanded = true);
+            }
+        }
         self.update_entries(cx);
     }
 
@@ -2696,7 +2701,7 @@ impl Sidebar {
             return;
         };
 
-        let workspaces: Vec<_> = multi_workspace.read(cx).workspaces().cloned().collect();
+        let workspaces = multi_workspace.read(cx).workspaces(cx);
         for workspace in workspaces {
             if let Some(agent_panel) = workspace.read(cx).panel::<AgentPanel>(cx) {
                 let cancelled =
@@ -2731,13 +2736,7 @@ impl Sidebar {
                 let mut workspaces = self
                     .multi_workspace
                     .upgrade()
-                    .map(|multi_workspace| {
-                        multi_workspace
-                            .read(cx)
-                            .workspaces()
-                            .cloned()
-                            .collect::<Vec<_>>()
-                    })
+                    .map(|multi_workspace| multi_workspace.read(cx).workspaces(cx))
                     .unwrap_or_default();
                 for workspace in thread_worktree_archive::all_open_workspaces(cx) {
                     if !workspaces.contains(&workspace) {
@@ -3138,9 +3137,9 @@ impl Sidebar {
             .entries
             .iter()
             .filter_map(|entry| match entry {
-                ListEntry::ProjectHeader { label, key, .. } => {
+                ListEntry::ProjectHeader { label, group, .. } => {
                     current_header_label = Some(label.clone());
-                    current_header_key = Some(key.clone());
+                    current_header_key = Some(group.read(cx).key.clone());
                     None
                 }
                 ListEntry::Thread(thread) => {
@@ -3578,7 +3577,7 @@ impl Sidebar {
 
         let window_project_groups: Vec<ProjectGroupKey> = multi_workspace
             .as_ref()
-            .map(|mw| mw.read(cx).project_group_keys().cloned().collect())
+            .map(|mw| mw.read(cx).project_group_keys(cx))
             .unwrap_or_default();
 
         let popover_handle = self.recent_projects_popover_handle.clone();
@@ -3620,8 +3619,7 @@ impl Sidebar {
     fn render_view_more(
         &self,
         ix: usize,
-        group_id: ProjectGroupId,
-        _key: &ProjectGroupKey,
+        group: Entity<ProjectGroup>,
         is_fully_expanded: bool,
         is_selected: bool,
         cx: &mut Context<Self>,
@@ -3641,9 +3639,9 @@ impl Sidebar {
             .on_click(cx.listener(move |this, _, _window, cx| {
                 this.selection = None;
                 if is_fully_expanded {
-                    this.reset_thread_group_expansion(group_id, cx);
+                    this.reset_thread_group_expansion(group.clone(), cx);
                 } else {
-                    this.expand_thread_group(group_id, cx);
+                    this.expand_thread_group(group.clone(), cx);
                 }
             }))
             .into_any_element()
@@ -3851,18 +3849,6 @@ impl Sidebar {
         Some(multi_workspace.project_group_key_for_workspace(multi_workspace.workspace(), cx))
     }
 
-    fn active_project_group_id(&self, cx: &App) -> Option<ProjectGroupId> {
-        let multi_workspace = self.multi_workspace.upgrade()?;
-        let multi_workspace = multi_workspace.read(cx);
-        let active_key =
-            multi_workspace.project_group_key_for_workspace(multi_workspace.workspace(), cx);
-        multi_workspace
-            .project_groups()
-            .iter()
-            .find(|g| g.key == active_key)
-            .map(|g| g.id)
-    }
-
     fn active_project_header_position(&self, cx: &App) -> Option<usize> {
         let active_key = self.active_project_group_key(cx)?;
         self.contents
@@ -3871,7 +3857,7 @@ impl Sidebar {
             .position(|&entry_ix| {
                 matches!(
                     &self.contents.entries[entry_ix],
-                    ListEntry::ProjectHeader { key, .. } if *key == active_key
+                    ListEntry::ProjectHeader { group, .. } if group.read(cx).key == active_key
                 )
             })
     }
@@ -3900,16 +3886,15 @@ impl Sidebar {
         };
 
         let header_entry_ix = self.contents.project_header_indices[next_pos];
-        let Some(ListEntry::ProjectHeader { group_id, key, .. }) =
+        let Some(ListEntry::ProjectHeader { group, .. }) =
             self.contents.entries.get(header_entry_ix)
         else {
             return;
         };
-        let group_id = *group_id;
-        let key = key.clone();
+        let key = group.read(cx).key.clone();
 
         // Uncollapse the target group so that threads become visible.
-        self.collapsed_groups.remove(&group_id);
+        group.update(cx, |g, _| g.expanded = true);
 
         if let Some(workspace) = self.multi_workspace.upgrade().and_then(|mw| {
             mw.read(cx)
@@ -4012,31 +3997,54 @@ impl Sidebar {
         self.cycle_thread_impl(false, window, cx);
     }
 
-    fn expand_thread_group(&mut self, group_id: ProjectGroupId, cx: &mut Context<Self>) {
-        let current = self.expanded_groups.get(&group_id).copied().unwrap_or(0);
-        self.expanded_groups.insert(group_id, current + 1);
+    fn expand_thread_group(&mut self, group: Entity<ProjectGroup>, cx: &mut Context<Self>) {
+        group.update(cx, |g, _| {
+            let current = g.visible_thread_count.unwrap_or(0);
+            g.visible_thread_count = Some(current + 1);
+        });
         self.serialize(cx);
         self.update_entries(cx);
     }
 
-    fn reset_thread_group_expansion(&mut self, group_id: ProjectGroupId, cx: &mut Context<Self>) {
-        self.expanded_groups.remove(&group_id);
+    fn reset_thread_group_expansion(
+        &mut self,
+        group: Entity<ProjectGroup>,
+        cx: &mut Context<Self>,
+    ) {
+        group.update(cx, |g, _| g.visible_thread_count = None);
         self.serialize(cx);
         self.update_entries(cx);
     }
 
-    fn collapse_thread_group(&mut self, group_id: ProjectGroupId, cx: &mut Context<Self>) {
-        match self.expanded_groups.get(&group_id).copied() {
+    fn collapse_thread_group(&mut self, group: Entity<ProjectGroup>, cx: &mut Context<Self>) {
+        let should_update = group.update(cx, |g, _| match g.visible_thread_count {
             Some(batches) if batches > 1 => {
-                self.expanded_groups.insert(group_id, batches - 1);
+                g.visible_thread_count = Some(batches - 1);
+                true
             }
             Some(_) => {
-                self.expanded_groups.remove(&group_id);
+                g.visible_thread_count = None;
+                true
             }
-            None => return,
+            None => false,
+        });
+        if !should_update {
+            return;
         }
         self.serialize(cx);
         self.update_entries(cx);
+    }
+
+    fn active_project_group_entity(&self, cx: &App) -> Option<Entity<ProjectGroup>> {
+        let multi_workspace = self.multi_workspace.upgrade()?;
+        let multi_workspace = multi_workspace.read(cx);
+        let active_key =
+            multi_workspace.project_group_key_for_workspace(multi_workspace.workspace(), cx);
+        multi_workspace
+            .project_groups()
+            .iter()
+            .find(|g| g.read(cx).key == active_key)
+            .cloned()
     }
 
     fn on_show_more_threads(
@@ -4045,10 +4053,10 @@ impl Sidebar {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(group_id) = self.active_project_group_id(cx) else {
+        let Some(group) = self.active_project_group_entity(cx) else {
             return;
         };
-        self.expand_thread_group(group_id, cx);
+        self.expand_thread_group(group, cx);
     }
 
     fn on_show_fewer_threads(
@@ -4057,10 +4065,10 @@ impl Sidebar {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(group_id) = self.active_project_group_id(cx) else {
+        let Some(group) = self.active_project_group_entity(cx) else {
             return;
         };
-        self.collapse_thread_group(group_id, cx);
+        self.collapse_thread_group(group, cx);
     }
 
     fn on_new_thread(
@@ -4662,12 +4670,6 @@ impl WorkspaceSidebar for Sidebar {
     fn serialized_state(&self, _cx: &App) -> Option<String> {
         let serialized = SerializedSidebar {
             width: Some(f32::from(self.width)),
-            collapsed_groups: self.collapsed_groups.iter().copied().collect(),
-            expanded_groups: self
-                .expanded_groups
-                .iter()
-                .map(|(id, count)| (*id, *count))
-                .collect(),
             active_view: match self.view {
                 SidebarView::ThreadList => SerializedSidebarView::ThreadList,
                 SidebarView::Archive(_) => SerializedSidebarView::Archive,
@@ -4686,8 +4688,6 @@ impl WorkspaceSidebar for Sidebar {
             if let Some(width) = serialized.width {
                 self.width = px(width).clamp(MIN_WIDTH, MAX_WIDTH);
             }
-            self.collapsed_groups = serialized.collapsed_groups.into_iter().collect();
-            self.expanded_groups = serialized.expanded_groups.into_iter().collect();
             if serialized.active_view == SerializedSidebarView::Archive {
                 cx.defer_in(window, |this, window, cx| {
                     this.show_archive(window, cx);
@@ -4866,7 +4866,7 @@ pub fn dump_workspace_info(
 
     let multi_workspace = workspace.multi_workspace().and_then(|weak| weak.upgrade());
     let workspaces: Vec<gpui::Entity<Workspace>> = match &multi_workspace {
-        Some(mw) => mw.read(cx).workspaces().cloned().collect(),
+        Some(mw) => mw.read(cx).workspaces(cx),
         None => vec![this_entity.clone()],
     };
     let active_workspace = multi_workspace
@@ -4876,7 +4876,7 @@ pub fn dump_workspace_info(
     writeln!(output, "MultiWorkspace: {} workspace(s)", workspaces.len()).ok();
 
     if let Some(mw) = &multi_workspace {
-        let keys: Vec<_> = mw.read(cx).project_group_keys().cloned().collect();
+        let keys = mw.read(cx).project_group_keys(cx);
         writeln!(output, "Project group keys ({}):", keys.len()).ok();
         for key in keys {
             writeln!(output, "  - {key:?}").ok();

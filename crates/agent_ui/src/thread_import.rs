@@ -401,7 +401,7 @@ fn resolve_agent_connection_stores(
     let mut stores = Vec::new();
     let mut included_local_store = false;
 
-    for workspace in multi_workspace.read(cx).workspaces() {
+    for workspace in multi_workspace.read(cx).workspaces(cx) {
         let workspace = workspace.read(cx);
         let project = workspace.project().read(cx);
 

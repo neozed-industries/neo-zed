@@ -5886,9 +5886,9 @@ mod tests {
 
         // MultiWorkspace should still have exactly one workspace (no worktree created).
         multi_workspace
-            .read_with(cx, |multi_workspace, _cx| {
+            .read_with(cx, |multi_workspace, cx| {
                 assert_eq!(
-                    multi_workspace.workspaces().count(),
+                    multi_workspace.workspaces(cx).len(),
                     1,
                     "LocalProject should not create a new workspace"
                 );
@@ -6430,14 +6430,15 @@ mod tests {
             .read_with(cx, |multi_workspace, cx| {
                 // There should be more than one workspace now (the original + the new worktree).
                 assert!(
-                    multi_workspace.workspaces().count() > 1,
+                    multi_workspace.workspaces(cx).len() > 1,
                     "expected a new workspace to have been created, found {}",
-                    multi_workspace.workspaces().count(),
+                    multi_workspace.workspaces(cx).len(),
                 );
 
                 // Check the newest workspace's panel for the correct agent.
                 let new_workspace = multi_workspace
-                    .workspaces()
+                    .workspaces(cx)
+                    .into_iter()
                     .find(|ws| ws.entity_id() != workspace.entity_id())
                     .expect("should find the new workspace");
                 let new_panel = new_workspace
@@ -7342,7 +7343,7 @@ mod tests {
                     "workspace project should still be remote, not local"
                 );
                 assert_eq!(
-                    multi_workspace.workspaces().count(),
+                    multi_workspace.workspaces(cx).len(),
                     1,
                     "existing remote workspace should be reused, not a new one created"
                 );

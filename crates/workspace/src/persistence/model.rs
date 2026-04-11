@@ -67,10 +67,23 @@ pub struct SerializedProjectGroup {
     pub id: Option<ProjectGroupId>,
     pub path_list: SerializedPathList,
     pub(crate) location: SerializedWorkspaceLocation,
+    #[serde(default = "default_expanded")]
+    pub expanded: bool,
+    #[serde(default)]
+    pub visible_thread_count: Option<usize>,
+}
+
+fn default_expanded() -> bool {
+    true
 }
 
 impl SerializedProjectGroup {
-    pub fn from_group(id: ProjectGroupId, key: &ProjectGroupKey) -> Self {
+    pub fn from_group(
+        id: ProjectGroupId,
+        key: &ProjectGroupKey,
+        expanded: bool,
+        visible_thread_count: Option<usize>,
+    ) -> Self {
         Self {
             id: Some(id),
             path_list: key.path_list().serialize(),
@@ -78,23 +91,30 @@ impl SerializedProjectGroup {
                 Some(host) => SerializedWorkspaceLocation::Remote(host),
                 None => SerializedWorkspaceLocation::Local,
             },
+            expanded,
+            visible_thread_count,
         }
     }
 
-    pub fn into_id_and_key(self) -> (ProjectGroupId, ProjectGroupKey) {
+    pub fn into_id_key_and_state(self) -> (ProjectGroupId, ProjectGroupKey, bool, Option<usize>) {
         let id = self.id.unwrap_or_else(ProjectGroupId::new);
         let path_list = PathList::deserialize(&self.path_list);
         let host = match self.location {
             SerializedWorkspaceLocation::Local => None,
             SerializedWorkspaceLocation::Remote(opts) => Some(opts),
         };
-        (id, ProjectGroupKey::new(host, path_list))
+        (
+            id,
+            ProjectGroupKey::new(host, path_list),
+            self.expanded,
+            self.visible_thread_count,
+        )
     }
 }
 
 impl From<SerializedProjectGroup> for ProjectGroupKey {
     fn from(value: SerializedProjectGroup) -> Self {
-        let (_, key) = value.into_id_and_key();
+        let (_, key, _, _) = value.into_id_key_and_state();
         key
     }
 }

@@ -343,15 +343,11 @@ fn visible_entries_as_strings(
                 match entry {
                     ListEntry::ProjectHeader {
                         label,
-                        group_id,
+                        group,
                         highlight_positions: _,
                         ..
                     } => {
-                        let icon = if sidebar.collapsed_groups.contains(group_id) {
-                            ">"
-                        } else {
-                            "v"
-                        };
+                        let icon = if !group.read(_cx).expanded { ">" } else { "v" };
                         format!("{} [{}]{}", icon, label, selected)
                     }
                     ListEntry::Thread(thread) => {
@@ -407,20 +403,9 @@ async fn test_serialization_round_trip(cx: &mut TestAppContext) {
 
     save_n_test_threads(3, &project, cx).await;
 
-    let project_group_key = project.read_with(cx, |project, cx| project.project_group_key(cx));
-
-    // Set a custom width, collapse the group, and expand "View More".
-    sidebar.update_in(cx, |sidebar, window, cx| {
+    // Set a custom width.
+    sidebar.update_in(cx, |sidebar, _window, cx| {
         sidebar.set_width(Some(px(420.0)), cx);
-        let group_id = multi_workspace
-            .read(cx)
-            .project_groups()
-            .iter()
-            .find(|g| g.key == project_group_key)
-            .unwrap()
-            .id;
-        sidebar.toggle_collapse(group_id, window, cx);
-        sidebar.expanded_groups.insert(group_id, 2);
     });
     cx.run_until_parked();
 
@@ -438,35 +423,12 @@ async fn test_serialization_round_trip(cx: &mut TestAppContext) {
     });
     cx.run_until_parked();
 
-    // Assert all serialized fields match.
-    let (width1, collapsed1, expanded1) = sidebar.read_with(cx, |s, _| {
-        (
-            s.width,
-            s.collapsed_groups.clone(),
-            s.expanded_groups.clone(),
-        )
-    });
-    let (width2, collapsed2, expanded2) = sidebar2.read_with(cx, |s, _| {
-        (
-            s.width,
-            s.collapsed_groups.clone(),
-            s.expanded_groups.clone(),
-        )
-    });
+    // Assert width matches.
+    let width1 = sidebar.read_with(cx, |s, _| s.width);
+    let width2 = sidebar2.read_with(cx, |s, _| s.width);
 
     assert_eq!(width1, width2);
-    assert_eq!(collapsed1, collapsed2);
-    assert_eq!(expanded1, expanded2);
     assert_eq!(width1, px(420.0));
-    let group_id = multi_workspace.read_with(cx, |mw, _| {
-        mw.project_groups()
-            .iter()
-            .find(|g| g.key == project_group_key)
-            .unwrap()
-            .id
-    });
-    assert!(collapsed1.contains(&group_id));
-    assert_eq!(expanded1.get(&group_id), Some(&2));
 }
 
 #[gpui::test]
@@ -482,8 +444,6 @@ async fn test_restore_serialized_archive_view_does_not_panic(cx: &mut TestAppCon
 
     let serialized = serde_json::to_string(&SerializedSidebar {
         width: Some(400.0),
-        collapsed_groups: Vec::new(),
-        expanded_groups: Vec::new(),
         active_view: SerializedSidebarView::Archive,
     })
     .expect("serialization should succeed");
@@ -700,12 +660,12 @@ async fn test_view_more_batched_expansion(cx: &mut TestAppContext) {
     save_n_test_threads(17, &project, cx).await;
 
     let project_group_key = project.read_with(cx, |project, cx| project.project_group_key(cx));
-    let group_id = multi_workspace.read_with(cx, |mw, _| {
+    let group = multi_workspace.read_with(cx, |mw, cx| {
         mw.project_groups()
             .iter()
-            .find(|g| g.key == project_group_key)
+            .find(|g| g.read(cx).key == project_group_key)
             .unwrap()
-            .id
+            .clone()
     });
 
     multi_workspace.update_in(cx, |_, _window, cx| cx.notify());
@@ -731,8 +691,8 @@ async fn test_view_more_batched_expansion(cx: &mut TestAppContext) {
 
     // Expand again by one batch
     sidebar.update_in(cx, |s, _window, cx| {
-        let current = s.expanded_groups.get(&group_id).copied().unwrap_or(0);
-        s.expanded_groups.insert(group_id, current + 1);
+        let current = group.read(cx).visible_thread_count.unwrap_or(0);
+        group.update(cx, |g, _| g.visible_thread_count = Some(current + 1));
         s.update_entries(cx);
     });
     cx.run_until_parked();
@@ -744,8 +704,8 @@ async fn test_view_more_batched_expansion(cx: &mut TestAppContext) {
 
     // Expand one more time - should show all 17 threads with Collapse button
     sidebar.update_in(cx, |s, _window, cx| {
-        let current = s.expanded_groups.get(&group_id).copied().unwrap_or(0);
-        s.expanded_groups.insert(group_id, current + 1);
+        let current = group.read(cx).visible_thread_count.unwrap_or(0);
+        group.update(cx, |g, _| g.visible_thread_count = Some(current + 1));
         s.update_entries(cx);
     });
     cx.run_until_parked();
@@ -758,7 +718,7 @@ async fn test_view_more_batched_expansion(cx: &mut TestAppContext) {
 
     // Click collapse - should go back to showing 5 threads
     sidebar.update_in(cx, |s, _window, cx| {
-        s.expanded_groups.remove(&group_id);
+        group.update(cx, |g, _| g.visible_thread_count = None);
         s.update_entries(cx);
     });
     cx.run_until_parked();
@@ -779,12 +739,12 @@ async fn test_collapse_and_expand_group(cx: &mut TestAppContext) {
     save_n_test_threads(1, &project, cx).await;
 
     let project_group_key = project.read_with(cx, |project, cx| project.project_group_key(cx));
-    let group_id = multi_workspace.read_with(cx, |mw, _| {
+    let group = multi_workspace.read_with(cx, |mw, cx| {
         mw.project_groups()
             .iter()
-            .find(|g| g.key == project_group_key)
+            .find(|g| g.read(cx).key == project_group_key)
             .unwrap()
-            .id
+            .clone()
     });
 
     multi_workspace.update_in(cx, |_, _window, cx| cx.notify());
@@ -801,7 +761,7 @@ async fn test_collapse_and_expand_group(cx: &mut TestAppContext) {
 
     // Collapse
     sidebar.update_in(cx, |s, window, cx| {
-        s.toggle_collapse(group_id, window, cx);
+        s.toggle_collapse(group.clone(), window, cx);
     });
     cx.run_until_parked();
 
@@ -815,7 +775,7 @@ async fn test_collapse_and_expand_group(cx: &mut TestAppContext) {
 
     // Expand
     sidebar.update_in(cx, |s, window, cx| {
-        s.toggle_collapse(group_id, window, cx);
+        s.toggle_collapse(group.clone(), window, cx);
     });
     cx.run_until_parked();
 
@@ -840,18 +800,32 @@ async fn test_visible_entries_as_strings(cx: &mut TestAppContext) {
     let expanded_path = PathList::new(&[std::path::PathBuf::from("/expanded")]);
     let collapsed_path = PathList::new(&[std::path::PathBuf::from("/collapsed")]);
 
-    let expanded_group_id = project::ProjectGroupId::new();
-    let collapsed_group_id = project::ProjectGroupId::new();
+    let expanded_group = cx.update(|_window, cx| {
+        cx.new(|_| ProjectGroup {
+            id: project::ProjectGroupId::new(),
+            key: project::ProjectGroupKey::new(None, expanded_path.clone()),
+            workspaces: Vec::new(),
+            expanded: true,
+            visible_thread_count: None,
+        })
+    });
+    let collapsed_group = cx.update(|_window, cx| {
+        cx.new(|_| ProjectGroup {
+            id: project::ProjectGroupId::new(),
+            key: project::ProjectGroupKey::new(None, collapsed_path.clone()),
+            workspaces: Vec::new(),
+            expanded: false,
+            visible_thread_count: None,
+        })
+    });
     sidebar.update_in(cx, |s, _window, _cx| {
-        s.collapsed_groups.insert(collapsed_group_id);
         s.contents
             .notified_threads
             .insert(acp::SessionId::new(Arc::from("t-5")));
         s.contents.entries = vec![
             // Expanded project header
             ListEntry::ProjectHeader {
-                group_id: expanded_group_id,
-                key: project::ProjectGroupKey::new(None, expanded_path.clone()),
+                group: expanded_group.clone(),
                 label: "expanded-project".into(),
                 highlight_positions: Vec::new(),
                 has_running_threads: false,
@@ -977,14 +951,12 @@ async fn test_visible_entries_as_strings(cx: &mut TestAppContext) {
             }),
             // View More entry
             ListEntry::ViewMore {
-                group_id: expanded_group_id,
-                key: project::ProjectGroupKey::new(None, expanded_path.clone()),
+                group: expanded_group.clone(),
                 is_fully_expanded: false,
             },
             // Collapsed project header
             ListEntry::ProjectHeader {
-                group_id: collapsed_group_id,
-                key: project::ProjectGroupKey::new(None, collapsed_path.clone()),
+                group: collapsed_group.clone(),
                 label: "collapsed-project".into(),
                 highlight_positions: Vec::new(),
                 has_running_threads: false,
@@ -2243,16 +2215,16 @@ async fn test_click_clears_selection_and_focus_in_restores_it(cx: &mut TestAppCo
     // visual feedback during mouse interaction instead.
     sidebar.update_in(cx, |sidebar, window, cx| {
         sidebar.selection = None;
-        let group_id = sidebar
+        let group = sidebar
             .contents
             .entries
             .iter()
             .find_map(|e| match e {
-                ListEntry::ProjectHeader { group_id, .. } => Some(*group_id),
+                ListEntry::ProjectHeader { group, .. } => Some(group.clone()),
                 _ => None,
             })
             .unwrap();
-        sidebar.toggle_collapse(group_id, window, cx);
+        sidebar.toggle_collapse(group, window, cx);
     });
     assert_eq!(sidebar.read_with(cx, |sidebar, _| sidebar.selection), None);
 
@@ -2501,7 +2473,7 @@ async fn test_focused_thread_tracks_user_intent(cx: &mut TestAppContext) {
     // Switching workspaces via the multi_workspace (simulates clicking
     // a workspace header) should clear focused_thread.
     multi_workspace.update_in(cx, |mw, window, cx| {
-        let workspace = mw.workspaces().find(|w| *w == &workspace_b).cloned();
+        let workspace = mw.workspaces(cx).into_iter().find(|w| *w == workspace_b);
         if let Some(workspace) = workspace {
             mw.activate(workspace, window, cx);
         }
@@ -2657,10 +2629,10 @@ async fn test_group_level_folder_add_cascades_to_all_workspaces(cx: &mut TestApp
     cx.run_until_parked();
 
     // Both workspaces should be in one group with key [/project-a].
-    let group_id = multi_workspace.read_with(cx, |mw, _| {
+    let group_id = multi_workspace.read_with(cx, |mw, cx| {
         assert_eq!(mw.project_groups().len(), 1);
-        assert_eq!(mw.project_groups()[0].workspaces.len(), 2);
-        mw.project_groups()[0].id
+        assert_eq!(mw.project_groups()[0].read(cx).workspaces.len(), 2);
+        mw.project_groups()[0].read(cx).id
     });
 
     // Add /project-b via the group-level API.
@@ -2670,10 +2642,19 @@ async fn test_group_level_folder_add_cascades_to_all_workspaces(cx: &mut TestApp
     cx.run_until_parked();
 
     // The group key should be updated.
-    multi_workspace.read_with(cx, |mw, _| {
+    multi_workspace.read_with(cx, |mw, cx| {
         assert_eq!(mw.project_groups().len(), 1, "still one group");
-        assert_eq!(mw.project_groups()[0].id, group_id, "same group ID");
-        let paths = mw.project_groups()[0].key.path_list().paths().to_vec();
+        assert_eq!(
+            mw.project_groups()[0].read(cx).id,
+            group_id,
+            "same group ID"
+        );
+        let paths = mw.project_groups()[0]
+            .read(cx)
+            .key
+            .path_list()
+            .paths()
+            .to_vec();
         assert!(
             paths.contains(&PathBuf::from("/project-a"))
                 && paths.contains(&PathBuf::from("/project-b")),
@@ -2709,10 +2690,10 @@ async fn test_individual_workspace_folder_change_moves_workspace_to_new_group(
     });
     cx.run_until_parked();
 
-    multi_workspace.read_with(cx, |mw, _| {
+    multi_workspace.read_with(cx, |mw, cx| {
         assert_eq!(mw.project_groups().len(), 1, "one group to start");
         assert_eq!(
-            mw.project_groups()[0].workspaces.len(),
+            mw.project_groups()[0].read(cx).workspaces.len(),
             2,
             "two workspaces in it"
         );
@@ -2729,12 +2710,12 @@ async fn test_individual_workspace_folder_change_moves_workspace_to_new_group(
 
     // project_a's workspace should have moved to a new group.
     // project_b's workspace should stay in the old group, unchanged.
-    multi_workspace.read_with(cx, |mw, _| {
+    multi_workspace.read_with(cx, |mw, cx| {
         assert_eq!(mw.project_groups().len(), 2, "should now have 2 groups");
         let mut group_sizes: Vec<usize> = mw
             .project_groups()
             .iter()
-            .map(|g| g.workspaces.len())
+            .map(|g| g.read(cx).workspaces.len())
             .collect();
         group_sizes.sort();
         assert_eq!(
@@ -2774,7 +2755,7 @@ async fn test_individual_workspace_change_merges_into_existing_group(cx: &mut Te
     cx.run_until_parked();
 
     // Should have 2 groups: one [/project-a], one [/project-a, /project-b].
-    multi_workspace.read_with(cx, |mw, _| {
+    multi_workspace.read_with(cx, |mw, _cx| {
         assert_eq!(mw.project_groups().len(), 2);
     });
 
@@ -2788,14 +2769,14 @@ async fn test_individual_workspace_change_merges_into_existing_group(cx: &mut Te
     cx.run_until_parked();
 
     // Both workspaces should now be in one group.
-    multi_workspace.read_with(cx, |mw, _| {
+    multi_workspace.read_with(cx, |mw, cx| {
         assert_eq!(
             mw.project_groups().len(),
             1,
             "should have merged into 1 group"
         );
         assert_eq!(
-            mw.project_groups()[0].workspaces.len(),
+            mw.project_groups()[0].read(cx).workspaces.len(),
             2,
             "both workspaces in the merged group"
         );
@@ -3045,7 +3026,7 @@ async fn test_cmd_n_shows_new_thread_entry_in_absorbed_worktree(cx: &mut TestApp
 
     // Switch to the worktree workspace.
     multi_workspace.update_in(cx, |mw, window, cx| {
-        let workspace = mw.workspaces().nth(1).unwrap().clone();
+        let workspace = mw.workspaces(cx).into_iter().nth(1).unwrap();
         mw.activate(workspace, window, cx);
     });
 
@@ -3617,11 +3598,11 @@ async fn test_absorbed_worktree_running_thread_shows_live_status(cx: &mut TestAp
 
     // Switch back to the main workspace before setting up the sidebar.
     multi_workspace.update_in(cx, |mw, window, cx| {
-        let workspace = mw.workspaces().next().unwrap().clone();
+        let workspace = mw.workspaces(cx).into_iter().next().unwrap();
         mw.activate(workspace, window, cx);
     });
 
-    // Start a thread in the worktree workspace's panel and keep it
+    // Start a thread in the worktree workspace's panel
     // generating (don't resolve it).
     let connection = StubAgentConnection::new();
     open_thread_with_connection(&worktree_panel, connection.clone(), cx);
@@ -3709,7 +3690,7 @@ async fn test_absorbed_worktree_completion_triggers_notification(cx: &mut TestAp
     let worktree_panel = add_agent_panel(&worktree_workspace, cx);
 
     multi_workspace.update_in(cx, |mw, window, cx| {
-        let workspace = mw.workspaces().next().unwrap().clone();
+        let workspace = mw.workspaces(cx).into_iter().next().unwrap();
         mw.activate(workspace, window, cx);
     });
 
@@ -3804,7 +3785,7 @@ async fn test_clicking_worktree_thread_opens_workspace_when_none_exists(cx: &mut
 
     // Only 1 workspace should exist.
     assert_eq!(
-        multi_workspace.read_with(cx, |mw, _| mw.workspaces().count()),
+        multi_workspace.read_with(cx, |mw, cx| mw.workspaces(cx).len()),
         1,
     );
 
@@ -3819,13 +3800,13 @@ async fn test_clicking_worktree_thread_opens_workspace_when_none_exists(cx: &mut
     cx.run_until_parked();
 
     // A new workspace should have been created for the worktree path.
-    let new_workspace = multi_workspace.read_with(cx, |mw, _| {
+    let new_workspace = multi_workspace.read_with(cx, |mw, cx| {
         assert_eq!(
-            mw.workspaces().count(),
+            mw.workspaces(cx).len(),
             2,
             "confirming a worktree thread without a workspace should open one",
         );
-        mw.workspaces().nth(1).unwrap().clone()
+        mw.workspaces(cx).into_iter().nth(1).unwrap()
     });
 
     let new_path_list =
@@ -4029,7 +4010,7 @@ async fn test_clicking_absorbed_worktree_thread_activates_worktree_workspace(
 
     // Activate the main workspace before setting up the sidebar.
     let main_workspace = multi_workspace.update_in(cx, |mw, window, cx| {
-        let workspace = mw.workspaces().next().unwrap().clone();
+        let workspace = mw.workspaces(cx).into_iter().next().unwrap();
         mw.activate(workspace.clone(), window, cx);
         workspace
     });
@@ -4102,7 +4083,7 @@ async fn test_activate_archived_thread_with_saved_paths_activates_matching_works
         mw.test_add_workspace(project_b.clone(), window, cx)
     });
     let workspace_a =
-        multi_workspace.read_with(cx, |mw, _| mw.workspaces().next().unwrap().clone());
+        multi_workspace.read_with(cx, |mw, cx| mw.workspaces(cx).into_iter().next().unwrap());
 
     // Save a thread with path_list pointing to project-b.
     let session_id = acp::SessionId::new(Arc::from("archived-1"));
@@ -4110,7 +4091,7 @@ async fn test_activate_archived_thread_with_saved_paths_activates_matching_works
 
     // Ensure workspace A is active.
     multi_workspace.update_in(cx, |mw, window, cx| {
-        let workspace = mw.workspaces().next().unwrap().clone();
+        let workspace = mw.workspaces(cx).into_iter().next().unwrap();
         mw.activate(workspace, window, cx);
     });
     cx.run_until_parked();
@@ -4174,11 +4155,11 @@ async fn test_activate_archived_thread_cwd_fallback_with_matching_workspace(
         mw.test_add_workspace(project_b, window, cx)
     });
     let workspace_a =
-        multi_workspace.read_with(cx, |mw, _| mw.workspaces().next().unwrap().clone());
+        multi_workspace.read_with(cx, |mw, cx| mw.workspaces(cx).into_iter().next().unwrap());
 
     // Start with workspace A active.
     multi_workspace.update_in(cx, |mw, window, cx| {
-        let workspace = mw.workspaces().next().unwrap().clone();
+        let workspace = mw.workspaces(cx).into_iter().next().unwrap();
         mw.activate(workspace, window, cx);
     });
     cx.run_until_parked();
@@ -4302,7 +4283,7 @@ async fn test_activate_archived_thread_saved_paths_opens_new_workspace(cx: &mut 
     let session_id = acp::SessionId::new(Arc::from("archived-new-ws"));
 
     assert_eq!(
-        multi_workspace.read_with(cx, |mw, _| mw.workspaces().count()),
+        multi_workspace.read_with(cx, |mw, cx| mw.workspaces(cx).len()),
         1,
         "should start with one workspace"
     );
@@ -4326,7 +4307,7 @@ async fn test_activate_archived_thread_saved_paths_opens_new_workspace(cx: &mut 
     cx.run_until_parked();
 
     assert_eq!(
-        multi_workspace.read_with(cx, |mw, _| mw.workspaces().count()),
+        multi_workspace.read_with(cx, |mw, cx| mw.workspaces(cx).len()),
         2,
         "should have opened a second workspace for the archived thread's saved paths"
     );
@@ -4383,14 +4364,14 @@ async fn test_activate_archived_thread_reuses_workspace_in_another_window(cx: &m
 
     assert_eq!(
         multi_workspace_a
-            .read_with(cx_a, |mw, _| mw.workspaces().count())
+            .read_with(cx_a, |mw, cx| mw.workspaces(cx).len())
             .unwrap(),
         1,
         "should not add the other window's workspace into the current window"
     );
     assert_eq!(
         multi_workspace_b
-            .read_with(cx_a, |mw, _| mw.workspaces().count())
+            .read_with(cx_a, |mw, cx| mw.workspaces(cx).len())
             .unwrap(),
         1,
         "should reuse the existing workspace in the other window"
@@ -4462,14 +4443,14 @@ async fn test_activate_archived_thread_reuses_workspace_in_another_window_with_t
 
     assert_eq!(
         multi_workspace_a
-            .read_with(cx_a, |mw, _| mw.workspaces().count())
+            .read_with(cx_a, |mw, cx| mw.workspaces(cx).len())
             .unwrap(),
         1,
         "should not add the other window's workspace into the current window"
     );
     assert_eq!(
         multi_workspace_b
-            .read_with(cx_a, |mw, _| mw.workspaces().count())
+            .read_with(cx_a, |mw, cx| mw.workspaces(cx).len())
             .unwrap(),
         1,
         "should reuse the existing workspace in the other window"
@@ -4555,14 +4536,14 @@ async fn test_activate_archived_thread_prefers_current_window_for_matching_paths
     });
     assert_eq!(
         multi_workspace_a
-            .read_with(cx_a, |mw, _| mw.workspaces().count())
+            .read_with(cx_a, |mw, cx| mw.workspaces(cx).len())
             .unwrap(),
         1,
         "current window should continue reusing its existing workspace"
     );
     assert_eq!(
         multi_workspace_b
-            .read_with(cx_a, |mw, _| mw.workspaces().count())
+            .read_with(cx_a, |mw, cx| mw.workspaces(cx).len())
             .unwrap(),
         1,
         "other windows should not be activated just because they also match the saved paths"
@@ -4633,12 +4614,12 @@ async fn test_archive_thread_uses_next_threads_own_workspace(cx: &mut TestAppCon
 
     // Activate main workspace so the sidebar tracks the main panel.
     multi_workspace.update_in(cx, |mw, window, cx| {
-        let workspace = mw.workspaces().next().unwrap().clone();
+        let workspace = mw.workspaces(cx).into_iter().next().unwrap();
         mw.activate(workspace, window, cx);
     });
 
     let main_workspace =
-        multi_workspace.read_with(cx, |mw, _| mw.workspaces().next().unwrap().clone());
+        multi_workspace.read_with(cx, |mw, cx| mw.workspaces(cx).into_iter().next().unwrap());
     let main_panel = add_agent_panel(&main_workspace, cx);
     let _worktree_panel = add_agent_panel(&worktree_workspace, cx);
 
@@ -4823,7 +4804,7 @@ async fn test_archive_last_worktree_thread_removes_workspace(cx: &mut TestAppCon
 
     // Should have 2 workspaces.
     assert_eq!(
-        multi_workspace.read_with(cx, |mw, _| mw.workspaces().count()),
+        multi_workspace.read_with(cx, |mw, cx| mw.workspaces(cx).len()),
         2,
         "should start with 2 workspaces (main + linked worktree)"
     );
@@ -4843,7 +4824,7 @@ async fn test_archive_last_worktree_thread_removes_workspace(cx: &mut TestAppCon
 
     // The linked worktree workspace should have been removed.
     assert_eq!(
-        multi_workspace.read_with(cx, |mw, _| mw.workspaces().count()),
+        multi_workspace.read_with(cx, |mw, cx| mw.workspaces(cx).len()),
         1,
         "linked worktree workspace should be removed after archiving its last thread"
     );
@@ -5646,7 +5627,7 @@ async fn test_archive_last_thread_on_linked_worktree_does_not_create_new_thread_
 
     // Set up both workspaces with agent panels.
     let main_workspace =
-        multi_workspace.read_with(cx, |mw, _| mw.workspaces().next().unwrap().clone());
+        multi_workspace.read_with(cx, |mw, cx| mw.workspaces(cx).into_iter().next().unwrap());
     let _main_panel = add_agent_panel(&main_workspace, cx);
     let worktree_panel = add_agent_panel(&worktree_workspace, cx);
 
@@ -5814,7 +5795,7 @@ async fn test_archive_last_thread_on_linked_worktree_with_no_siblings_creates_dr
     });
 
     let main_workspace =
-        multi_workspace.read_with(cx, |mw, _| mw.workspaces().next().unwrap().clone());
+        multi_workspace.read_with(cx, |mw, cx| mw.workspaces(cx).into_iter().next().unwrap());
     let _main_panel = add_agent_panel(&main_workspace, cx);
     let worktree_panel = add_agent_panel(&worktree_workspace, cx);
 
@@ -5933,7 +5914,7 @@ async fn test_archive_thread_on_linked_worktree_selects_sibling_thread(cx: &mut 
     });
 
     let main_workspace =
-        multi_workspace.read_with(cx, |mw, _| mw.workspaces().next().unwrap().clone());
+        multi_workspace.read_with(cx, |mw, cx| mw.workspaces(cx).into_iter().next().unwrap());
     let _main_panel = add_agent_panel(&main_workspace, cx);
     let worktree_panel = add_agent_panel(&worktree_workspace, cx);
 
@@ -6092,7 +6073,7 @@ async fn test_linked_worktree_workspace_reachable_and_dismissable(cx: &mut TestA
 
     // Switch back to the main workspace.
     multi_workspace.update_in(cx, |mw, window, cx| {
-        let main_ws = mw.workspaces().next().unwrap().clone();
+        let main_ws = mw.workspaces(cx).into_iter().next().unwrap();
         mw.activate(main_ws, window, cx);
     });
     cx.run_until_parked();
@@ -6138,7 +6119,7 @@ async fn test_linked_worktree_workspace_reachable_and_dismissable(cx: &mut TestA
     });
 
     assert_eq!(
-        multi_workspace.read_with(cx, |mw, _| mw.workspaces().count()),
+        multi_workspace.read_with(cx, |mw, cx| mw.workspaces(cx).len()),
         2
     );
 
@@ -6149,7 +6130,7 @@ async fn test_linked_worktree_workspace_reachable_and_dismissable(cx: &mut TestA
     cx.run_until_parked();
 
     assert_eq!(
-        multi_workspace.read_with(cx, |mw, _| mw.workspaces().count()),
+        multi_workspace.read_with(cx, |mw, cx| mw.workspaces(cx).len()),
         2,
         "dismissing a draft no longer removes the linked worktree workspace"
     );
@@ -6306,7 +6287,7 @@ async fn test_transient_workspace_lifecycle(cx: &mut TestAppContext) {
     let workspace_a = multi_workspace.read_with(cx, |mw, _| mw.workspace().clone());
     assert!(!multi_workspace.read_with(cx, |mw, _| mw.sidebar_open()));
     assert_eq!(
-        multi_workspace.read_with(cx, |mw, _| mw.workspaces().count()),
+        multi_workspace.read_with(cx, |mw, cx| mw.workspaces(cx).len()),
         1
     );
     assert!(multi_workspace.read_with(cx, |mw, _| mw.workspace() == &workspace_a));
@@ -6314,7 +6295,7 @@ async fn test_transient_workspace_lifecycle(cx: &mut TestAppContext) {
     // Add B — replaces A as the transient workspace.
     let workspace_b = add_test_project("/project-b", &fs, &multi_workspace, cx).await;
     assert_eq!(
-        multi_workspace.read_with(cx, |mw, _| mw.workspaces().count()),
+        multi_workspace.read_with(cx, |mw, cx| mw.workspaces(cx).len()),
         1
     );
     assert!(multi_workspace.read_with(cx, |mw, _| mw.workspace() == &workspace_b));
@@ -6322,7 +6303,7 @@ async fn test_transient_workspace_lifecycle(cx: &mut TestAppContext) {
     // Add C — replaces B as the transient workspace.
     let workspace_c = add_test_project("/project-c", &fs, &multi_workspace, cx).await;
     assert_eq!(
-        multi_workspace.read_with(cx, |mw, _| mw.workspaces().count()),
+        multi_workspace.read_with(cx, |mw, cx| mw.workspaces(cx).len()),
         1
     );
     assert!(multi_workspace.read_with(cx, |mw, _| mw.workspace() == &workspace_c));
@@ -6343,7 +6324,7 @@ async fn test_transient_workspace_retained(cx: &mut TestAppContext) {
     // Add B — retained since sidebar is open.
     let workspace_a = add_test_project("/project-b", &fs, &multi_workspace, cx).await;
     assert_eq!(
-        multi_workspace.read_with(cx, |mw, _| mw.workspaces().count()),
+        multi_workspace.read_with(cx, |mw, cx| mw.workspaces(cx).len()),
         2
     );
 
@@ -6351,7 +6332,7 @@ async fn test_transient_workspace_retained(cx: &mut TestAppContext) {
     multi_workspace.update_in(cx, |mw, window, cx| mw.activate(workspace_a, window, cx));
     cx.run_until_parked();
     assert_eq!(
-        multi_workspace.read_with(cx, |mw, _| mw.workspaces().count()),
+        multi_workspace.read_with(cx, |mw, cx| mw.workspaces(cx).len()),
         2
     );
 
@@ -6359,14 +6340,14 @@ async fn test_transient_workspace_retained(cx: &mut TestAppContext) {
     multi_workspace.update_in(cx, |mw, window, cx| mw.close_sidebar(window, cx));
     cx.run_until_parked();
     assert_eq!(
-        multi_workspace.read_with(cx, |mw, _| mw.workspaces().count()),
+        multi_workspace.read_with(cx, |mw, cx| mw.workspaces(cx).len()),
         2
     );
 
     // Add C — added as new transient workspace. (switching from retained, to transient)
     let workspace_c = add_test_project("/project-c", &fs, &multi_workspace, cx).await;
     assert_eq!(
-        multi_workspace.read_with(cx, |mw, _| mw.workspaces().count()),
+        multi_workspace.read_with(cx, |mw, cx| mw.workspaces(cx).len()),
         3
     );
     assert!(multi_workspace.read_with(cx, |mw, _| mw.workspace() == &workspace_c));
@@ -6374,7 +6355,7 @@ async fn test_transient_workspace_retained(cx: &mut TestAppContext) {
     // Add D — replaces C as the transient workspace (Have retained and transient workspaces, transient workspace is dropped)
     let workspace_d = add_test_project("/project-d", &fs, &multi_workspace, cx).await;
     assert_eq!(
-        multi_workspace.read_with(cx, |mw, _| mw.workspaces().count()),
+        multi_workspace.read_with(cx, |mw, cx| mw.workspaces(cx).len()),
         3
     );
     assert!(multi_workspace.read_with(cx, |mw, _| mw.workspace() == &workspace_d));
@@ -6391,7 +6372,7 @@ async fn test_transient_workspace_promotion(cx: &mut TestAppContext) {
     // Add B — replaces A as the transient workspace (A is discarded).
     let workspace_b = add_test_project("/project-b", &fs, &multi_workspace, cx).await;
     assert_eq!(
-        multi_workspace.read_with(cx, |mw, _| mw.workspaces().count()),
+        multi_workspace.read_with(cx, |mw, cx| mw.workspaces(cx).len()),
         1
     );
     assert!(multi_workspace.read_with(cx, |mw, _| mw.workspace() == &workspace_b));
@@ -6402,10 +6383,12 @@ async fn test_transient_workspace_promotion(cx: &mut TestAppContext) {
     });
     cx.run_until_parked();
     assert_eq!(
-        multi_workspace.read_with(cx, |mw, _| mw.workspaces().count()),
+        multi_workspace.read_with(cx, |mw, cx| mw.workspaces(cx).len()),
         1
     );
-    assert!(multi_workspace.read_with(cx, |mw, _| mw.workspaces().any(|w| w == &workspace_b)));
+    assert!(multi_workspace.read_with(cx, |mw, cx| {
+        mw.workspaces(cx).iter().any(|w| w == &workspace_b)
+    }));
 
     // Close sidebar — the retained B remains.
     multi_workspace.update_in(cx, |mw, window, cx| {
@@ -6415,7 +6398,7 @@ async fn test_transient_workspace_promotion(cx: &mut TestAppContext) {
     // Add C — added as new transient workspace.
     let workspace_c = add_test_project("/project-c", &fs, &multi_workspace, cx).await;
     assert_eq!(
-        multi_workspace.read_with(cx, |mw, _| mw.workspaces().count()),
+        multi_workspace.read_with(cx, |mw, cx| mw.workspaces(cx).len()),
         2
     );
     assert!(multi_workspace.read_with(cx, |mw, _| mw.workspace() == &workspace_c));
@@ -6507,7 +6490,7 @@ async fn test_legacy_thread_with_canonical_path_opens_main_repo_workspace(cx: &m
 
     // Verify only 1 workspace before clicking.
     assert_eq!(
-        multi_workspace.read_with(cx, |mw, _| mw.workspaces().count()),
+        multi_workspace.read_with(cx, |mw, cx| mw.workspaces(cx).len()),
         1,
     );
 
@@ -6660,18 +6643,13 @@ async fn test_linked_worktree_workspace_reachable_after_adding_unrelated_project
 
     // Force a full sidebar rebuild with all groups expanded.
     sidebar.update_in(cx, |sidebar, _window, cx| {
-        sidebar.collapsed_groups.clear();
-        let group_ids: Vec<project::ProjectGroupId> = sidebar
-            .contents
-            .entries
-            .iter()
-            .filter_map(|entry| match entry {
-                ListEntry::ProjectHeader { group_id, .. } => Some(*group_id),
-                _ => None,
-            })
-            .collect();
-        for group_id in group_ids {
-            sidebar.expanded_groups.insert(group_id, 10_000);
+        for entry in &sidebar.contents.entries {
+            if let ListEntry::ProjectHeader { group, .. } = entry {
+                group.update(cx, |g, _| {
+                    g.expanded = true;
+                    g.visible_thread_count = Some(10_000);
+                });
+            }
         }
         sidebar.update_entries(cx);
     });
@@ -6683,7 +6661,8 @@ async fn test_linked_worktree_workspace_reachable_after_adding_unrelated_project
     let (all_ids, reachable_ids) = sidebar.read_with(cx, |sidebar, cx| {
         let mw = multi_workspace.read(cx);
 
-        let all: HashSet<gpui::EntityId> = mw.workspaces().map(|ws| ws.entity_id()).collect();
+        let all: HashSet<gpui::EntityId> =
+            mw.workspaces(cx).iter().map(|ws| ws.entity_id()).collect();
         let reachable: HashSet<gpui::EntityId> = sidebar
             .contents
             .entries
@@ -6884,7 +6863,8 @@ async fn test_project_header_click_restores_last_viewed(cx: &mut TestAppContext)
 
     // Now switch BACK to project-a by activating its workspace.
     let workspace_a = multi_workspace.read_with(cx, |mw, cx| {
-        mw.workspaces()
+        mw.workspaces(cx)
+            .into_iter()
             .find(|ws| {
                 ws.read(cx)
                     .project()
@@ -6898,7 +6878,6 @@ async fn test_project_header_click_restores_last_viewed(cx: &mut TestAppContext)
                     })
             })
             .unwrap()
-            .clone()
     });
     multi_workspace.update_in(cx, |mw, window, cx| {
         mw.activate(workspace_a.clone(), window, cx);
@@ -7252,10 +7231,9 @@ mod property_test {
                 let (workspace, project) = multi_workspace.read_with(cx, |mw, cx| {
                     let group = mw.project_groups().get(project_group_index).unwrap();
                     let ws = mw
-                        .workspaces_for_project_group(group.id)
-                        .and_then(|ws| ws.first())
-                        .unwrap_or(mw.workspace())
-                        .clone();
+                        .workspaces_for_project_group(group.read(cx).id, cx)
+                        .and_then(|ws| ws.into_iter().next())
+                        .unwrap_or(mw.workspace().clone());
                     let project = ws.read(cx).project().clone();
                     (ws, project)
                 });
@@ -7377,12 +7355,11 @@ mod property_test {
                 }
             }
             Operation::SwitchToProjectGroup { index } => {
-                let workspace = multi_workspace.read_with(cx, |mw, _cx| {
+                let workspace = multi_workspace.read_with(cx, |mw, cx| {
                     let group = mw.project_groups().get(index).unwrap();
-                    mw.workspaces_for_project_group(group.id)
-                        .and_then(|ws| ws.first())
-                        .unwrap_or(mw.workspace())
-                        .clone()
+                    mw.workspaces_for_project_group(group.read(cx).id, cx)
+                        .and_then(|ws| ws.into_iter().next())
+                        .unwrap_or(mw.workspace().clone())
                 });
                 multi_workspace.update_in(cx, |mw, window, cx| {
                     mw.activate(workspace, window, cx);
@@ -7392,8 +7369,9 @@ mod property_test {
                 project_group_index,
             } => {
                 // Get the main worktree path from the project group key.
-                let main_path = multi_workspace.read_with(cx, |mw, _| {
-                    let key = mw.project_group_keys().nth(project_group_index).unwrap();
+                let main_path = multi_workspace.read_with(cx, |mw, cx| {
+                    let keys = mw.project_group_keys(cx);
+                    let key = keys.get(project_group_index).unwrap();
                     key.path_list()
                         .paths()
                         .first()
@@ -7444,12 +7422,11 @@ mod property_test {
                     .await;
 
                 // Re-scan the main workspace's project so it discovers the new worktree.
-                let main_workspace = multi_workspace.read_with(cx, |mw, _cx| {
+                let main_workspace = multi_workspace.read_with(cx, |mw, cx| {
                     let group = mw.project_groups().get(project_group_index).unwrap();
-                    mw.workspaces_for_project_group(group.id)
-                        .and_then(|ws| ws.first())
+                    mw.workspaces_for_project_group(group.read(cx).id, cx)
+                        .and_then(|ws| ws.into_iter().next())
                         .unwrap()
-                        .clone()
                 });
                 let main_project: Entity<project::Project> =
                     main_workspace.read_with(cx, |ws, _| ws.project().clone());
@@ -7465,11 +7442,10 @@ mod property_test {
             Operation::AddWorktreeToProject {
                 project_group_index,
             } => {
-                let workspace = multi_workspace.read_with(cx, |mw, _cx| {
+                let workspace = multi_workspace.read_with(cx, |mw, cx| {
                     let group = mw.project_groups().get(project_group_index).unwrap();
-                    mw.workspaces_for_project_group(group.id)
-                        .and_then(|ws| ws.first())
-                        .cloned()
+                    mw.workspaces_for_project_group(group.read(cx).id, cx)
+                        .and_then(|ws| ws.into_iter().next())
                 });
                 let Some(workspace) = workspace else { return };
                 let project: Entity<project::Project> =
@@ -7494,11 +7470,10 @@ mod property_test {
             Operation::RemoveWorktreeFromProject {
                 project_group_index,
             } => {
-                let workspace = multi_workspace.read_with(cx, |mw, _cx| {
+                let workspace = multi_workspace.read_with(cx, |mw, cx| {
                     let group = mw.project_groups().get(project_group_index).unwrap();
-                    mw.workspaces_for_project_group(group.id)
-                        .and_then(|ws| ws.first())
-                        .cloned()
+                    mw.workspaces_for_project_group(group.read(cx).id, cx)
+                        .and_then(|ws| ws.into_iter().next())
                 });
                 let Some(workspace) = workspace else { return };
                 let project: Entity<project::Project> =
@@ -7526,18 +7501,13 @@ mod property_test {
 
     fn update_sidebar(sidebar: &Entity<Sidebar>, cx: &mut gpui::VisualTestContext) {
         sidebar.update_in(cx, |sidebar, _window, cx| {
-            sidebar.collapsed_groups.clear();
-            let group_ids: Vec<project::ProjectGroupId> = sidebar
-                .contents
-                .entries
-                .iter()
-                .filter_map(|entry| match entry {
-                    ListEntry::ProjectHeader { group_id, .. } => Some(*group_id),
-                    _ => None,
-                })
-                .collect();
-            for group_id in group_ids {
-                sidebar.expanded_groups.insert(group_id, 10_000);
+            for entry in &sidebar.contents.entries {
+                if let ListEntry::ProjectHeader { group, .. } = entry {
+                    group.update(cx, |g, _| {
+                        g.expanded = true;
+                        g.visible_thread_count = Some(10_000);
+                    });
+                }
             }
             sidebar.update_entries(cx);
         });
@@ -7590,17 +7560,18 @@ mod property_test {
         // Every project group key in the multi-workspace that has a
         // non-empty path list should appear as a ProjectHeader in the
         // sidebar.
-        let expected_keys: HashSet<&project::ProjectGroupKey> = mw
-            .project_group_keys()
+        let expected_keys: HashSet<project::ProjectGroupKey> = mw
+            .project_group_keys(cx)
+            .into_iter()
             .filter(|k| !k.path_list().paths().is_empty())
             .collect();
 
-        let sidebar_keys: HashSet<&project::ProjectGroupKey> = sidebar
+        let sidebar_keys: HashSet<project::ProjectGroupKey> = sidebar
             .contents
             .entries
             .iter()
             .filter_map(|entry| match entry {
-                ListEntry::ProjectHeader { key, .. } => Some(key),
+                ListEntry::ProjectHeader { group, .. } => Some(group.read(cx).key.clone()),
                 _ => None,
             })
             .collect();
@@ -7624,11 +7595,7 @@ mod property_test {
         let Some(multi_workspace) = sidebar.multi_workspace.upgrade() else {
             anyhow::bail!("sidebar should still have an associated multi-workspace");
         };
-        let workspaces = multi_workspace
-            .read(cx)
-            .workspaces()
-            .cloned()
-            .collect::<Vec<_>>();
+        let workspaces = multi_workspace.read(cx).workspaces(cx);
         let thread_store = ThreadMetadataStore::global(cx);
 
         let sidebar_thread_ids: HashSet<acp::SessionId> = sidebar
@@ -7653,14 +7620,14 @@ mod property_test {
                 .push(workspace.clone());
         }
 
-        for group_key in mw.project_group_keys() {
+        for group_key in mw.project_group_keys(cx) {
             let path_list = group_key.path_list().clone();
             if path_list.paths().is_empty() {
                 continue;
             }
 
             let group_workspaces = workspaces_by_group
-                .get(group_key)
+                .get(&group_key)
                 .map(|ws| ws.as_slice())
                 .unwrap_or_default();
 
@@ -7827,7 +7794,8 @@ mod property_test {
             .collect();
 
         let all_workspace_ids: HashSet<gpui::EntityId> = multi_workspace
-            .workspaces()
+            .workspaces(cx)
+            .iter()
             .map(|ws| ws.entity_id())
             .collect();
 
@@ -7906,7 +7874,7 @@ mod property_test {
 
         for &raw_op in &raw_operations {
             let project_group_count =
-                multi_workspace.read_with(cx, |mw, _| mw.project_group_keys().count());
+                multi_workspace.read_with(cx, |mw, cx| mw.project_group_keys(cx).len());
             let operation = state.generate_operation(raw_op, project_group_count);
             executed.push(format!("{:?}", operation));
             perform_operation(operation, &mut state, &multi_workspace, &sidebar, cx).await;
@@ -8163,16 +8131,16 @@ async fn test_remote_project_integration_does_not_briefly_render_as_separate_pro
 
     cx.run_until_parked();
 
-    let new_workspace = multi_workspace.read_with(cx, |mw, _| {
+    let new_workspace = multi_workspace.read_with(cx, |mw, cx| {
         assert_eq!(
-            mw.workspaces().count(),
+            mw.workspaces(cx).len(),
             2,
             "confirming a closed remote thread should open a second workspace"
         );
-        mw.workspaces()
+        mw.workspaces(cx)
+            .into_iter()
             .find(|workspace| workspace.entity_id() != mw.workspace().entity_id())
             .unwrap()
-            .clone()
     });
 
     server_fs

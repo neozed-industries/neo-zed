@@ -8780,9 +8780,14 @@ pub async fn apply_restored_multiworkspace_state(
     if !project_group_keys.is_empty() {
         // Resolve linked worktree paths to their main repo paths so
         // stale keys from previous sessions get normalized and deduped.
-        let mut resolved_groups: Vec<(project::ProjectGroupId, ProjectGroupKey)> = Vec::new();
+        let mut resolved_groups: Vec<(
+            project::ProjectGroupId,
+            ProjectGroupKey,
+            bool,
+            Option<usize>,
+        )> = Vec::new();
         for serialized in project_group_keys.iter().cloned() {
-            let (id, key) = serialized.into_id_and_key();
+            let (id, key, expanded, visible_thread_count) = serialized.into_id_key_and_state();
             if key.path_list().paths().is_empty() {
                 continue;
             }
@@ -8799,14 +8804,14 @@ pub async fn apply_restored_multiworkspace_state(
                 }
             }
             let resolved = ProjectGroupKey::new(key.host(), PathList::new(&resolved_paths));
-            if !resolved_groups.iter().any(|(_, k)| *k == resolved) {
-                resolved_groups.push((id, resolved));
+            if !resolved_groups.iter().any(|(_, k, _, _)| *k == resolved) {
+                resolved_groups.push((id, resolved, expanded, visible_thread_count));
             }
         }
 
         window_handle
-            .update(cx, |multi_workspace, _window, _cx| {
-                multi_workspace.restore_project_groups(resolved_groups);
+            .update(cx, |multi_workspace, _window, cx| {
+                multi_workspace.restore_project_groups(resolved_groups, cx);
             })
             .ok();
     }
@@ -9197,7 +9202,7 @@ pub fn workspace_windows_for_location(
             };
 
             multi_workspace.read(cx).is_ok_and(|multi_workspace| {
-                multi_workspace.workspaces().any(|workspace| {
+                multi_workspace.workspaces(cx).iter().any(|workspace| {
                     match workspace.read(cx).workspace_location(cx) {
                         WorkspaceLocation::Location(location, _) => {
                             match (&location, serialized_location) {
@@ -9236,7 +9241,7 @@ pub async fn find_existing_workspace(
     cx.update(|cx| {
         for window in workspace_windows_for_location(location, cx) {
             if let Ok(multi_workspace) = window.read(cx) {
-                for workspace in multi_workspace.workspaces() {
+                for workspace in multi_workspace.workspaces(cx) {
                     let project = workspace.read(cx).project.read(cx);
                     let m = project.visibility_for_paths(
                         abs_paths,
@@ -9932,11 +9937,11 @@ pub fn join_in_room_project(
                 .and_then(|window_handle| {
                     window_handle
                         .update(cx, |multi_workspace, _window, cx| {
-                            for workspace in multi_workspace.workspaces() {
+                            for workspace in multi_workspace.workspaces(cx) {
                                 if workspace.read(cx).project().read(cx).remote_id()
                                     == Some(project_id)
                                 {
-                                    return Some((window_handle, workspace.clone()));
+                                    return Some((window_handle, workspace));
                                 }
                             }
                             None
@@ -10890,7 +10895,7 @@ mod tests {
         // Activate workspace A
         multi_workspace_handle
             .update(cx, |mw, window, cx| {
-                let workspace = mw.workspaces().next().unwrap().clone();
+                let workspace = mw.workspaces(cx).into_iter().next().unwrap();
                 mw.activate(workspace, window, cx);
             })
             .unwrap();
@@ -11014,13 +11019,13 @@ mod tests {
         assert!(!removed, "removal should have been cancelled");
 
         multi_workspace_handle
-            .read_with(cx, |mw, _| {
+            .read_with(cx, |mw, cx| {
                 assert_eq!(
                     mw.workspace(),
                     &workspace_b,
                     "user should stay on workspace B after cancelling"
                 );
-                assert_eq!(mw.workspaces().count(), 2, "both workspaces should remain");
+                assert_eq!(mw.workspaces(cx).len(), 2, "both workspaces should remain");
             })
             .unwrap();
 
@@ -11042,13 +11047,13 @@ mod tests {
 
         // Should be back on workspace A, and B should be gone.
         multi_workspace_handle
-            .read_with(cx, |mw, _| {
+            .read_with(cx, |mw, cx| {
                 assert_eq!(
                     mw.workspace(),
                     &workspace_a,
                     "should be back on workspace A after removing B"
                 );
-                assert_eq!(mw.workspaces().count(), 1, "only workspace A should remain");
+                assert_eq!(mw.workspaces(cx).len(), 1, "only workspace A should remain");
             })
             .unwrap();
     }
@@ -14773,7 +14778,7 @@ mod tests {
         // Switch to workspace A
         multi_workspace_handle
             .update(cx, |mw, window, cx| {
-                let workspace = mw.workspaces().next().unwrap().clone();
+                let workspace = mw.workspaces(cx).into_iter().next().unwrap();
                 mw.activate(workspace, window, cx);
             })
             .unwrap();
@@ -14819,7 +14824,7 @@ mod tests {
         // Switch to workspace B
         multi_workspace_handle
             .update(cx, |mw, window, cx| {
-                let workspace = mw.workspaces().nth(1).unwrap().clone();
+                let workspace = mw.workspaces(cx).into_iter().nth(1).unwrap();
                 mw.activate(workspace, window, cx);
             })
             .unwrap();
@@ -14828,7 +14833,7 @@ mod tests {
         // Switch back to workspace A
         multi_workspace_handle
             .update(cx, |mw, window, cx| {
-                let workspace = mw.workspaces().next().unwrap().clone();
+                let workspace = mw.workspaces(cx).into_iter().next().unwrap();
                 mw.activate(workspace, window, cx);
             })
             .unwrap();

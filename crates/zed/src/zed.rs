@@ -1508,9 +1508,7 @@ fn quit(_: &Quit, cx: &mut App) {
         for window in &workspace_windows {
             let window = *window;
             let workspaces = window
-                .update(cx, |multi_workspace, _, _| {
-                    multi_workspace.workspaces().cloned().collect::<Vec<_>>()
-                })
+                .update(cx, |multi_workspace, _, cx| multi_workspace.workspaces(cx))
                 .log_err();
 
             let Some(workspaces) = workspaces else {
@@ -1540,7 +1538,7 @@ fn quit(_: &Quit, cx: &mut App) {
         for window in &workspace_windows {
             window
                 .update(cx, |multi_workspace, window, cx| {
-                    for workspace in multi_workspace.workspaces() {
+                    for workspace in multi_workspace.workspaces(cx) {
                         flush_tasks.push(workspace.update(cx, |workspace, cx| {
                             workspace.flush_serialization(window, cx)
                         }));

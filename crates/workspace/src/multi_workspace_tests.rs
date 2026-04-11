@@ -101,10 +101,10 @@ async fn test_project_group_keys_initial(cx: &mut TestAppContext) {
         mw.open_sidebar(cx);
     });
 
-    multi_workspace.read_with(cx, |mw, _cx| {
-        let keys: Vec<&ProjectGroupKey> = mw.project_group_keys().collect();
+    multi_workspace.read_with(cx, |mw, cx| {
+        let keys: Vec<ProjectGroupKey> = mw.project_group_keys(cx);
         assert_eq!(keys.len(), 1, "should have exactly one key on creation");
-        assert_eq!(*keys[0], expected_key);
+        assert_eq!(keys[0], expected_key);
     });
 }
 
@@ -131,8 +131,8 @@ async fn test_project_group_keys_add_workspace(cx: &mut TestAppContext) {
         mw.open_sidebar(cx);
     });
 
-    multi_workspace.read_with(cx, |mw, _cx| {
-        assert_eq!(mw.project_group_keys().count(), 1);
+    multi_workspace.read_with(cx, |mw, cx| {
+        assert_eq!(mw.project_group_keys(cx).len(), 1);
     });
 
     // Adding a workspace with a different project root adds a new key.
@@ -140,15 +140,15 @@ async fn test_project_group_keys_add_workspace(cx: &mut TestAppContext) {
         mw.test_add_workspace(project_b, window, cx);
     });
 
-    multi_workspace.read_with(cx, |mw, _cx| {
-        let keys: Vec<&ProjectGroupKey> = mw.project_group_keys().collect();
+    multi_workspace.read_with(cx, |mw, cx| {
+        let keys: Vec<ProjectGroupKey> = mw.project_group_keys(cx);
         assert_eq!(
             keys.len(),
             2,
             "should have two keys after adding a second workspace"
         );
-        assert_eq!(*keys[0], key_b);
-        assert_eq!(*keys[1], key_a);
+        assert_eq!(keys[0], key_b);
+        assert_eq!(keys[1], key_a);
     });
 }
 
@@ -176,12 +176,69 @@ async fn test_project_group_keys_duplicate_not_added(cx: &mut TestAppContext) {
         mw.test_add_workspace(project_a2, window, cx);
     });
 
-    multi_workspace.read_with(cx, |mw, _cx| {
-        let keys: Vec<&ProjectGroupKey> = mw.project_group_keys().collect();
+    multi_workspace.read_with(cx, |mw, cx| {
+        let keys: Vec<ProjectGroupKey> = mw.project_group_keys(cx);
         assert_eq!(
             keys.len(),
             1,
             "duplicate key should not be added when a workspace with the same root is inserted"
+        );
+    });
+}
+
+#[gpui::test]
+async fn test_groups_with_same_paths_merge(cx: &mut TestAppContext) {
+    init_test(cx);
+    let fs = FakeFs::new(cx.executor());
+    fs.insert_tree("/a", json!({ "file.txt": "" })).await;
+    fs.insert_tree("/b", json!({ "file.txt": "" })).await;
+    let project_a = Project::test(fs.clone(), ["/a".as_ref()], cx).await;
+    let project_b = Project::test(fs.clone(), ["/b".as_ref()], cx).await;
+
+    let (multi_workspace, cx) =
+        cx.add_window_view(|window, cx| MultiWorkspace::test_new(project_a, window, cx));
+
+    // Open the sidebar so workspaces get grouped.
+    multi_workspace.update(cx, |mw, cx| {
+        mw.open_sidebar(cx);
+    });
+    cx.run_until_parked();
+
+    // Add a second workspace, creating group_b with path [/b].
+    let group_a_id = multi_workspace.update_in(cx, |mw, window, cx| {
+        let group_a_id = mw.project_groups()[0].read(cx).id;
+        mw.test_add_workspace(project_b, window, cx);
+        group_a_id
+    });
+    cx.run_until_parked();
+
+    // Now add /b to group_a so it has [/a, /b].
+    multi_workspace.update(cx, |mw, cx| {
+        mw.add_folders_to_project_group(group_a_id, vec!["/b".into()], cx);
+    });
+    cx.run_until_parked();
+
+    // Verify we have two groups.
+    multi_workspace.read_with(cx, |mw, _cx| {
+        assert_eq!(
+            mw.project_groups().len(),
+            2,
+            "should have two groups before the merge"
+        );
+    });
+
+    // Remove /a from group_a, making its key [/b] — same as group_b.
+    multi_workspace.update(cx, |mw, cx| {
+        mw.remove_folder_from_project_group(group_a_id, Path::new("/a"), cx);
+    });
+    cx.run_until_parked();
+
+    // The two groups now have identical keys [/b] and should have been merged.
+    multi_workspace.read_with(cx, |mw, _cx| {
+        assert_eq!(
+            mw.project_groups().len(),
+            1,
+            "groups with identical paths should be merged into one"
         );
     });
 }
