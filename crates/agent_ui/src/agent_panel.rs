@@ -916,7 +916,7 @@ impl AgentPanel {
                 let has_metadata = cx
                     .update(|_window, cx| {
                         let store = ThreadMetadataStore::global(cx);
-                        store.read(cx).entry(&session_id).is_some()
+                        store.read(cx).entry_by_session(&session_id).is_some()
                     })
                     .unwrap_or(false);
                 if has_metadata {
@@ -2598,7 +2598,11 @@ impl AgentPanel {
         cx: &mut Context<Self>,
     ) {
         if let Some(store) = ThreadMetadataStore::try_global(cx) {
-            store.update(cx, |store, cx| store.unarchive(&session_id, cx));
+            store.update(cx, |store, cx| {
+                if let Some(thread_id) = store.entry_by_session(&session_id).map(|t| t.thread_id) {
+                    store.unarchive(thread_id, cx);
+                }
+            });
         }
 
         if let Some(conversation_view) = self.background_threads.remove(&session_id) {
