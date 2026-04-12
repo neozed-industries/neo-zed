@@ -644,6 +644,10 @@ impl ThreadView {
         }
     }
 
+    pub fn is_draft(&self, cx: &App) -> bool {
+        self.thread.read(cx).entries().is_empty()
+    }
+
     pub(crate) fn as_native_connection(
         &self,
         cx: &App,
