@@ -3225,7 +3225,7 @@ pub(crate) mod tests {
 
         fn prompt(
             &self,
-            _id: Option<acp_thread::UserMessageId>,
+            _id: acp_thread::UserMessageId,
             _params: acp::PromptRequest,
             _cx: &mut App,
         ) -> Task<gpui::Result<acp::PromptResponse>> {
@@ -4287,7 +4287,7 @@ pub(crate) mod tests {
 
         fn prompt(
             &self,
-            _id: Option<acp_thread::UserMessageId>,
+            _id: acp_thread::UserMessageId,
             _params: acp::PromptRequest,
             _cx: &mut App,
         ) -> Task<anyhow::Result<acp::PromptResponse>> {
@@ -4360,7 +4360,7 @@ pub(crate) mod tests {
 
         fn prompt(
             &self,
-            _id: Option<acp_thread::UserMessageId>,
+            _id: acp_thread::UserMessageId,
             _params: acp::PromptRequest,
             _cx: &mut App,
         ) -> Task<gpui::Result<acp::PromptResponse>> {
@@ -4459,7 +4459,7 @@ pub(crate) mod tests {
 
         fn prompt(
             &self,
-            _id: Option<acp_thread::UserMessageId>,
+            _id: acp_thread::UserMessageId,
             _params: acp::PromptRequest,
             _cx: &mut App,
         ) -> Task<gpui::Result<acp::PromptResponse>> {
@@ -4528,7 +4528,7 @@ pub(crate) mod tests {
 
         fn prompt(
             &self,
-            _id: Option<acp_thread::UserMessageId>,
+            _id: acp_thread::UserMessageId,
             _params: acp::PromptRequest,
             _cx: &mut App,
         ) -> Task<gpui::Result<acp::PromptResponse>> {
@@ -4598,7 +4598,7 @@ pub(crate) mod tests {
 
         fn prompt(
             &self,
-            _id: Option<acp_thread::UserMessageId>,
+            _id: acp_thread::UserMessageId,
             _params: acp::PromptRequest,
             _cx: &mut App,
         ) -> Task<gpui::Result<acp::PromptResponse>> {
@@ -4714,7 +4714,7 @@ pub(crate) mod tests {
 
         fn prompt(
             &self,
-            _id: Option<acp_thread::UserMessageId>,
+            _id: acp_thread::UserMessageId,
             _params: acp::PromptRequest,
             _cx: &mut App,
         ) -> Task<gpui::Result<acp::PromptResponse>> {
@@ -7316,7 +7316,7 @@ pub(crate) mod tests {
 
         fn prompt(
             &self,
-            _id: Option<acp_thread::UserMessageId>,
+            _id: acp_thread::UserMessageId,
             _params: acp::PromptRequest,
             _cx: &mut App,
         ) -> Task<gpui::Result<acp::PromptResponse>> {
