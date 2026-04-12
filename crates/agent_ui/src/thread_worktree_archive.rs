@@ -5,7 +5,6 @@ use std::{
 
 use agent_client_protocol as acp;
 use anyhow::{Context as _, Result, anyhow};
-
 use gpui::{App, AsyncApp, Entity, Task};
 use project::{
     LocalProjectFlags, Project, WorktreeId,
