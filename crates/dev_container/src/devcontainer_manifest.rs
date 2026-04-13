@@ -2440,7 +2440,10 @@ mod test {
         },
         oci::TokenResponse,
     };
+    #[cfg(not(target_os = "windows"))]
     const TEST_PROJECT_PATH: &str = "/path/to/local/project";
+    #[cfg(target_os = "windows")]
+    const TEST_PROJECT_PATH: &str = r#"C:\\path\to\local\project"#;
 
     async fn build_tarball(content: Vec<(&str, &str)>) -> Vec<u8> {
         let buffer = futures::io::Cursor::new(Vec::new());
@@ -4434,6 +4437,33 @@ USER $IMAGE_USER
 # Ensure that /etc/profile does not clobber the existing path
 RUN sed -i -E 's/((^|\s)PATH=)([^\$]*)$/\1\${PATH:-\3}/g' /etc/profile || true
 "#
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[gpui::test]
+    async fn test_spawns_devcontainer_with_plain_image(cx: &mut TestAppContext) {
+        cx.executor().allow_parking();
+        env_logger::try_init().ok();
+        let given_devcontainer_contents = r#"
+            {
+              "name": "cli-${devcontainerId}",
+              "image": "test_image:latest",
+            }
+            "#;
+
+        let (_, mut devcontainer_manifest) =
+            init_default_devcontainer_manifest(cx, given_devcontainer_contents)
+                .await
+                .unwrap();
+
+        devcontainer_manifest.parse_nonremote_vars().unwrap();
+
+        let devcontainer_up = devcontainer_manifest.build_and_run().await.unwrap();
+
+        assert_eq!(
+            devcontainer_up.remote_workspace_folder,
+            "/workspaces/project"
         );
     }
 
