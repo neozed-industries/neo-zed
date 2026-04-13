@@ -35,6 +35,7 @@ pub mod commit_view;
 mod conflict_view;
 pub mod file_diff_view;
 pub mod file_history_view;
+mod git_job_debug_view;
 pub mod git_panel;
 mod git_panel_settings;
 pub mod git_picker;
@@ -52,6 +53,7 @@ pub use conflict_view::MergeConflictIndicator;
 pub fn init(cx: &mut App) {
     editor::set_blame_renderer(blame_ui::GitBlameRenderer, cx);
     commit_view::init(cx);
+    git_job_debug_view::init(cx);
 
     cx.observe_new(|editor: &mut Editor, _, cx| {
         conflict_view::register_editor(editor, editor.buffer().clone(), cx);

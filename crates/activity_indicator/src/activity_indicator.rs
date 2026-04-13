@@ -4,7 +4,7 @@ use extension_host::{ExtensionOperation, ExtensionStore};
 use futures::StreamExt;
 use gpui::{
     App, Context, CursorStyle, Entity, EventEmitter, InteractiveElement as _, ParentElement as _,
-    Render, SharedString, StatefulInteractiveElement, Styled, Window, actions,
+    Render, SharedString, StatefulInteractiveElement, Styled, Subscription, Window, actions,
 };
 use language::{
     BinaryStatus, LanguageRegistry, LanguageServerId, LanguageServerName,
@@ -12,7 +12,7 @@ use language::{
 };
 use project::{
     LanguageServerProgress, LspStoreEvent, ProgressToken, Project, ProjectEnvironmentEvent,
-    git_store::{GitStoreEvent, Repository},
+    git_store::GitStoreEvent,
 };
 use smallvec::SmallVec;
 use std::{
@@ -51,6 +51,7 @@ pub struct ActivityIndicator {
     project: Entity<Project>,
     context_menu_handle: PopoverMenuHandle<ContextMenu>,
     fs_jobs: Vec<fs::JobInfo>,
+    _job_queue_observation: Option<Subscription>,
 }
 
 #[derive(Debug)]
@@ -205,20 +206,24 @@ impl ActivityIndicator {
 
             cx.subscribe(
                 &project.read(cx).git_store().clone(),
-                |_, _, event: &GitStoreEvent, cx| {
-                    if let project::git_store::GitStoreEvent::JobsUpdated = event {
-                        cx.notify()
+                |this, _, event: &GitStoreEvent, cx| match event {
+                    GitStoreEvent::ActiveRepositoryChanged(_) => {
+                        this.observe_active_job_queue(cx);
                     }
+                    _ => {}
                 },
             )
             .detach();
 
-            Self {
+            let mut this = Self {
                 statuses: Vec::new(),
                 project: project.clone(),
                 context_menu_handle: PopoverMenuHandle::default(),
                 fs_jobs: Vec::new(),
-            }
+                _job_queue_observation: None,
+            };
+            this.observe_active_job_queue(cx);
+            this
         });
 
         cx.subscribe_in(&this, window, move |_, _, event, window, cx| match event {
@@ -261,6 +266,15 @@ impl ActivityIndicator {
         })
         .detach();
         this
+    }
+
+    fn observe_active_job_queue(&mut self, cx: &mut Context<Self>) {
+        self._job_queue_observation = self
+            .project
+            .read(cx)
+            .active_repository(cx)
+            .and_then(|repo| repo.read(cx).job_queue().upgrade())
+            .map(|queue| cx.observe(&queue, |_, _, cx| cx.notify()));
     }
 
     fn show_error_message(&mut self, _: &ShowErrorMessage, _: &mut Window, cx: &mut Context<Self>) {
@@ -420,8 +434,7 @@ impl ActivityIndicator {
             .project
             .read(cx)
             .active_repository(cx)
-            .map(|r| r.read(cx))
-            .and_then(Repository::current_job);
+            .and_then(|r| r.read(cx).current_job(cx));
         // Show any long-running git command
         if let Some(job_info) = current_job
             && Instant::now() - job_info.start >= GIT_OPERATION_DELAY

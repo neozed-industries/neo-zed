@@ -64,9 +64,11 @@ use smol::future::yield_now;
 use std::{
     cmp::Ordering,
     collections::{BTreeSet, HashSet, VecDeque, hash_map::Entry},
+    fmt,
     future::Future,
     mem,
     ops::Range,
+    panic::Location,
     path::{Path, PathBuf},
     str::FromStr,
     sync::{
@@ -81,7 +83,6 @@ use text::{Bias, BufferId};
 use util::{
     ResultExt, debug_panic,
     paths::{PathStyle, SanitizedPath},
-    post_inc,
     rel_path::RelPath,
 };
 use worktree::{
@@ -297,8 +298,6 @@ pub struct RepositorySnapshot {
     pub linked_worktrees: Arc<[GitWorktree]>,
 }
 
-type JobId = u64;
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct JobInfo {
     pub start: Instant,
@@ -330,7 +329,6 @@ pub struct GraphDataResponse<'a> {
 }
 
 pub struct Repository {
-    this: WeakEntity<Self>,
     snapshot: RepositorySnapshot,
     commit_message_buffer: Option<Entity<Buffer>>,
     git_store: WeakEntity<GitStore>,
@@ -338,9 +336,8 @@ pub struct Repository {
     // and that should be examined during the next status scan.
     paths_needing_status_update: Vec<Vec<RepoPath>>,
     job_sender: mpsc::UnboundedSender<GitJob>,
-    active_jobs: HashMap<JobId, JobInfo>,
+    job_queue: WeakEntity<GitJobQueue>,
     pending_ops: SumTree<PendingOps>,
-    job_id: JobId,
     askpass_delegates: Arc<Mutex<HashMap<u64, AskPassDelegate>>>,
     latest_askpass_id: u64,
     repository_state: Shared<Task<Result<RepositoryState, String>>>,
@@ -437,9 +434,6 @@ pub enum RepositoryEvent {
     GraphEvent((LogSource, LogOrder), GitGraphEvent),
 }
 
-#[derive(Clone, Debug)]
-pub struct JobsUpdated;
-
 #[derive(Debug)]
 pub enum GitStoreEvent {
     ActiveRepositoryChanged(Option<RepositoryId>),
@@ -448,25 +442,65 @@ pub enum GitStoreEvent {
     RepositoryAdded,
     RepositoryRemoved(RepositoryId),
     IndexWriteError(anyhow::Error),
-    JobsUpdated,
     ConflictsUpdated,
 }
 
 impl EventEmitter<RepositoryEvent> for Repository {}
-impl EventEmitter<JobsUpdated> for Repository {}
 impl EventEmitter<GitStoreEvent> for GitStore {}
 
 pub struct GitJob {
     job: Box<dyn FnOnce(RepositoryState, &mut AsyncApp) -> Task<()>>,
     key: Option<GitJobKey>,
+    name: SharedString,
+    source_location: &'static Location<'static>,
+}
+
+impl GitJob {
+    pub fn name(&self) -> &SharedString {
+        &self.name
+    }
+
+    pub fn key(&self) -> Option<&GitJobKey> {
+        self.key.as_ref()
+    }
+
+    pub fn source_location(&self) -> &'static Location<'static> {
+        self.source_location
+    }
+}
+
+pub struct GitJobQueue {
+    jobs: VecDeque<GitJob>,
+    active_job: Option<JobInfo>,
+}
+
+impl GitJobQueue {
+    pub fn jobs(&self) -> &VecDeque<GitJob> {
+        &self.jobs
+    }
+
+    pub fn active_job(&self) -> Option<&JobInfo> {
+        self.active_job.as_ref()
+    }
 }
 
 #[derive(PartialEq, Eq)]
-enum GitJobKey {
+pub enum GitJobKey {
     WriteIndex(Vec<RepoPath>),
     ReloadBufferDiffBases,
     RefreshStatuses,
     ReloadGitState,
+}
+
+impl fmt::Display for GitJobKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            GitJobKey::WriteIndex(paths) => write!(f, "WriteIndex({} paths)", paths.len()),
+            GitJobKey::ReloadBufferDiffBases => write!(f, "ReloadBufferDiffBases"),
+            GitJobKey::RefreshStatuses => write!(f, "RefreshStatuses"),
+            GitJobKey::ReloadGitState => write!(f, "ReloadGitState"),
+        }
+    }
 }
 
 impl GitStore {
@@ -1524,10 +1558,6 @@ impl GitStore {
         ))
     }
 
-    fn on_jobs_updated(&mut self, _: Entity<Repository>, _: &JobsUpdated, cx: &mut Context<Self>) {
-        cx.emit(GitStoreEvent::JobsUpdated)
-    }
-
     /// Update our list of repositories and schedule git scans in response to a notification from a worktree,
     fn update_repositories_from_worktree(
         &mut self,
@@ -1615,8 +1645,6 @@ impl GitStore {
                 });
                 self._subscriptions
                     .push(cx.subscribe(&repo, Self::on_repository_event));
-                self._subscriptions
-                    .push(cx.subscribe(&repo, Self::on_jobs_updated));
                 self.repositories.insert(id, repo);
                 self.worktree_ids.insert(id, HashSet::from([worktree_id]));
                 cx.emit(GitStoreEvent::RepositoryAdded);
@@ -4108,7 +4136,7 @@ impl Repository {
                 .map_err(|err| err.to_string())
             })
             .shared();
-        let job_sender = Repository::spawn_local_git_worker(state.clone(), cx);
+        let (job_sender, job_queue) = Repository::spawn_local_git_worker(state.clone(), cx);
         let state = cx
             .spawn(async move |_, _| {
                 let state = state.await?;
@@ -4133,7 +4161,6 @@ impl Repository {
         .detach();
 
         Repository {
-            this: cx.weak_entity(),
             git_store,
             snapshot,
             pending_ops: Default::default(),
@@ -4143,8 +4170,7 @@ impl Repository {
             paths_needing_status_update: Default::default(),
             latest_askpass_id: 0,
             job_sender,
-            job_id: 0,
-            active_jobs: Default::default(),
+            job_queue,
             initial_graph_data: Default::default(),
             commit_data: Default::default(),
             graph_commit_data_handler: GraphCommitHandlerState::Closed,
@@ -4168,10 +4194,9 @@ impl Repository {
             path_style,
         );
         let repository_state = RemoteRepositoryState { project_id, client };
-        let job_sender = Self::spawn_remote_git_worker(repository_state.clone(), cx);
+        let (job_sender, job_queue) = Self::spawn_remote_git_worker(repository_state.clone(), cx);
         let repository_state = Task::ready(Ok(RepositoryState::Remote(repository_state))).shared();
         Self {
-            this: cx.weak_entity(),
             snapshot,
             commit_message_buffer: None,
             git_store,
@@ -4181,8 +4206,7 @@ impl Repository {
             repository_state,
             askpass_delegates: Default::default(),
             latest_askpass_id: 0,
-            active_jobs: Default::default(),
-            job_id: 0,
+            job_queue,
             initial_graph_data: Default::default(),
             commit_data: Default::default(),
             graph_commit_data_handler: GraphCommitHandlerState::Closed,
@@ -4353,6 +4377,7 @@ impl Repository {
         );
     }
 
+    #[track_caller]
     pub fn send_job<F, Fut, R>(
         &mut self,
         status: Option<SharedString>,
@@ -4363,9 +4388,10 @@ impl Repository {
         Fut: Future<Output = R> + 'static,
         R: Send + 'static,
     {
-        self.send_keyed_job(None, status, job)
+        self.send_job_inner(None, status, job, Location::caller())
     }
 
+    #[track_caller]
     fn send_keyed_job<F, Fut, R>(
         &mut self,
         key: Option<GitJobKey>,
@@ -4377,36 +4403,55 @@ impl Repository {
         Fut: Future<Output = R> + 'static,
         R: Send + 'static,
     {
+        self.send_job_inner(key, status, job, Location::caller())
+    }
+
+    fn send_job_inner<F, Fut, R>(
+        &mut self,
+        key: Option<GitJobKey>,
+        status: Option<SharedString>,
+        job: F,
+        caller: &'static Location<'static>,
+    ) -> oneshot::Receiver<R>
+    where
+        F: FnOnce(RepositoryState, AsyncApp) -> Fut + 'static,
+        Fut: Future<Output = R> + 'static,
+        R: Send + 'static,
+    {
+        let name = status
+            .as_ref()
+            .cloned()
+            .or_else(|| key.as_ref().map(|k| SharedString::from(k.to_string())))
+            .unwrap_or_else(|| "unnamed".into());
         let (result_tx, result_rx) = futures::channel::oneshot::channel();
-        let job_id = post_inc(&mut self.job_id);
-        let this = self.this.clone();
+        let job_queue = self.job_queue.clone();
         self.job_sender
             .unbounded_send(GitJob {
                 key,
+                name,
+                source_location: caller,
                 job: Box::new(move |state, cx: &mut AsyncApp| {
                     let job = job(state, cx.clone());
                     cx.spawn(async move |cx| {
                         if let Some(s) = status.clone() {
-                            this.update(cx, |this, cx| {
-                                this.active_jobs.insert(
-                                    job_id,
-                                    JobInfo {
+                            if let Some(job_queue) = job_queue.upgrade() {
+                                job_queue.update(cx, |queue, cx| {
+                                    queue.active_job = Some(JobInfo {
                                         start: Instant::now(),
-                                        message: s.clone(),
-                                    },
-                                );
-
-                                cx.notify();
-                            })
-                            .ok();
+                                        message: s,
+                                    });
+                                    cx.notify();
+                                });
+                            }
                         }
                         let result = job.await;
 
-                        this.update(cx, |this, cx| {
-                            this.active_jobs.remove(&job_id);
-                            cx.notify();
-                        })
-                        .ok();
+                        if let Some(job_queue) = job_queue.upgrade() {
+                            job_queue.update(cx, |queue, cx| {
+                                queue.active_job = None;
+                                cx.notify();
+                            });
+                        }
 
                         result_tx.send(result).ok();
                     })
@@ -6765,8 +6810,13 @@ impl Repository {
     fn spawn_local_git_worker(
         state: Shared<Task<Result<LocalRepositoryState, String>>>,
         cx: &mut Context<Self>,
-    ) -> mpsc::UnboundedSender<GitJob> {
+    ) -> (mpsc::UnboundedSender<GitJob>, WeakEntity<GitJobQueue>) {
         let (job_tx, mut job_rx) = mpsc::unbounded::<GitJob>();
+        let job_queue = cx.new(|_| GitJobQueue {
+            jobs: VecDeque::new(),
+            active_job: None,
+        });
+        let weak_queue = job_queue.downgrade();
 
         cx.spawn(async move |_, cx| {
             let state = state.await.map_err(|err| anyhow::anyhow!(err))?;
@@ -6780,23 +6830,27 @@ impl Repository {
                 .await;
             }
             let state = RepositoryState::Local(state);
-            let mut jobs = VecDeque::new();
             loop {
-                while let Ok(next_job) = job_rx.try_recv() {
-                    jobs.push_back(next_job);
-                }
-
-                if let Some(job) = jobs.pop_front() {
-                    if let Some(current_key) = &job.key
-                        && jobs
-                            .iter()
-                            .any(|other_job| other_job.key.as_ref() == Some(current_key))
-                    {
-                        continue;
+                job_queue.update(cx, |queue, cx| {
+                    while let Ok(next_job) = job_rx.try_recv() {
+                        queue.jobs.push_back(next_job);
                     }
+                    cx.notify();
+                });
+
+                let job = job_queue.update(cx, |queue, cx| {
+                    let job = take_next_job(&mut queue.jobs);
+                    cx.notify();
+                    job
+                });
+
+                if let Some(job) = job {
                     (job.job)(state.clone(), cx).await;
                 } else if let Some(job) = job_rx.next().await {
-                    jobs.push_back(job);
+                    job_queue.update(cx, |queue, cx| {
+                        queue.jobs.push_back(job);
+                        cx.notify();
+                    });
                 } else {
                     break;
                 }
@@ -6805,34 +6859,43 @@ impl Repository {
         })
         .detach_and_log_err(cx);
 
-        job_tx
+        (job_tx, weak_queue)
     }
 
     fn spawn_remote_git_worker(
         state: RemoteRepositoryState,
         cx: &mut Context<Self>,
-    ) -> mpsc::UnboundedSender<GitJob> {
+    ) -> (mpsc::UnboundedSender<GitJob>, WeakEntity<GitJobQueue>) {
         let (job_tx, mut job_rx) = mpsc::unbounded::<GitJob>();
+        let job_queue = cx.new(|_| GitJobQueue {
+            jobs: VecDeque::new(),
+            active_job: None,
+        });
+        let weak_queue = job_queue.downgrade();
 
         cx.spawn(async move |_, cx| {
             let state = RepositoryState::Remote(state);
-            let mut jobs = VecDeque::new();
             loop {
-                while let Ok(next_job) = job_rx.try_recv() {
-                    jobs.push_back(next_job);
-                }
-
-                if let Some(job) = jobs.pop_front() {
-                    if let Some(current_key) = &job.key
-                        && jobs
-                            .iter()
-                            .any(|other_job| other_job.key.as_ref() == Some(current_key))
-                    {
-                        continue;
+                job_queue.update(cx, |queue, cx| {
+                    while let Ok(next_job) = job_rx.try_recv() {
+                        queue.jobs.push_back(next_job);
                     }
+                    cx.notify();
+                });
+
+                let job = job_queue.update(cx, |queue, cx| {
+                    let job = take_next_job(&mut queue.jobs);
+                    cx.notify();
+                    job
+                });
+
+                if let Some(job) = job {
                     (job.job)(state.clone(), cx).await;
                 } else if let Some(job) = job_rx.next().await {
-                    jobs.push_back(job);
+                    job_queue.update(cx, |queue, cx| {
+                        queue.jobs.push_back(job);
+                        cx.notify();
+                    });
                 } else {
                     break;
                 }
@@ -6841,7 +6904,7 @@ impl Repository {
         })
         .detach_and_log_err(cx);
 
-        job_tx
+        (job_tx, weak_queue)
     }
 
     fn load_staged_text(
@@ -7050,9 +7113,14 @@ impl Repository {
         );
     }
 
-    /// currently running git command and when it started
-    pub fn current_job(&self) -> Option<JobInfo> {
-        self.active_jobs.values().next().cloned()
+    pub fn current_job(&self, cx: &App) -> Option<JobInfo> {
+        self.job_queue
+            .upgrade()
+            .and_then(|queue| queue.read(cx).active_job().cloned())
+    }
+
+    pub fn job_queue(&self) -> &WeakEntity<GitJobQueue> {
+        &self.job_queue
     }
 
     pub fn barrier(&mut self) -> oneshot::Receiver<()> {
@@ -7128,6 +7196,21 @@ impl Repository {
         self.remote_upstream_url
             .clone()
             .or(self.remote_origin_url.clone())
+    }
+}
+
+fn take_next_job(jobs: &mut VecDeque<GitJob>) -> Option<GitJob> {
+    loop {
+        let job = jobs.pop_front()?;
+        if let Some(current_key) = &job.key {
+            if jobs
+                .iter()
+                .any(|other_job| other_job.key.as_ref() == Some(current_key))
+            {
+                continue;
+            }
+        }
+        return Some(job);
     }
 }
 

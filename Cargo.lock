@@ -7224,6 +7224,7 @@ dependencies = [
  "ctor",
  "db",
  "editor",
+ "feature_flags",
  "file_icons",
  "futures 0.3.32",
  "fuzzy",
