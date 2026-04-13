@@ -784,14 +784,7 @@ impl Sidebar {
             window,
             |this, _agent_panel, event: &AgentPanelEvent, window, cx| match event {
                 AgentPanelEvent::ActiveViewChanged => {
-                    let resolved_pending_activation =
-                        this.sync_active_entry_from_panel(_agent_panel, cx);
-                    if resolved_pending_activation {
-                        let active_workspace = this.active_workspace(cx);
-                        if let Some(active_workspace) = active_workspace {
-                            this.clear_empty_group_drafts(&active_workspace, cx);
-                        }
-                    }
+                    this.sync_active_entry_from_panel(_agent_panel, cx);
                     this.observe_draft_editors(cx);
                     this.update_entries(cx);
                     this.reconcile_groups(window, cx);
@@ -2477,40 +2470,6 @@ impl Sidebar {
         .detach_and_log_err(cx);
     }
 
-    fn clear_empty_group_drafts(&mut self, workspace: &Entity<Workspace>, cx: &mut Context<Self>) {
-        let Some(multi_workspace) = self.multi_workspace.upgrade() else {
-            return;
-        };
-
-        let group_key = workspace.read(cx).project_group_key(cx);
-        let group_workspaces: Vec<_> = multi_workspace
-            .read(cx)
-            .workspaces()
-            .filter(|candidate| candidate.read(cx).project_group_key(cx) == group_key)
-            .cloned()
-            .collect();
-
-        for group_workspace in group_workspaces {
-            group_workspace.update(cx, |workspace, cx| {
-                let Some(panel) = workspace.panel::<AgentPanel>(cx) else {
-                    return;
-                };
-
-                panel.update(cx, |panel, cx| {
-                    let empty_draft_ids: Vec<ThreadId> = panel
-                        .draft_thread_ids(cx)
-                        .into_iter()
-                        .filter(|id| panel.editor_text(*id, cx).is_none())
-                        .collect();
-
-                    for id in empty_draft_ids {
-                        panel.remove_thread(id, cx);
-                    }
-                });
-            });
-        }
-    }
-
     fn activate_thread_locally(
         &mut self,
         metadata: &ThreadMetadata,
@@ -2560,7 +2519,6 @@ impl Sidebar {
             self.observe_draft_editors(cx);
         } else {
             Self::load_agent_thread_in_workspace(workspace, metadata, true, window, cx);
-            self.clear_empty_group_drafts(workspace, cx);
         }
 
         self.update_entries(cx);
@@ -2603,7 +2561,6 @@ impl Sidebar {
                         workspace: workspace_for_entry.clone(),
                     });
                     sidebar.record_thread_access(&target_session_id);
-                    sidebar.clear_empty_group_drafts(&workspace_for_entry, cx);
                     sidebar.update_entries(cx);
                 });
             }

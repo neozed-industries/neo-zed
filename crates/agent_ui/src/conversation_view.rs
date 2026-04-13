@@ -431,9 +431,6 @@ pub struct ConversationView {
     notification_subscriptions: HashMap<WindowHandle<AgentNotification>, Vec<Subscription>>,
     auth_task: Option<Task<()>>,
     _subscriptions: Vec<Subscription>,
-    /// True when this conversation was created as a new draft (no resume
-    /// session). False when resuming an existing session from history.
-    is_new_draft: bool,
 }
 
 impl ConversationView {
@@ -441,10 +438,6 @@ impl ConversationView {
         self.as_connected().map_or(false, |connected| {
             !connected.connection.auth_methods().is_empty()
         })
-    }
-
-    pub fn is_new_draft(&self) -> bool {
-        self.is_new_draft
     }
 
     pub fn active_thread(&self) -> Option<&Entity<ThreadView>> {
@@ -688,7 +681,6 @@ impl ConversationView {
         })
         .detach();
 
-        let is_new_draft = resume_session_id.is_none();
         let thread_id = thread_id.unwrap_or_else(ThreadId::new);
 
         Self {
@@ -719,7 +711,6 @@ impl ConversationView {
             auth_task: None,
             _subscriptions: subscriptions,
             focus_handle: cx.focus_handle(),
-            is_new_draft,
         }
     }
 

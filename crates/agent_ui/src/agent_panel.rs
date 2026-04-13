@@ -1457,7 +1457,7 @@ impl AgentPanel {
             let cv = cv.read(cx);
             match cv.root_thread(cx) {
                 Some(tv) => tv.read(cx).is_draft(cx),
-                None => cv.is_new_draft(),
+                None => false,
             }
         };
 
@@ -1498,7 +1498,11 @@ impl AgentPanel {
                 }
                 _ => None,
             })?;
-        let tv = cv.read(cx).active_thread()?;
+        let tv = cv
+            .read(cx)
+            .active_thread()
+            .cloned()
+            .or_else(|| cv.read(cx).root_thread(cx))?;
         let text = tv.read(cx).message_editor.read(cx).text(cx);
         if text.trim().is_empty() {
             None
@@ -2210,8 +2214,8 @@ impl AgentPanel {
         }
 
         let is_empty_draft = match conversation_view.read(cx).root_thread(cx) {
-            Some(tv) => tv.read(cx).is_draft(cx),
-            None => conversation_view.read(cx).is_new_draft(),
+            Some(tv) => tv.read(cx).is_empty_draft(cx),
+            None => false,
         };
         if is_empty_draft {
             ThreadMetadataStore::global(cx).update(cx, |store, cx| {
@@ -2228,13 +2232,16 @@ impl AgentPanel {
         let draft_ids: Vec<ThreadId> = self
             .retained_threads
             .iter()
-            .filter(|(_, cv)| match cv.read(cx).root_thread(cx) {
-                Some(tv) => tv.read(cx).is_draft(cx),
-                None => cv.read(cx).is_new_draft(),
+            .filter_map(|(id, conversation_view)| {
+                let is_empty_draft = match conversation_view.read(cx).root_thread(cx) {
+                    Some(tv) => tv.read(cx).is_empty_draft(cx),
+                    None => false,
+                };
+                if is_empty_draft { Some(*id) } else { None }
             })
-            .map(|(id, _)| *id)
             .collect();
         for id in draft_ids {
+            dbg!(&id);
             self.retained_threads.remove(&id);
             ThreadMetadataStore::global(cx).update(cx, |store, cx| {
                 store.delete(id, cx);
@@ -2243,6 +2250,18 @@ impl AgentPanel {
 
         // Also clean up orphaned draft metadata in the store for this
         // panel's worktree paths (e.g. from a previously removed workspace).
+        let loaded_draft_ids: Vec<ThreadId> = self
+            .conversation_views()
+            .into_iter()
+            .filter_map(|conversation_view| {
+                let thread_id = conversation_view.read(cx).thread_id;
+                let is_draft = match conversation_view.read(cx).root_thread(cx) {
+                    Some(tv) => tv.read(cx).is_draft(cx),
+                    None => false,
+                };
+                if is_draft { Some(thread_id) } else { None }
+            })
+            .collect();
         let path_list = {
             let project = self.project.read(cx);
             let worktree_paths = project.worktree_paths(cx);
@@ -2254,7 +2273,9 @@ impl AgentPanel {
                 store
                     .entries_for_path(&path_list)
                     .chain(store.entries_for_main_worktree_path(&path_list))
-                    .filter(|entry| entry.is_draft())
+                    .filter(|entry| {
+                        entry.is_draft() && !loaded_draft_ids.contains(&entry.thread_id)
+                    })
                     .map(|entry| entry.thread_id)
                     .collect()
             };

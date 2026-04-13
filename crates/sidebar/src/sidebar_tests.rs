@@ -2355,6 +2355,89 @@ async fn test_confirm_on_historical_thread_activates_workspace(cx: &mut TestAppC
 }
 
 #[gpui::test]
+async fn test_confirm_on_historical_thread_preserves_typed_draft_in_same_group(
+    cx: &mut TestAppContext,
+) {
+    let project = init_test_project_with_agent_panel("/my-project", cx).await;
+    let (multi_workspace, cx) =
+        cx.add_window_view(|window, cx| MultiWorkspace::test_new(project.clone(), window, cx));
+    let (sidebar, panel) = setup_sidebar_with_agent_panel(&multi_workspace, cx);
+
+    let historical_session_id = acp::SessionId::new(Arc::from("historical-thread"));
+    save_thread_metadata(
+        historical_session_id.clone(),
+        Some("Historical Thread".into()),
+        chrono::TimeZone::with_ymd_and_hms(&Utc, 2024, 6, 1, 0, 0, 0).unwrap(),
+        None,
+        &project,
+        cx,
+    );
+    cx.run_until_parked();
+
+    let connection = StubAgentConnection::new();
+    open_thread_with_connection(&panel, connection, cx);
+
+    let thread_view = panel.read_with(cx, |panel, cx| panel.active_thread_view(cx).unwrap());
+    let message_editor = thread_view.read_with(cx, |view, _cx| view.message_editor.clone());
+    message_editor.update_in(cx, |editor, window, cx| {
+        editor.set_text("Preserved draft text", window, cx);
+    });
+    cx.run_until_parked();
+
+    let historical_entry_index = sidebar.read_with(cx, |sidebar, _cx| {
+        sidebar
+            .contents
+            .entries
+            .iter()
+            .position(|entry| {
+                matches!(entry, ListEntry::Thread(thread)
+                    if thread.metadata.session_id.as_ref() == Some(&historical_session_id))
+            })
+            .expect("expected Historical Thread to appear in the sidebar")
+    });
+
+    sidebar.update_in(cx, |sidebar, window, cx| {
+        sidebar.selection = Some(historical_entry_index);
+        sidebar.confirm(&Confirm, window, cx);
+    });
+    cx.run_until_parked();
+    cx.run_until_parked();
+    cx.run_until_parked();
+
+    assert_eq!(
+        visible_entries_as_strings(&sidebar, cx),
+        vec![
+            "v [my-project]",
+            "  [~ Draft]",
+            "  Historical Thread  <== selected",
+        ],
+        "loading a historical thread in the same project group should keep the draft row visible"
+    );
+
+    sidebar.read_with(cx, |sidebar, _cx| {
+        let draft = sidebar
+            .contents
+            .entries
+            .iter()
+            .find_map(|entry| match entry {
+                ListEntry::Thread(thread) if thread.is_draft => Some(thread),
+                _ => None,
+            })
+            .expect("expected draft entry to remain visible after loading historical thread");
+        assert_eq!(
+            draft.metadata.title.as_ref().map(|title| title.as_ref()),
+            Some("Preserved draft text"),
+            "typed draft title should be preserved after loading a thread in the same group"
+        );
+        assert_active_thread(
+            sidebar,
+            &historical_session_id,
+            "historical thread should become active after confirm",
+        );
+    });
+}
+
+#[gpui::test]
 async fn test_confirm_on_historical_thread_preserves_historical_timestamp_and_order(
     cx: &mut TestAppContext,
 ) {

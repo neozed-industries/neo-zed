@@ -649,6 +649,10 @@ impl ThreadView {
         self.thread.read(cx).entries().is_empty()
     }
 
+    pub fn is_empty_draft(&self, cx: &App) -> bool {
+        self.is_draft(cx) && self.message_editor.read(cx).is_empty(cx)
+    }
+
     pub(crate) fn as_native_connection(
         &self,
         cx: &App,
