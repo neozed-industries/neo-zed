@@ -2,7 +2,7 @@ use gh_workflow::*;
 
 use crate::tasks::workflows::{
     runners,
-    steps::{self, CheckoutStep, named},
+    steps::{self, CheckoutStep, ZippyGitIdentity, named},
     vars::{StepOutput, WorkflowInput},
 };
 
@@ -50,16 +50,7 @@ fn run_bump_patch_version(branch: &WorkflowInput) -> steps::NamedJob {
             git tag "v${output}${tag_suffix}"
             git push origin HEAD "v${output}${tag_suffix}"
         "#})
-        .add_env(("GIT_COMMITTER_NAME", "Zed Zippy"))
-        .add_env((
-            "GIT_COMMITTER_EMAIL",
-            "234243425+zed-zippy[bot]@users.noreply.github.com",
-        ))
-        .add_env(("GIT_AUTHOR_NAME", "Zed Zippy"))
-        .add_env((
-            "GIT_AUTHOR_EMAIL",
-            "234243425+zed-zippy[bot]@users.noreply.github.com",
-        ))
+        .with_zippy_git_identity()
         .add_env(("GITHUB_TOKEN", token))
     }
 

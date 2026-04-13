@@ -9,10 +9,38 @@ on:
     tags:
     - nightly
   schedule:
-  - cron: 0 7 * * *
+  - cron: 0 * * * *
 jobs:
-  check_style:
+  check_for_changes:
     if: (github.repository_owner == 'zed-industries' || github.repository_owner == 'zed-extensions')
+    runs-on: namespace-profile-2x4-ubuntu-2404
+    steps:
+    - name: steps::checkout_repo
+      uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+      with:
+        clean: false
+        fetch-tags: true
+    - id: check
+      name: release_nightly::check_for_changes::check_nightly_tag
+      run: |
+        if ! NIGHTLY_SHA=$(git rev-parse nightly 2>/dev/null); then
+            echo "bump_nightly=true" >> "$GITHUB_OUTPUT"
+            exit 0
+        fi
+
+        HEAD_SHA=$(git rev-parse HEAD)
+        if [ "$NIGHTLY_SHA" = "$HEAD_SHA" ]; then
+            echo "nightly tag already points to HEAD ($HEAD_SHA), no new nightly needed"
+            echo "bump_nightly=false" >> "$GITHUB_OUTPUT"
+        else
+            echo "bump_nightly=true" >> "$GITHUB_OUTPUT"
+        fi
+    outputs:
+      bump_nightly: ${{ steps.check.outputs.bump_nightly }}
+  check_style:
+    needs:
+    - check_for_changes
+    if: (github.repository_owner == 'zed-industries' || github.repository_owner == 'zed-extensions') && needs.check_for_changes.outputs.bump_nightly == 'true'
     runs-on: namespace-profile-mac-large
     steps:
     - name: steps::checkout_repo
@@ -26,7 +54,9 @@ jobs:
       run: ./script/clippy
     timeout-minutes: 60
   run_tests_windows:
-    if: (github.repository_owner == 'zed-industries' || github.repository_owner == 'zed-extensions')
+    needs:
+    - check_for_changes
+    if: (github.repository_owner == 'zed-industries' || github.repository_owner == 'zed-extensions') && needs.check_for_changes.outputs.bump_nightly == 'true'
     runs-on: self-32vcpu-windows-2022
     steps:
     - name: steps::checkout_repo
@@ -66,7 +96,9 @@ jobs:
       shell: pwsh
     timeout-minutes: 60
   clippy_windows:
-    if: (github.repository_owner == 'zed-industries' || github.repository_owner == 'zed-extensions')
+    needs:
+    - check_for_changes
+    if: (github.repository_owner == 'zed-industries' || github.repository_owner == 'zed-extensions') && needs.check_for_changes.outputs.bump_nightly == 'true'
     runs-on: self-32vcpu-windows-2022
     steps:
     - name: steps::checkout_repo
@@ -491,7 +523,7 @@ jobs:
       uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
       with:
         clean: false
-        fetch-depth: 0
+        fetch-tags: true
     - name: release::download_workflow_artifacts
       uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53
       with:
@@ -525,10 +557,13 @@ jobs:
           echo "Nightly tag already points to current commit. Skipping tagging."
           exit 0
         fi
-        git config user.name github-actions
-        git config user.email github-actions@github.com
         git tag -f nightly
         git push origin nightly --force
+      env:
+        GIT_AUTHOR_NAME: zed-zippy[bot]
+        GIT_AUTHOR_EMAIL: 234243425+zed-zippy[bot]@users.noreply.github.com
+        GIT_COMMITTER_NAME: zed-zippy[bot]
+        GIT_COMMITTER_EMAIL: 234243425+zed-zippy[bot]@users.noreply.github.com
     - name: release::create_sentry_release
       uses: getsentry/action-release@526942b68292201ac6bbb99b9a0747d4abee354c
       with:
@@ -554,6 +589,9 @@ jobs:
       env:
         SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_WORKFLOW_FAILURES }}
         SLACK_MESSAGE: '❌ ${{ github.workflow }} failed: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}'
+concurrency:
+  group: release-nightly
+  cancel-in-progress: true
 defaults:
   run:
     shell: bash -euxo pipefail {0}

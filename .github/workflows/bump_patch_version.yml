@@ -47,10 +47,10 @@ jobs:
         git tag "v${output}${tag_suffix}"
         git push origin HEAD "v${output}${tag_suffix}"
       env:
-        GIT_COMMITTER_NAME: Zed Zippy
-        GIT_COMMITTER_EMAIL: 234243425+zed-zippy[bot]@users.noreply.github.com
-        GIT_AUTHOR_NAME: Zed Zippy
+        GIT_AUTHOR_NAME: zed-zippy[bot]
         GIT_AUTHOR_EMAIL: 234243425+zed-zippy[bot]@users.noreply.github.com
+        GIT_COMMITTER_NAME: zed-zippy[bot]
+        GIT_COMMITTER_EMAIL: 234243425+zed-zippy[bot]@users.noreply.github.com
         GITHUB_TOKEN: ${{ steps.generate-token.outputs.token }}
 concurrency:
   group: ${{ github.workflow }}-${{ inputs.branch }}
