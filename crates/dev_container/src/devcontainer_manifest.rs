@@ -2879,7 +2879,7 @@ mod test {
                 .as_ref()
                 .and_then(|env| env.get("LOCAL_WORKSPACE_FOLDER")),
             // We replace backslashes with forward slashes during variable replacement for JSON safety
-            Some(&TEST_PROJECT_PATH.replace("\\", "/").to_string())
+            Some(&TEST_PROJECT_PATH.replace("\\", "/"))
         );
 
         // ${localEnv:VARIABLE_NAME}
@@ -2983,7 +2983,7 @@ mod test {
                 .as_ref()
                 .and_then(|env| env.get("LOCAL_WORKSPACE_FOLDER")),
             // We replace backslashes with forward slashes during variable replacement for JSON safety
-            Some(&TEST_PROJECT_PATH.replace("\\", "/").to_string())
+            Some(&TEST_PROJECT_PATH.replace("\\", "/"))
         );
     }
 
