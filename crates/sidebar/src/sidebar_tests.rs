@@ -689,11 +689,7 @@ async fn test_remove_folder_from_multi_root_preserves_threads(cx: &mut TestAppCo
         mw.project_groups(cx).first().unwrap().key.clone()
     });
     multi_workspace.update(cx, |mw, cx| {
-        mw.remove_folder_from_project_group(
-            &group_key,
-            std::path::Path::new("/project-b"),
-            cx,
-        );
+        mw.remove_folder_from_project_group(&group_key, std::path::Path::new("/project-b"), cx);
     });
     cx.run_until_parked();
 
@@ -765,7 +761,13 @@ async fn test_remove_project_group_preserves_other_threads(cx: &mut TestAppConte
     let group_b_key = multi_workspace.read_with(cx, |mw, cx| {
         mw.project_groups(cx)
             .iter()
-            .find(|g| g.key.path_list().paths().iter().any(|p| p.ends_with("project-b")))
+            .find(|g| {
+                g.key
+                    .path_list()
+                    .paths()
+                    .iter()
+                    .any(|p| p.ends_with("project-b"))
+            })
             .unwrap()
             .key
             .clone()
