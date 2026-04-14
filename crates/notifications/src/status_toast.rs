@@ -45,8 +45,8 @@ impl StatusToast {
         self
     }
 
-    pub fn persistent(mut self) -> Self {
-        self.auto_dismiss = false;
+    pub fn auto_dismiss(mut self, auto_dismiss: bool) -> Self {
+        self.auto_dismiss = auto_dismiss;
         self
     }
 
