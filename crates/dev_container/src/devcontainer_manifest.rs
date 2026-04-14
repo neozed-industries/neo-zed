@@ -1730,11 +1730,12 @@ RUN sed -i -E 's/((^|\s)PATH=)([^\$]*)$/\1\${PATH:-\3}/g' /etc/profile || true
 
         Ok(MountDefinition {
             source: Some(self.local_workspace_folder()),
+            // We explicitly use "/" here, instead of PathBuf::join
+            // because we want the target to use unix-style filepaths, even on Windows
             target: format!(
-                "{}",
-                PathBuf::from(DEFAULT_REMOTE_PROJECT_DIR)
-                    .join(project_directory_name)
-                    .display(),
+                "{}/{}",
+                PathBuf::from(DEFAULT_REMOTE_PROJECT_DIR).display(),
+                project_directory_name.display()
             ),
             mount_type: None,
         })
