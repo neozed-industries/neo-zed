@@ -10,7 +10,7 @@ use gpui::{
     App, Context, DismissEvent, Entity, EventEmitter, FocusHandle, Focusable, MouseDownEvent,
     Render, SharedString, Task, WeakEntity, Window,
 };
-use notifications::status_toast::{StatusToast, ToastIcon};
+use notifications::status_toast::StatusToast;
 use project::{AgentId, AgentRegistryStore, AgentServerStore};
 use remote::RemoteConnectionOptions;
 use ui::{
@@ -238,8 +238,12 @@ impl ThreadImportModal {
     fn show_imported_threads_toast(&self, imported_count: usize, cx: &mut App) {
         let status_toast = if imported_count == 0 {
             StatusToast::new("No threads found to import.", cx, |this, _cx| {
-                this.icon(ToastIcon::new(IconName::Info).color(Color::Muted))
-                    .dismiss_button(true)
+                this.icon(
+                    Icon::new(IconName::Info)
+                        .size(IconSize::Small)
+                        .color(Color::Muted),
+                )
+                .dismiss_button(true)
             })
         } else {
             let message = if imported_count == 1 {
@@ -248,8 +252,12 @@ impl ThreadImportModal {
                 format!("Imported {imported_count} threads.")
             };
             StatusToast::new(message, cx, |this, _cx| {
-                this.icon(ToastIcon::new(IconName::Check).color(Color::Success))
-                    .dismiss_button(true)
+                this.icon(
+                    Icon::new(IconName::Check)
+                        .size(IconSize::Small)
+                        .color(Color::Success),
+                )
+                .dismiss_button(true)
             })
         };
 
