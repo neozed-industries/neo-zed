@@ -76,6 +76,7 @@ dependencies = [
  "ctor",
  "fs",
  "futures 0.3.32",
+ "git",
  "gpui",
  "language",
  "log",
