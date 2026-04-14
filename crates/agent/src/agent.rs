@@ -1544,6 +1544,10 @@ impl acp_thread::AgentConnection for NativeAgentConnection {
         })
     }
 
+    fn supports_set_project(&self) -> bool {
+        true
+    }
+
     fn set_project(
         &self,
         session_id: &acp::SessionId,

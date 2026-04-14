@@ -534,6 +534,11 @@ impl ConversationView {
         connected.threads.get(session_id).cloned()
     }
 
+    pub fn supports_set_project(&self) -> bool {
+        self.as_connected()
+            .is_some_and(|connected| connected.connection.supports_set_project())
+    }
+
     pub fn as_connected(&self) -> Option<&ConnectedServerState> {
         match &self.server_state {
             ServerState::Connected(connected) => Some(connected),
@@ -3301,6 +3306,15 @@ pub(crate) mod tests {
 
         fn cancel(&self, _session_id: &acp::SessionId, _cx: &mut App) {}
 
+        fn set_project(
+            &self,
+            _session_id: &acp::SessionId,
+            _project: Entity<Project>,
+            _cx: &mut App,
+        ) -> Result<()> {
+            Ok(())
+        }
+
         fn into_any(self: Rc<Self>) -> Rc<dyn Any> {
             self
         }
@@ -4450,6 +4464,15 @@ pub(crate) mod tests {
 
         fn cancel(&self, _session_id: &acp::SessionId, _cx: &mut App) {}
 
+        fn set_project(
+            &self,
+            _session_id: &acp::SessionId,
+            _project: Entity<Project>,
+            _cx: &mut App,
+        ) -> Result<()> {
+            Ok(())
+        }
+
         fn into_any(self: Rc<Self>) -> Rc<dyn Any> {
             self
         }
@@ -4522,6 +4545,15 @@ pub(crate) mod tests {
         }
 
         fn cancel(&self, _session_id: &acp::SessionId, _cx: &mut App) {}
+
+        fn set_project(
+            &self,
+            _session_id: &acp::SessionId,
+            _project: Entity<Project>,
+            _cx: &mut App,
+        ) -> Result<()> {
+            Ok(())
+        }
 
         fn into_any(self: Rc<Self>) -> Rc<dyn Any> {
             self
@@ -4624,6 +4656,15 @@ pub(crate) mod tests {
             unimplemented!()
         }
 
+        fn set_project(
+            &self,
+            _session_id: &acp::SessionId,
+            _project: Entity<Project>,
+            _cx: &mut App,
+        ) -> Result<()> {
+            Ok(())
+        }
+
         fn into_any(self: Rc<Self>) -> Rc<dyn Any> {
             self
         }
@@ -4691,6 +4732,15 @@ pub(crate) mod tests {
 
         fn cancel(&self, _session_id: &acp::SessionId, _cx: &mut App) {
             unimplemented!()
+        }
+
+        fn set_project(
+            &self,
+            _session_id: &acp::SessionId,
+            _project: Entity<Project>,
+            _cx: &mut App,
+        ) -> Result<()> {
+            Ok(())
         }
 
         fn into_any(self: Rc<Self>) -> Rc<dyn Any> {
@@ -4761,6 +4811,15 @@ pub(crate) mod tests {
 
         fn cancel(&self, _session_id: &acp::SessionId, _cx: &mut App) {
             unimplemented!()
+        }
+
+        fn set_project(
+            &self,
+            _session_id: &acp::SessionId,
+            _project: Entity<Project>,
+            _cx: &mut App,
+        ) -> Result<()> {
+            Ok(())
         }
 
         fn into_any(self: Rc<Self>) -> Rc<dyn Any> {
@@ -4876,6 +4935,15 @@ pub(crate) mod tests {
         }
 
         fn cancel(&self, _session_id: &acp::SessionId, _cx: &mut App) {}
+
+        fn set_project(
+            &self,
+            _session_id: &acp::SessionId,
+            _project: Entity<Project>,
+            _cx: &mut App,
+        ) -> Result<()> {
+            Ok(())
+        }
 
         fn into_any(self: Rc<Self>) -> Rc<dyn Any> {
             self
@@ -7478,6 +7546,15 @@ pub(crate) mod tests {
         }
 
         fn cancel(&self, _session_id: &acp::SessionId, _cx: &mut App) {}
+
+        fn set_project(
+            &self,
+            _session_id: &acp::SessionId,
+            _project: Entity<Project>,
+            _cx: &mut App,
+        ) -> Result<()> {
+            Ok(())
+        }
 
         fn into_any(self: Rc<Self>) -> Rc<dyn Any> {
             self

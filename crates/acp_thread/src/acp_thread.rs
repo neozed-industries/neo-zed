@@ -4526,6 +4526,15 @@ mod tests {
             }))
         }
 
+        fn set_project(
+            &self,
+            _session_id: &acp::SessionId,
+            _project: Entity<Project>,
+            _cx: &mut App,
+        ) -> Result<()> {
+            Ok(())
+        }
+
         fn into_any(self: Rc<Self>) -> Rc<dyn Any> {
             self
         }

@@ -2481,6 +2481,14 @@ impl AgentPanel {
             })
         };
 
+        let supports_set_project = self
+            .active_conversation_view()
+            .is_some_and(|cv| cv.read(cx).supports_set_project());
+
+        if !supports_set_project {
+            return;
+        }
+
         let Some(conversation_view) = self.take_active_conversation_view(cx) else {
             return;
         };

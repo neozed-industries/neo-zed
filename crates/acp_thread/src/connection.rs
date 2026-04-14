@@ -134,14 +134,17 @@ pub trait AgentConnection {
         None
     }
 
+    /// Whether this agent supports rebinding a session to a different project.
+    fn supports_set_project(&self) -> bool {
+        false
+    }
+
     fn set_project(
         &self,
-        _session_id: &acp::SessionId,
-        _project: Entity<Project>,
-        _cx: &mut App,
-    ) -> Result<()> {
-        Ok(())
-    }
+        session_id: &acp::SessionId,
+        project: Entity<Project>,
+        cx: &mut App,
+    ) -> Result<()>;
 
     fn cancel(&self, session_id: &acp::SessionId, cx: &mut App);
 
@@ -967,6 +970,15 @@ mod test_support {
             _cx: &App,
         ) -> Option<Rc<dyn AgentSessionTruncate>> {
             Some(Rc::new(StubAgentSessionEditor))
+        }
+
+        fn set_project(
+            &self,
+            _session_id: &acp::SessionId,
+            _project: Entity<Project>,
+            _cx: &mut App,
+        ) -> Result<()> {
+            Ok(())
         }
 
         fn into_any(self: Rc<Self>) -> Rc<dyn Any> {

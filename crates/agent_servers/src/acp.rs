@@ -903,6 +903,17 @@ impl AgentConnection for AcpConnection {
         })
     }
 
+    fn set_project(
+        &self,
+        _session_id: &acp::SessionId,
+        _project: Entity<Project>,
+        _cx: &mut App,
+    ) -> Result<()> {
+        Err(anyhow::anyhow!(
+            "Rebinding project is not supported for external agents"
+        ))
+    }
+
     fn auth_methods(&self) -> &[acp::AuthMethod] {
         &self.auth_methods
     }
