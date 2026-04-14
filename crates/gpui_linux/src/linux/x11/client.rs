@@ -29,7 +29,7 @@ use x11rb::{
     protocol::xkb::ConnectionExt as _,
     protocol::xproto::{
         AtomEnum, ChangeWindowAttributesAux, ClientMessageData, ClientMessageEvent,
-        ConnectionExt as _, EventMask, ModMask, Visibility,
+        ConnectionExt as _, EventMask, Visibility,
     },
     protocol::{Event, dri3, randr, render, xinput, xkb, xproto},
     resource_manager::Database,
@@ -1034,23 +1034,16 @@ impl X11Client {
                 let modifiers = modifiers_from_state(event.state);
                 state.modifiers = modifiers;
                 state.pre_key_char_down.take();
-
-                // Macros containing modifiers might result in
-                // the modifiers missing from the event.
-                // We therefore update the mask from the global state.
-                update_xkb_mask_from_event_state(&mut state.xkb, event.state);
+                let key_event_state = xkb_state_for_key_event(&state.xkb, event.state);
 
                 let keystroke = {
                     let code = event.detail.into();
-                    let mut keystroke = keystroke_from_xkb(&state.xkb, modifiers, code);
-                    let keysym = state.xkb.key_get_one_sym(code);
+                    let mut keystroke = keystroke_from_xkb(&key_event_state, modifiers, code);
+                    let keysym = key_event_state.key_get_one_sym(code);
 
                     if keysym.is_modifier_key() {
                         return Some(());
                     }
-
-                    // should be called after key_get_one_sym
-                    state.xkb.update_key(code, xkbc::KeyDirection::Down);
 
                     if let Some(mut compose_state) = state.compose_state.take() {
                         compose_state.feed(keysym);
@@ -1104,23 +1097,16 @@ impl X11Client {
 
                 let modifiers = modifiers_from_state(event.state);
                 state.modifiers = modifiers;
-
-                // Macros containing modifiers might result in
-                // the modifiers missing from the event.
-                // We therefore update the mask from the global state.
-                update_xkb_mask_from_event_state(&mut state.xkb, event.state);
+                let key_event_state = xkb_state_for_key_event(&state.xkb, event.state);
 
                 let keystroke = {
                     let code = event.detail.into();
-                    let keystroke = keystroke_from_xkb(&state.xkb, modifiers, code);
-                    let keysym = state.xkb.key_get_one_sym(code);
+                    let keystroke = keystroke_from_xkb(&key_event_state, modifiers, code);
+                    let keysym = key_event_state.key_get_one_sym(code);
 
                     if keysym.is_modifier_key() {
                         return Some(());
                     }
-
-                    // should be called after key_get_one_sym
-                    state.xkb.update_key(code, xkbc::KeyDirection::Up);
 
                     keystroke
                 };
@@ -2685,17 +2671,34 @@ fn valid_scale_factor(scale_factor: f32) -> bool {
 }
 
 #[inline]
-fn update_xkb_mask_from_event_state(xkb: &mut xkbc::State, event_state: xproto::KeyButMask) {
-    let depressed_mods = event_state.remove((ModMask::LOCK | ModMask::M2).bits());
-    let latched_mods = xkb.serialize_mods(xkbc::STATE_MODS_LATCHED);
-    let locked_mods = xkb.serialize_mods(xkbc::STATE_MODS_LOCKED);
-    let locked_layout = xkb.serialize_layout(xkbc::STATE_LAYOUT_LOCKED);
-    xkb.update_mask(
-        depressed_mods.into(),
-        latched_mods,
-        locked_mods,
-        0,
-        0,
-        locked_layout,
+fn xkb_state_for_key_event(xkb: &xkbc::State, event_state: xproto::KeyButMask) -> xkbc::State {
+    let keymap = xkb.get_keymap();
+    let mut key_event_state = xkbc::State::new(&keymap);
+
+    let latched_modifiers = xkb.serialize_mods(xkbc::STATE_MODS_LATCHED);
+    let locked_modifiers = xkb.serialize_mods(xkbc::STATE_MODS_LOCKED);
+    let active_modifier_mask: xkbc::ModMask = u16::from(
+        event_state
+            & (xproto::KeyButMask::SHIFT
+                | xproto::KeyButMask::LOCK
+                | xproto::KeyButMask::CONTROL
+                | xproto::KeyButMask::MOD1
+                | xproto::KeyButMask::MOD2
+                | xproto::KeyButMask::MOD3
+                | xproto::KeyButMask::MOD4
+                | xproto::KeyButMask::MOD5),
+    )
+    .into();
+    let depressed_modifiers = active_modifier_mask & !(latched_modifiers | locked_modifiers);
+
+    key_event_state.update_mask(
+        depressed_modifiers,
+        latched_modifiers,
+        locked_modifiers,
+        xkb.serialize_layout(xkbc::STATE_LAYOUT_DEPRESSED),
+        xkb.serialize_layout(xkbc::STATE_LAYOUT_LATCHED),
+        xkb.serialize_layout(xkbc::STATE_LAYOUT_LOCKED),
     );
+
+    key_event_state
 }
