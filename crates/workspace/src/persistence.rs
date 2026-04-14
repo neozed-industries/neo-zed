@@ -2495,6 +2495,7 @@ pub fn delete_unloaded_items(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::PathList;
     use crate::ProjectGroupKey;
     use crate::{
         multi_workspace::MultiWorkspace,
@@ -2506,7 +2507,7 @@ mod tests {
             read_multi_workspace_state,
         },
     };
-    use feature_flags::FeatureFlagAppExt;
+
     use gpui::AppContext as _;
     use pretty_assertions::assert_eq;
     use project::Project;
@@ -2525,10 +2526,6 @@ mod tests {
     #[gpui::test]
     async fn test_multi_workspace_serializes_on_add_and_remove(cx: &mut gpui::TestAppContext) {
         crate::tests::init_test(cx);
-
-        cx.update(|cx| {
-            cx.set_staff(true);
-        });
 
         let fs = fs::FakeFs::new(cx.executor());
         let project1 = Project::test(fs.clone(), [], cx).await;
@@ -4087,10 +4084,6 @@ mod tests {
     async fn test_flush_serialization_completes_before_quit(cx: &mut gpui::TestAppContext) {
         crate::tests::init_test(cx);
 
-        cx.update(|cx| {
-            cx.set_staff(true);
-        });
-
         let fs = fs::FakeFs::new(cx.executor());
         let project = Project::test(fs.clone(), [], cx).await;
 
@@ -4130,10 +4123,6 @@ mod tests {
     #[gpui::test]
     async fn test_create_workspace_serialization(cx: &mut gpui::TestAppContext) {
         crate::tests::init_test(cx);
-
-        cx.update(|cx| {
-            cx.set_staff(true);
-        });
 
         let fs = fs::FakeFs::new(cx.executor());
         let project = Project::test(fs.clone(), [], cx).await;
@@ -4186,10 +4175,6 @@ mod tests {
     #[gpui::test]
     async fn test_remove_workspace_clears_session_binding(cx: &mut gpui::TestAppContext) {
         crate::tests::init_test(cx);
-
-        cx.update(|cx| {
-            cx.set_staff(true);
-        });
 
         let fs = fs::FakeFs::new(cx.executor());
         let dir = unique_test_dir(&fs, "remove").await;
@@ -4277,10 +4262,6 @@ mod tests {
     #[gpui::test]
     async fn test_remove_workspace_not_restored_as_zombie(cx: &mut gpui::TestAppContext) {
         crate::tests::init_test(cx);
-
-        cx.update(|cx| {
-            cx.set_staff(true);
-        });
 
         let fs = fs::FakeFs::new(cx.executor());
         let dir1 = tempfile::TempDir::with_prefix("zombie_test1").unwrap();
@@ -4384,10 +4365,6 @@ mod tests {
     async fn test_pending_removal_tasks_drained_on_flush(cx: &mut gpui::TestAppContext) {
         crate::tests::init_test(cx);
 
-        cx.update(|cx| {
-            cx.set_staff(true);
-        });
-
         let fs = fs::FakeFs::new(cx.executor());
         let dir = unique_test_dir(&fs, "pending-removal").await;
         let project1 = Project::test(fs.clone(), [], cx).await;
@@ -4488,10 +4465,6 @@ mod tests {
     async fn test_create_workspace_bounds_observer_uses_fresh_id(cx: &mut gpui::TestAppContext) {
         crate::tests::init_test(cx);
 
-        cx.update(|cx| {
-            cx.set_staff(true);
-        });
-
         let fs = fs::FakeFs::new(cx.executor());
         let project = Project::test(fs.clone(), [], cx).await;
 
@@ -4543,10 +4516,6 @@ mod tests {
     #[gpui::test]
     async fn test_flush_serialization_writes_bounds(cx: &mut gpui::TestAppContext) {
         crate::tests::init_test(cx);
-
-        cx.update(|cx| {
-            cx.set_staff(true);
-        });
 
         let fs = fs::FakeFs::new(cx.executor());
         let dir = tempfile::TempDir::with_prefix("flush_bounds_test").unwrap();
@@ -4702,10 +4671,6 @@ mod tests {
         cx: &mut gpui::TestAppContext,
     ) {
         crate::tests::init_test(cx);
-
-        cx.update(|cx| {
-            cx.set_staff(true);
-        });
 
         let fs = fs::FakeFs::new(cx.executor());
 
@@ -4886,10 +4851,6 @@ mod tests {
     #[gpui::test]
     async fn test_remove_project_group_falls_back_to_neighbor(cx: &mut gpui::TestAppContext) {
         crate::tests::init_test(cx);
-        cx.update(|cx| {
-            cx.set_staff(true);
-            cx.update_flags(true, vec!["agent-v2".to_string()]);
-        });
 
         let fs = fs::FakeFs::new(cx.executor());
         let dir_a = unique_test_dir(&fs, "group-a").await;
@@ -4988,5 +4949,76 @@ mod tests {
             active_paths.is_empty(),
             "After removing the only remaining group, should have an empty workspace"
         );
+    }
+
+    /// Regression test for a crash where `find_or_create_local_workspace`
+    /// returned a workspace that was about to be removed, hitting an assert
+    /// in `MultiWorkspace::remove`.
+    ///
+    /// The scenario: two workspaces share the same root paths (e.g. due to
+    /// a provisional key mismatch). When the first is removed and the
+    /// fallback searches for the same paths, `workspace_for_paths` must
+    /// skip the doomed workspace so the assert in `remove` is satisfied.
+    #[gpui::test]
+    async fn test_remove_fallback_skips_excluded_workspaces(cx: &mut gpui::TestAppContext) {
+        crate::tests::init_test(cx);
+
+        let fs = fs::FakeFs::new(cx.executor());
+        let dir = unique_test_dir(&fs, "shared").await;
+
+        // Two projects that open the same directory — this creates two
+        // workspaces whose root_paths are identical.
+        let project_a = Project::test(fs.clone(), [dir.as_path()], cx).await;
+        let project_b = Project::test(fs.clone(), [dir.as_path()], cx).await;
+
+        let (multi_workspace, cx) = cx
+            .add_window_view(|window, cx| MultiWorkspace::test_new(project_a.clone(), window, cx));
+
+        multi_workspace.update(cx, |mw, cx| mw.open_sidebar(cx));
+
+        let workspace_b = multi_workspace.update_in(cx, |mw, window, cx| {
+            mw.test_add_workspace(project_b.clone(), window, cx)
+        });
+        cx.run_until_parked();
+
+        // workspace_a is first in the workspaces vec.
+        let workspace_a =
+            multi_workspace.read_with(cx, |mw, _| mw.workspaces().next().cloned().unwrap());
+        assert_ne!(workspace_a, workspace_b);
+
+        // Activate workspace_a so removing it triggers the fallback path.
+        multi_workspace.update_in(cx, |mw, window, cx| {
+            mw.activate(workspace_a.clone(), window, cx);
+        });
+        cx.run_until_parked();
+
+        // Remove workspace_a. The fallback searches for the same paths.
+        // Without the `excluding` parameter, `workspace_for_paths` would
+        // return workspace_a (first match) and the assert in `remove`
+        // would fire. With the fix, workspace_a is skipped and
+        // workspace_b is found instead.
+        let path_list = PathList::new(std::slice::from_ref(&dir));
+        let excluded = vec![workspace_a.clone()];
+        multi_workspace.update_in(cx, |mw, window, cx| {
+            mw.remove(
+                vec![workspace_a.clone()],
+                move |this, window, cx| {
+                    this.find_or_create_local_workspace(path_list, &excluded, window, cx)
+                },
+                window,
+                cx,
+            )
+            .detach_and_log_err(cx);
+        });
+        cx.run_until_parked();
+
+        // workspace_b should now be active — workspace_a was removed.
+        multi_workspace.read_with(cx, |mw, _cx| {
+            assert_eq!(
+                mw.workspace(),
+                &workspace_b,
+                "fallback should have found workspace_b, not the excluded workspace_a"
+            );
+        });
     }
 }
