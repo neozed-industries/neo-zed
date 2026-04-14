@@ -36,6 +36,15 @@ pub(super) struct SemanticTokenState {
 }
 
 impl SemanticTokenState {
+    pub(crate) fn new_disabled() -> Self {
+        Self {
+            rules: SemanticTokenRules::default(),
+            enabled: false,
+            update_task: Task::ready(()),
+            fetched_for_buffers: HashMap::default(),
+        }
+    }
+
     pub(super) fn new(cx: &App, enabled: bool) -> Self {
         Self {
             rules: ProjectSettings::get_global(cx)
@@ -92,7 +101,9 @@ impl Editor {
     }
 
     pub fn semantic_highlights_enabled(&self) -> bool {
-        self.semantic_token_state.enabled()
+        self.mode
+            .full_features()
+            .map_or(false, |f| f.runtime.semantic_token_state.enabled())
     }
 
     pub fn toggle_semantic_highlights(
@@ -101,15 +112,27 @@ impl Editor {
         _window: &mut gpui::Window,
         cx: &mut Context<Self>,
     ) {
-        self.semantic_token_state.toggle_enabled();
+        if let Some(full) = self.mode.full_features_mut() {
+            full.runtime.semantic_token_state.toggle_enabled();
+        }
         self.invalidate_semantic_tokens(None);
         self.refresh_semantic_tokens(None, None, cx);
     }
 
     pub(super) fn invalidate_semantic_tokens(&mut self, for_buffer: Option<BufferId>) {
+        let Some(full) = self.mode.full_features_mut() else {
+            return;
+        };
         match for_buffer {
-            Some(for_buffer) => self.semantic_token_state.invalidate_buffer(&for_buffer),
-            None => self.semantic_token_state.fetched_for_buffers.clear(),
+            Some(for_buffer) => full
+                .runtime
+                .semantic_token_state
+                .invalidate_buffer(&for_buffer),
+            None => full
+                .runtime
+                .semantic_token_state
+                .fetched_for_buffers
+                .clear(),
         }
     }
 
@@ -119,7 +142,13 @@ impl Editor {
         for_server: Option<RefreshForServer>,
         cx: &mut Context<Self>,
     ) {
-        if !self.lsp_data_enabled() || !self.semantic_token_state.enabled() {
+        let should_disable = {
+            let Some(full) = self.mode.full_features_mut() else {
+                return;
+            };
+            !full.enable_lsp_data || !full.runtime.semantic_token_state.enabled()
+        };
+        if should_disable {
             self.invalidate_semantic_tokens(None);
             self.display_map.update(cx, |display_map, _| {
                 match Arc::get_mut(&mut display_map.semantic_token_highlights) {
@@ -127,26 +156,42 @@ impl Editor {
                     None => display_map.semantic_token_highlights = Arc::new(Default::default()),
                 };
             });
-            self.semantic_token_state.update_task = Task::ready(());
+            if let Some(full) = self.mode.full_features_mut() {
+                full.runtime.semantic_token_state.update_task = Task::ready(());
+            }
             cx.notify();
             return;
-        }
-
-        let mut invalidate_semantic_highlights_for_buffers = HashSet::default();
-        if for_server.is_some() {
-            invalidate_semantic_highlights_for_buffers.extend(
-                self.semantic_token_state
-                    .fetched_for_buffers
-                    .drain()
-                    .map(|(buffer_id, _)| buffer_id),
-            );
         }
 
         let Some((sema, project)) = self.semantics_provider.clone().zip(self.project.clone())
         else {
             return;
         };
-
+        let (invalidate_semantic_highlights_for_buffers, registered_buffer_ids) = {
+            let Some(full) = self.mode.full_features_mut() else {
+                return;
+            };
+            let mut invalidate_semantic_highlights_for_buffers = HashSet::default();
+            if for_server.is_some() {
+                invalidate_semantic_highlights_for_buffers.extend(
+                    full.runtime
+                        .semantic_token_state
+                        .fetched_for_buffers
+                        .drain()
+                        .map(|(buffer_id, _)| buffer_id),
+                );
+            }
+            let registered_buffer_ids = full
+                .runtime
+                .registered_buffers
+                .keys()
+                .copied()
+                .collect::<HashSet<_>>();
+            (
+                invalidate_semantic_highlights_for_buffers,
+                registered_buffer_ids,
+            )
+        };
         let buffers_to_query = self
             .visible_buffers(cx)
             .into_iter()
@@ -154,7 +199,7 @@ impl Editor {
             .chain(buffer_id.and_then(|buffer_id| self.buffer.read(cx).buffer(buffer_id)))
             .filter_map(|editor_buffer| {
                 let editor_buffer_id = editor_buffer.read(cx).remote_id();
-                if self.registered_buffers.contains_key(&editor_buffer_id)
+                if registered_buffer_ids.contains(&editor_buffer_id)
                     && LanguageSettings::for_buffer(editor_buffer.read(cx), cx)
                         .semantic_tokens
                         .enabled()
@@ -187,14 +232,17 @@ impl Editor {
             })
             .collect::<Vec<_>>()
         {
-            self.semantic_token_state
-                .invalidate_buffer(&buffer_with_disabled_tokens);
+            if let Some(full) = self.mode.full_features_mut() {
+                full.runtime
+                    .semantic_token_state
+                    .invalidate_buffer(&buffer_with_disabled_tokens);
+            }
             self.display_map.update(cx, |display_map, _| {
                 display_map.invalidate_semantic_highlights(buffer_with_disabled_tokens);
             });
         }
 
-        self.semantic_token_state.update_task = cx.spawn(async move |editor, cx| {
+        let update_task = cx.spawn(async move |editor, cx| {
             cx.background_executor()
                 .timer(Duration::from_millis(50))
                 .await;
@@ -203,10 +251,12 @@ impl Editor {
                     buffers_to_query
                         .into_iter()
                         .filter_map(|(buffer_id, buffer)| {
-                            let known_version = editor
-                                .semantic_token_state
-                                .fetched_for_buffers
-                                .get(&buffer_id);
+                            let known_version = editor.mode.full_features().and_then(|f| {
+                                f.runtime
+                                    .semantic_token_state
+                                    .fetched_for_buffers
+                                    .get(&buffer_id)
+                            });
                             let query_version = buffer.read(cx).version();
                             if known_version.is_some_and(|known_version| {
                                 !query_version.changed_since(known_version)
@@ -228,10 +278,16 @@ impl Editor {
             let all_semantic_tokens = join_all(all_semantic_tokens_task).await;
             editor
                 .update(cx, |editor, cx| {
+                    for buffer_id in &invalidate_semantic_highlights_for_buffers {
+                        if let Some(full) = editor.mode.full_features_mut() {
+                            full.runtime
+                                .semantic_token_state
+                                .invalidate_buffer(buffer_id);
+                        }
+                    }
                     editor.display_map.update(cx, |display_map, _| {
                         for buffer_id in invalidate_semantic_highlights_for_buffers {
                             display_map.invalidate_semantic_highlights(buffer_id);
-                            editor.semantic_token_state.invalidate_buffer(&buffer_id);
                         }
                     });
 
@@ -260,7 +316,11 @@ impl Editor {
                             }
                         };
 
-                        match editor
+                        let Some(full) = editor.mode.full_features_mut() else {
+                            continue;
+                        };
+                        match full
+                            .runtime
                             .semantic_token_state
                             .fetched_for_buffers
                             .entry(buffer_id)
@@ -320,6 +380,9 @@ impl Editor {
                 })
                 .ok();
         });
+        if let Some(full) = self.mode.full_features_mut() {
+            full.runtime.semantic_token_state.update_task = update_task;
+        }
     }
 }
 
@@ -640,13 +703,21 @@ mod tests {
         cx.set_state("ˇfn main() {}");
         assert!(full_request.next().await.is_some());
 
-        let task = cx.update_editor(|e, _, _| e.semantic_token_state.take_update_task());
+        let task = cx.update_editor(|e, _, _| {
+            e.mode.full_features_mut().map_or(Task::ready(()), |f| {
+                f.runtime.semantic_token_state.take_update_task()
+            })
+        });
         task.await;
 
         cx.set_state("ˇfn main() { a }");
         assert!(full_request.next().await.is_some());
 
-        let task = cx.update_editor(|e, _, _| e.semantic_token_state.take_update_task());
+        let task = cx.update_editor(|e, _, _| {
+            e.mode.full_features_mut().map_or(Task::ready(()), |f| {
+                f.runtime.semantic_token_state.take_update_task()
+            })
+        });
         task.await;
         assert_eq!(
             extract_semantic_highlights(&cx.editor, &cx),
@@ -734,12 +805,20 @@ mod tests {
         // Initial request, for the empty buffer.
         cx.set_state("ˇfn main() {}");
         assert!(full_request.next().await.is_some());
-        let task = cx.update_editor(|e, _, _| e.semantic_token_state.take_update_task());
+        let task = cx.update_editor(|e, _, _| {
+            e.mode.full_features_mut().map_or(Task::ready(()), |f| {
+                f.runtime.semantic_token_state.take_update_task()
+            })
+        });
         task.await;
 
         cx.set_state("ˇfn main() { a }");
         assert!(delta_request.next().await.is_some());
-        let task = cx.update_editor(|e, _, _| e.semantic_token_state.take_update_task());
+        let task = cx.update_editor(|e, _, _| {
+            e.mode.full_features_mut().map_or(Task::ready(()), |f| {
+                f.runtime.semantic_token_state.take_update_task()
+            })
+        });
         task.await;
 
         assert_eq!(
@@ -955,7 +1034,11 @@ mod tests {
             editor.edit([(MultiBufferOffset(0)..MultiBufferOffset(1), "b")], cx);
         });
         cx.executor().advance_clock(Duration::from_millis(200));
-        let task = editor.update_in(cx, |e, _, _| e.semantic_token_state.take_update_task());
+        let task = editor.update_in(cx, |e, _, _| {
+            e.mode.full_features_mut().map_or(Task::ready(()), |f| {
+                f.runtime.semantic_token_state.take_update_task()
+            })
+        });
         cx.run_until_parked();
         task.await;
 
@@ -1218,7 +1301,11 @@ mod tests {
 
         // Initial request.
         cx.executor().advance_clock(Duration::from_millis(200));
-        let task = editor.update_in(cx, |e, _, _| e.semantic_token_state.take_update_task());
+        let task = editor.update_in(cx, |e, _, _| {
+            e.mode.full_features_mut().map_or(Task::ready(()), |f| {
+                f.runtime.semantic_token_state.take_update_task()
+            })
+        });
         cx.run_until_parked();
         task.await;
         assert_eq!(full_counter_toml.load(atomic::Ordering::Acquire), 1);
@@ -1250,7 +1337,11 @@ mod tests {
 
         // Wait for semantic tokens to be re-fetched after expansion.
         cx.executor().advance_clock(Duration::from_millis(200));
-        let task = editor.update_in(cx, |e, _, _| e.semantic_token_state.take_update_task());
+        let task = editor.update_in(cx, |e, _, _| {
+            e.mode.full_features_mut().map_or(Task::ready(()), |f| {
+                f.runtime.semantic_token_state.take_update_task()
+            })
+        });
         cx.run_until_parked();
         task.await;
 
@@ -1403,7 +1494,11 @@ mod tests {
         let _rust_server = rust_server.next().await.unwrap();
 
         cx.executor().advance_clock(Duration::from_millis(200));
-        let task = bar_editor.update_in(cx, |e, _, _| e.semantic_token_state.take_update_task());
+        let task = bar_editor.update_in(cx, |e, _, _| {
+            e.mode.full_features_mut().map_or(Task::ready(()), |f| {
+                f.runtime.semantic_token_state.take_update_task()
+            })
+        });
         cx.run_until_parked();
         task.await;
         cx.run_until_parked();
@@ -1513,7 +1608,11 @@ mod tests {
 
         // Wait for semantic tokens on the singleton.
         cx.executor().advance_clock(Duration::from_millis(200));
-        let task = active_editor.update_in(cx, |e, _, _| e.semantic_token_state.take_update_task());
+        let task = active_editor.update_in(cx, |e, _, _| {
+            e.mode.full_features_mut().map_or(Task::ready(()), |f| {
+                f.runtime.semantic_token_state.take_update_task()
+            })
+        });
         task.await;
         cx.run_until_parked();
 
@@ -2406,7 +2505,11 @@ mod tests {
         cx.set_state("ˇfn main() {}");
         assert!(full_request.next().await.is_some());
 
-        let task = cx.update_editor(|e, _, _| e.semantic_token_state.take_update_task());
+        let task = cx.update_editor(|e, _, _| {
+            e.mode.full_features_mut().map_or(Task::ready(()), |f| {
+                f.runtime.semantic_token_state.take_update_task()
+            })
+        });
         task.await;
 
         cx.update_buffer(|buffer, cx| {

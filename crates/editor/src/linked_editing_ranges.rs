@@ -49,12 +49,17 @@ pub(super) fn refresh_linked_ranges(
     window: &mut Window,
     cx: &mut Context<Editor>,
 ) -> Option<()> {
-    if !editor.lsp_data_enabled() || editor.pending_rename.is_some() {
+    if !editor.lsp_data_enabled()
+        || editor
+            .mode
+            .full_features()
+            .map_or(false, |f| f.runtime.pending_rename.is_some())
+    {
         return None;
     }
     let project = editor.project()?.downgrade();
 
-    editor.linked_editing_range_task = Some(cx.spawn_in(window, async move |editor, cx| {
+    let task = Some(cx.spawn_in(window, async move |editor, cx| {
         cx.background_executor().timer(UPDATE_DEBOUNCE).await;
 
         let mut applicable_selections = Vec::new();
@@ -130,18 +135,22 @@ pub(super) fn refresh_linked_ranges(
 
         editor
             .update(cx, |this, cx| {
-                this.linked_edit_ranges.0.clear();
-                if this.pending_rename.is_some() {
+                let Some(full) = this.mode.full_features_mut() else {
+                    return;
+                };
+                full.runtime.linked_edit_ranges.0.clear();
+                if full.runtime.pending_rename.is_some() {
                     return;
                 }
                 for (buffer_id, ranges) in highlights.into_iter().flatten() {
-                    this.linked_edit_ranges
+                    full.runtime
+                        .linked_edit_ranges
                         .0
                         .entry(buffer_id)
                         .or_default()
                         .extend(ranges);
                 }
-                for (buffer_id, values) in this.linked_edit_ranges.0.iter_mut() {
+                for (buffer_id, values) in full.runtime.linked_edit_ranges.0.iter_mut() {
                     let Some(snapshot) = this
                         .buffer
                         .read(cx)
@@ -159,6 +168,9 @@ pub(super) fn refresh_linked_ranges(
 
         Some(())
     }));
+    if let Some(full) = editor.mode.full_features_mut() {
+        full.runtime.linked_editing_range_task = task;
+    }
     None
 }
 

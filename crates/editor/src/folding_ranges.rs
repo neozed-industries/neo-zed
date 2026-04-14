@@ -1,3 +1,4 @@
+use collections::HashSet;
 use futures::future::join_all;
 use itertools::Itertools;
 use language::language_settings::LanguageSettings;
@@ -13,13 +14,22 @@ impl Editor {
         _window: &Window,
         cx: &mut Context<Self>,
     ) {
-        if !self.lsp_data_enabled() || !self.use_document_folding_ranges {
-            return;
-        }
         let Some(project) = self.project.clone() else {
             return;
         };
-
+        let registered_buffer_ids = {
+            let Some(full) = self.mode.full_features_mut() else {
+                return;
+            };
+            if !full.enable_lsp_data || !full.runtime.use_document_folding_ranges {
+                return;
+            }
+            full.runtime
+                .registered_buffers
+                .keys()
+                .copied()
+                .collect::<HashSet<_>>()
+        };
         let buffers_to_query = self
             .visible_buffers(cx)
             .into_iter()
@@ -28,7 +38,7 @@ impl Editor {
             .filter(|buffer| {
                 let id = buffer.read(cx).remote_id();
                 (for_buffer.is_none_or(|target| target == id))
-                    && self.registered_buffers.contains_key(&id)
+                    && registered_buffer_ids.contains(&id)
                     && LanguageSettings::for_buffer(buffer.read(cx), cx)
                         .document_folding_ranges
                         .enabled()
@@ -36,7 +46,10 @@ impl Editor {
             .unique_by(|buffer| buffer.read(cx).remote_id())
             .collect::<Vec<_>>();
 
-        self.refresh_folding_ranges_task = cx.spawn(async move |editor, cx| {
+        let Some(full) = self.mode.full_features_mut() else {
+            return;
+        };
+        full.runtime.refresh_folding_ranges_task = cx.spawn(async move |editor, cx| {
             cx.background_executor()
                 .timer(LSP_REQUEST_DEBOUNCE_TIMEOUT)
                 .await;
@@ -78,7 +91,10 @@ impl Editor {
     }
 
     pub fn document_folding_ranges_enabled(&self, cx: &ui::App) -> bool {
-        self.use_document_folding_ranges && self.display_map.read(cx).has_lsp_folding_ranges()
+        self.mode
+            .full_features()
+            .map_or(false, |f| f.runtime.use_document_folding_ranges)
+            && self.display_map.read(cx).has_lsp_folding_ranges()
     }
 
     /// Removes LSP folding creases for buffers whose `lsp_folding_ranges`
@@ -89,7 +105,11 @@ impl Editor {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if !self.use_document_folding_ranges {
+        if !self
+            .mode
+            .full_features()
+            .map_or(false, |f| f.runtime.use_document_folding_ranges)
+        {
             return;
         }
 

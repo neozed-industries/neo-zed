@@ -566,7 +566,12 @@ impl SplittableEditor {
             multibuffer
         });
 
-        let render_diff_hunk_controls = self.rhs_editor.read(cx).render_diff_hunk_controls.clone();
+        let render_diff_hunk_controls = self
+            .rhs_editor
+            .read(cx)
+            .mode
+            .full_features()
+            .map(|f| f.runtime.render_diff_hunk_controls.clone());
         let lhs_editor = cx.new(|cx| {
             let mut editor =
                 Editor::for_multibuffer(lhs_multibuffer.clone(), Some(project.clone()), window, cx);
@@ -582,9 +587,11 @@ impl SplittableEditor {
             editor
         });
 
-        lhs_editor.update(cx, |editor, cx| {
-            editor.set_render_diff_hunk_controls(render_diff_hunk_controls, cx);
-        });
+        if let Some(render_diff_hunk_controls) = render_diff_hunk_controls {
+            lhs_editor.update(cx, |editor, cx| {
+                editor.set_render_diff_hunk_controls(render_diff_hunk_controls, cx);
+            });
+        }
 
         let mut subscriptions = vec![cx.subscribe_in(
             &lhs_editor,

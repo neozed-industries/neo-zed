@@ -677,10 +677,7 @@ pub(crate) fn commit_message_editor(
     let buffer = cx.new(|cx| MultiBuffer::singleton(commit_message_buffer, cx));
     let max_lines = if in_panel { MAX_PANEL_EDITOR_LINES } else { 18 };
     let mut commit_editor = Editor::new(
-        EditorMode::AutoHeight {
-            min_lines: max_lines,
-            max_lines: Some(max_lines),
-        },
+        EditorMode::auto_height(max_lines, Some(max_lines)),
         buffer,
         None,
         window,

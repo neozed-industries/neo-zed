@@ -95,10 +95,7 @@ impl EntryViewState {
                             self.session_capabilities.clone(),
                             self.agent_id.clone(),
                             "Edit message － @ to include context",
-                            editor::EditorMode::AutoHeight {
-                                min_lines: 1,
-                                max_lines: None,
-                            },
+                            editor::EditorMode::auto_height(1, None),
                             window,
                             cx,
                         );
@@ -418,11 +415,10 @@ fn create_editor_diff(
 ) -> Entity<Editor> {
     cx.new(|cx| {
         let mut editor = Editor::new(
-            EditorMode::Full {
-                scale_ui_elements_with_buffer_font_size: false,
-                show_active_line_background: false,
-                sizing_behavior: SizingBehavior::SizeByContent,
-            },
+            EditorMode::full(cx)
+                .scale_ui_elements_with_buffer_font_size(false)
+                .show_active_line_background(false)
+                .sizing_behavior(SizingBehavior::SizeByContent),
             diff.read(cx).multibuffer().clone(),
             None,
             window,

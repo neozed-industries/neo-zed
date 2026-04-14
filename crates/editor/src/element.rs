@@ -64,7 +64,7 @@ use multi_buffer::{
 use project::{
     DisableAiSettings, Entry, ProjectPath,
     debugger::breakpoint_store::{Breakpoint, BreakpointSessionState},
-    project_settings::ProjectSettings,
+    project_settings::{DiagnosticSeverity, ProjectSettings},
 };
 use settings::{
     GitGutterSetting, GitHunkStyleSetting, IndentGuideBackgroundColoring, IndentGuideColoring,
@@ -950,7 +950,11 @@ impl EditorElement {
         cx: &mut Context<Editor>,
     ) {
         // Handle diff review drag completion
-        if editor.diff_review_drag_state.is_some() {
+        if editor
+            .mode
+            .full_features()
+            .map_or(false, |f| f.runtime.diff_review_drag_state.is_some())
+        {
             editor.end_diff_review_drag(window, cx);
             cx.stop_propagation();
             return;
@@ -1256,7 +1260,11 @@ impl EditorElement {
         let valid_point = point_for_position.previous_valid;
 
         // Update diff review drag state if we're dragging
-        if editor.diff_review_drag_state.is_some() {
+        if editor
+            .mode
+            .full_features()
+            .map_or(false, |f| f.runtime.diff_review_drag_state.is_some())
+        {
             editor.update_diff_review_drag(valid_point.row(), window, cx);
         }
 
@@ -1288,8 +1296,14 @@ impl EditorElement {
             None
         };
 
-        if hovered_diff_hunk_row != editor.hovered_diff_hunk_row {
-            editor.hovered_diff_hunk_row = hovered_diff_hunk_row;
+        let current_hovered = editor
+            .mode
+            .full_features()
+            .and_then(|f| f.runtime.hovered_diff_hunk_row);
+        if hovered_diff_hunk_row != current_hovered {
+            if let Some(full) = editor.mode.full_features_mut() {
+                full.runtime.hovered_diff_hunk_row = hovered_diff_hunk_row;
+            }
             cx.notify();
         }
 
@@ -1298,13 +1312,15 @@ impl EditorElement {
         {
             let mouse_over_inline_blame = bounds.contains(&event.position);
             let mouse_over_popover = editor
-                .inline_blame_popover
-                .as_ref()
+                .mode
+                .full_features()
+                .and_then(|f| f.runtime.inline_blame_popover.as_ref())
                 .and_then(|state| state.popover_bounds)
                 .is_some_and(|bounds| bounds.contains(&event.position));
             let keyboard_grace = editor
-                .inline_blame_popover
-                .as_ref()
+                .mode
+                .full_features()
+                .and_then(|f| f.runtime.inline_blame_popover.as_ref())
                 .is_some_and(|state| state.keyboard_grace);
 
             if mouse_over_inline_blame || mouse_over_popover {
@@ -1314,8 +1330,9 @@ impl EditorElement {
             }
         } else {
             let keyboard_grace = editor
-                .inline_blame_popover
-                .as_ref()
+                .mode
+                .full_features()
+                .and_then(|f| f.runtime.inline_blame_popover.as_ref())
                 .is_some_and(|state| state.keyboard_grace);
             if !keyboard_grace {
                 editor.hide_blame_popover(false, cx);
@@ -1332,31 +1349,36 @@ impl EditorElement {
 
         let diff_review_indicator = if gutter_hovered && show_diff_review {
             let is_visible = editor
-                .gutter_diff_review_indicator
-                .0
+                .mode
+                .full_features()
+                .and_then(|f| f.runtime.gutter_diff_review_indicator.0)
                 .is_some_and(|indicator| indicator.is_active);
 
             if !is_visible {
-                editor
-                    .gutter_diff_review_indicator
-                    .1
-                    .get_or_insert_with(|| {
-                        cx.spawn(async move |this, cx| {
-                            cx.background_executor()
-                                .timer(Duration::from_millis(200))
-                                .await;
+                if let Some(full) = editor.mode.full_features_mut() {
+                    full.runtime
+                        .gutter_diff_review_indicator
+                        .1
+                        .get_or_insert_with(|| {
+                            cx.spawn(async move |this, cx| {
+                                cx.background_executor()
+                                    .timer(Duration::from_millis(200))
+                                    .await;
 
-                            this.update(cx, |this, cx| {
-                                if let Some(indicator) =
-                                    this.gutter_diff_review_indicator.0.as_mut()
-                                {
-                                    indicator.is_active = true;
-                                    cx.notify();
-                                }
+                                this.update(cx, |this, cx| {
+                                    if let Some(full) = this.mode.full_features_mut() {
+                                        if let Some(indicator) =
+                                            full.runtime.gutter_diff_review_indicator.0.as_mut()
+                                        {
+                                            indicator.is_active = true;
+                                            cx.notify();
+                                        }
+                                    }
+                                })
+                                .ok();
                             })
-                            .ok();
-                        })
-                    });
+                        });
+                }
             }
 
             let anchor = position_map
@@ -1368,12 +1390,20 @@ impl EditorElement {
                 is_active: is_visible,
             })
         } else {
-            editor.gutter_diff_review_indicator.1 = None;
+            if let Some(full) = editor.mode.full_features_mut() {
+                full.runtime.gutter_diff_review_indicator.1 = None;
+            }
             None
         };
 
-        if diff_review_indicator != editor.gutter_diff_review_indicator.0 {
-            editor.gutter_diff_review_indicator.0 = diff_review_indicator;
+        let current_indicator = editor
+            .mode
+            .full_features()
+            .and_then(|f| f.runtime.gutter_diff_review_indicator.0);
+        if diff_review_indicator != current_indicator {
+            if let Some(full) = editor.mode.full_features_mut() {
+                full.runtime.gutter_diff_review_indicator.0 = diff_review_indicator;
+            }
             cx.notify();
         }
 
@@ -1403,12 +1433,16 @@ impl EditorElement {
                 let as_point = text::ToPoint::to_point(&buffer_anchor, buffer_snapshot);
 
                 let is_visible = editor
-                    .gutter_breakpoint_indicator
-                    .0
+                    .mode
+                    .full_features()
+                    .and_then(|f| f.runtime.gutter_breakpoint_indicator.0)
                     .is_some_and(|indicator| indicator.is_active);
 
-                let has_existing_breakpoint =
-                    editor.breakpoint_store.as_ref().is_some_and(|store| {
+                let has_existing_breakpoint = editor
+                    .mode
+                    .full_features()
+                    .and_then(|f| f.runtime.breakpoint_store.as_ref())
+                    .is_some_and(|store| {
                         let Some(project) = &editor.project else {
                             return false;
                         };
@@ -1428,22 +1462,30 @@ impl EditorElement {
                     });
 
                 if !is_visible {
-                    editor.gutter_breakpoint_indicator.1.get_or_insert_with(|| {
-                        cx.spawn(async move |this, cx| {
-                            cx.background_executor()
-                                .timer(Duration::from_millis(200))
-                                .await;
+                    if let Some(full) = editor.mode.full_features_mut() {
+                        full.runtime
+                            .gutter_breakpoint_indicator
+                            .1
+                            .get_or_insert_with(|| {
+                                cx.spawn(async move |this, cx| {
+                                    cx.background_executor()
+                                        .timer(Duration::from_millis(200))
+                                        .await;
 
-                            this.update(cx, |this, cx| {
-                                if let Some(indicator) = this.gutter_breakpoint_indicator.0.as_mut()
-                                {
-                                    indicator.is_active = true;
-                                    cx.notify();
-                                }
-                            })
-                            .ok();
-                        })
-                    });
+                                    this.update(cx, |this, cx| {
+                                        if let Some(full) = this.mode.full_features_mut() {
+                                            if let Some(indicator) =
+                                                full.runtime.gutter_breakpoint_indicator.0.as_mut()
+                                            {
+                                                indicator.is_active = true;
+                                                cx.notify();
+                                            }
+                                        }
+                                    })
+                                    .ok();
+                                })
+                            });
+                    }
                 }
 
                 Some(PhantomBreakpointIndicator {
@@ -1452,16 +1494,26 @@ impl EditorElement {
                     collides_with_existing_breakpoint: has_existing_breakpoint,
                 })
             } else {
-                editor.gutter_breakpoint_indicator.1 = None;
+                if let Some(full) = editor.mode.full_features_mut() {
+                    full.runtime.gutter_breakpoint_indicator.1 = None;
+                }
                 None
             }
         } else {
-            editor.gutter_breakpoint_indicator.1 = None;
+            if let Some(full) = editor.mode.full_features_mut() {
+                full.runtime.gutter_breakpoint_indicator.1 = None;
+            }
             None
         };
 
-        if &breakpoint_indicator != &editor.gutter_breakpoint_indicator.0 {
-            editor.gutter_breakpoint_indicator.0 = breakpoint_indicator;
+        let current_bp = editor
+            .mode
+            .full_features()
+            .map(|f| f.runtime.gutter_breakpoint_indicator.0);
+        if Some(&breakpoint_indicator) != current_bp.as_ref() {
+            if let Some(full) = editor.mode.full_features_mut() {
+                full.runtime.gutter_breakpoint_indicator.0 = breakpoint_indicator;
+            }
             cx.notify();
         }
 
@@ -1707,7 +1759,12 @@ impl EditorElement {
                 }
 
                 selections.extend(remote_selections.into_values());
-            } else if !editor.is_focused(window) && editor.show_cursor_when_unfocused {
+            } else if !editor.is_focused(window)
+                && editor
+                    .mode
+                    .auto_height_features()
+                    .map_or(false, |f| f.show_cursor_when_unfocused)
+            {
                 let cursor_offset_on_selection = editor.cursor_offset_on_selection;
 
                 let layouts = snapshot
@@ -1982,7 +2039,16 @@ impl EditorElement {
         window: &mut Window,
         cx: &mut App,
     ) -> Option<EditorScrollbars> {
-        let show_scrollbars = self.editor.read(cx).show_scrollbars;
+        let show_scrollbars = self
+            .editor
+            .read(cx)
+            .mode
+            .full_features()
+            .map(|f| f.show_scrollbars)
+            .unwrap_or(ScrollbarAxes {
+                horizontal: false,
+                vertical: false,
+            });
         if (!show_scrollbars.horizontal && !show_scrollbars.vertical)
             || self.style.scrollbar_width.is_zero()
         {
@@ -2035,7 +2101,9 @@ impl EditorElement {
         let content_offset = self
             .editor
             .read(cx)
-            .show_indent_guides
+            .mode
+            .auto_height_features()
+            .and_then(|f| f.show_indent_guides)
             .is_none_or(|should_show| should_show)
             .then_some(content_offset)
             .unwrap_or_default();
@@ -2043,9 +2111,19 @@ impl EditorElement {
         Some(EditorScrollbars::from_scrollbar_axes(
             ScrollbarAxes {
                 horizontal: scrollbar_settings.axes.horizontal
-                    && self.editor.read(cx).show_scrollbars.horizontal,
+                    && self
+                        .editor
+                        .read(cx)
+                        .mode
+                        .full_features()
+                        .map_or(false, |f| f.show_scrollbars.horizontal),
                 vertical: scrollbar_settings.axes.vertical
-                    && self.editor.read(cx).show_scrollbars.vertical,
+                    && self
+                        .editor
+                        .read(cx)
+                        .mode
+                        .full_features()
+                        .map_or(false, |f| f.show_scrollbars.vertical),
             },
             scrollbar_layout_information,
             content_offset,
@@ -2388,7 +2466,15 @@ impl EditorElement {
                     .diagnostics
                     .inline
                     .max_severity
-                    .unwrap_or_else(|| self.editor.read(cx).diagnostics_max_severity)
+                    .unwrap_or_else(|| {
+                        self.editor
+                            .read(cx)
+                            .mode
+                            .full_features()
+                            .map_or(DiagnosticSeverity::Off, |f| {
+                                f.runtime.diagnostics_max_severity
+                            })
+                    })
                     .into_lsp()
             })
             .flatten()
@@ -2397,17 +2483,27 @@ impl EditorElement {
             None => return HashMap::default(),
         };
 
-        let active_diagnostics_group =
-            if let ActiveDiagnostic::Group(group) = &self.editor.read(cx).active_diagnostics {
-                Some(group.group_id)
-            } else {
-                None
-            };
+        let active_diagnostics_group = if let Some(ActiveDiagnostic::Group(group)) = self
+            .editor
+            .read(cx)
+            .mode
+            .full_features()
+            .map(|f| &f.runtime.active_diagnostics)
+        {
+            Some(group.group_id)
+        } else {
+            None
+        };
 
         let diagnostics_by_rows = self.editor.update(cx, |editor, cx| {
             let snapshot = editor.snapshot(window, cx);
-            editor
-                .inline_diagnostics
+            let empty_vec = Vec::new();
+            let inline_diagnostics = editor
+                .mode
+                .full_features()
+                .map(|f| &f.runtime.inline_diagnostics)
+                .unwrap_or(&empty_vec);
+            inline_diagnostics
                 .iter()
                 .filter(|(_, diagnostic)| diagnostic.severity <= max_severity)
                 .filter(|(_, diagnostic)| match active_diagnostics_group {
@@ -2554,7 +2650,10 @@ impl EditorElement {
 
         let icon_size = ui::IconSize::XSmall;
         let mut button = self.editor.update(cx, |editor, cx| {
-            editor.available_code_actions.as_ref()?;
+            editor
+                .mode
+                .full_features()
+                .and_then(|f| f.runtime.available_code_actions.as_ref())?;
             let active = editor
                 .context_menu
                 .borrow()
@@ -2709,13 +2808,16 @@ impl EditorElement {
         }
 
         let editor = self.editor.read(cx);
-        let blame = editor.blame.clone()?;
+        let blame = editor.blame().cloned()?;
         let padding = {
             const INLINE_ACCEPT_SUGGESTION_EM_WIDTHS: f32 = 14.;
 
             let mut padding = ProjectSettings::get_global(cx).git.inline_blame.padding as f32;
 
-            if let Some(edit_prediction) = editor.active_edit_prediction.as_ref()
+            if let Some(edit_prediction) = editor
+                .mode
+                .full_features()
+                .and_then(|f| f.runtime.active_edit_prediction.as_ref())
                 && let EditPrediction::Edit {
                     display_mode: EditDisplayMode::TabAccept,
                     ..
@@ -2785,11 +2887,17 @@ impl EditorElement {
         window: &mut Window,
         cx: &mut App,
     ) {
-        if !self.editor.read(cx).inline_blame_popover.is_some() {
+        if !self
+            .editor
+            .read(cx)
+            .mode
+            .full_features()
+            .map_or(false, |f| f.runtime.inline_blame_popover.is_some())
+        {
             return;
         }
 
-        let Some(blame) = self.editor.read(cx).blame.clone() else {
+        let Some(blame) = self.editor.read(cx).blame().cloned() else {
             return;
         };
         let cursor_point = self
@@ -2821,8 +2929,9 @@ impl EditorElement {
 
         let Some((popover_state, target_point)) = self.editor.read_with(cx, |editor, _| {
             editor
-                .inline_blame_popover
-                .as_ref()
+                .mode
+                .full_features()
+                .and_then(|f| f.runtime.inline_blame_popover.as_ref())
                 .map(|state| (state.popover_state.clone(), state.position))
         }) else {
             return;
@@ -2867,8 +2976,10 @@ impl EditorElement {
             let popover_bounds = Bounds::new(origin, size);
 
             self.editor.update(cx, |editor, _| {
-                if let Some(state) = &mut editor.inline_blame_popover {
-                    state.popover_bounds = Some(popover_bounds);
+                if let Some(full) = editor.mode.full_features_mut() {
+                    if let Some(state) = &mut full.runtime.inline_blame_popover {
+                        state.popover_bounds = Some(popover_bounds);
+                    }
                 }
             });
 
@@ -2894,7 +3005,7 @@ impl EditorElement {
             return None;
         }
 
-        let blame = self.editor.read(cx).blame.clone()?;
+        let blame = self.editor.read(cx).blame().cloned()?;
         let workspace = self.editor.read(cx).workspace()?;
         let blamed_rows: Vec<_> = blame.update(cx, |blame, cx| {
             blame.blame_for_rows(buffer_rows, cx).collect()
@@ -3208,7 +3319,12 @@ impl EditorElement {
             return None;
         }
 
-        let indicator = self.editor.read(cx).gutter_diff_review_indicator.0?;
+        let indicator = self
+            .editor
+            .read(cx)
+            .mode
+            .full_features()
+            .and_then(|f| f.runtime.gutter_diff_review_indicator.0)?;
         if !indicator.is_active {
             return None;
         }
@@ -3283,8 +3399,11 @@ impl EditorElement {
                 snapshot.display_point_to_point(DisplayPoint::new(range.end, 0), Bias::Right);
 
             editor
-                .runnables
-                .all_runnables()
+                .mode
+                .full_features()
+                .map(|f| &f.runtime.runnables)
+                .into_iter()
+                .flat_map(|r| r.all_runnables())
                 .filter_map(|tasks| {
                     let multibuffer_point = tasks.offset.to_point(&snapshot.buffer_snapshot());
                     if multibuffer_point < offset_range_start
@@ -3363,7 +3482,13 @@ impl EditorElement {
         window: &mut Window,
         cx: &mut App,
     ) -> Vec<Option<(AnyElement, gpui::Point<Pixels>)>> {
-        if self.editor.read(cx).disable_expand_excerpt_buttons {
+        if self
+            .editor
+            .read(cx)
+            .mode
+            .full_features()
+            .map_or(false, |f| f.disable_expand_excerpt_buttons)
+        {
             return vec![];
         }
 
@@ -4675,7 +4800,13 @@ impl EditorElement {
         let mut end_rows = Vec::<DisplayRow>::new();
         let mut rows = Vec::<StickyHeader>::new();
 
-        for item in editor.sticky_headers.iter().flatten() {
+        let empty_vec = Vec::new();
+        let sticky_headers = editor
+            .mode
+            .full_features()
+            .and_then(|f| f.runtime.sticky_headers.as_ref())
+            .unwrap_or(&empty_vec);
+        for item in sticky_headers.iter() {
             let start_point = item.range.start.to_point(snapshot.buffer_snapshot());
             let end_point = item.range.end.to_point(snapshot.buffer_snapshot());
 
@@ -5665,8 +5796,16 @@ impl EditorElement {
         window: &mut Window,
         cx: &mut App,
     ) -> (Vec<AnyElement>, Vec<(DisplayRow, Bounds<Pixels>)>) {
-        let render_diff_hunk_controls = editor.read(cx).render_diff_hunk_controls.clone();
-        let hovered_diff_hunk_row = editor.read(cx).hovered_diff_hunk_row;
+        let render_diff_hunk_controls = editor
+            .read(cx)
+            .mode
+            .full_features()
+            .map(|f| f.runtime.render_diff_hunk_controls.clone());
+        let hovered_diff_hunk_row = editor
+            .read(cx)
+            .mode
+            .full_features()
+            .and_then(|f| f.runtime.hovered_diff_hunk_row);
         let sticky_top = text_hitbox.bounds.top() + sticky_header_height;
 
         let mut controls = vec![];
@@ -5737,7 +5876,10 @@ impl EditorElement {
                         sticky_top.min(max_y)
                     };
 
-                    let mut element = render_diff_hunk_controls(
+                    let Some(ref render_fn) = render_diff_hunk_controls else {
+                        continue;
+                    };
+                    let mut element = render_fn(
                         display_row_range.start.0,
                         status,
                         multi_buffer_range.clone(),
@@ -5801,7 +5943,8 @@ impl EditorElement {
         );
 
         let maybe_element = self.editor.update(cx, |editor, cx| {
-            if let Some(popover) = editor.signature_help_state.popover_mut() {
+            let full = editor.mode.full_features_mut()?;
+            if let Some(popover) = full.runtime.signature_help_state.popover_mut() {
                 let element = popover.render(max_size, window, cx);
                 Some(element)
             } else {
@@ -5922,11 +6065,8 @@ impl EditorElement {
                 layout.mode,
                 EditorMode::Full { .. } | EditorMode::Minimap { .. }
             ) {
-                let show_active_line_background = match layout.mode {
-                    EditorMode::Full {
-                        show_active_line_background,
-                        ..
-                    } => show_active_line_background,
+                let show_active_line_background = match &layout.mode {
+                    EditorMode::Full { features } => features.show_active_line_background,
                     EditorMode::Minimap { .. } => true,
                     _ => false,
                 };
@@ -7117,7 +7257,7 @@ impl EditorElement {
 
             let scrollbar_layout = scrollbar_layout.clone();
             let background_highlights = editor.background_highlights.clone();
-            let snapshot = layout.position_map.snapshot.clone();
+            let display_snapshot = layout.position_map.snapshot.display_snapshot.clone();
             let theme = cx.theme().clone();
             let scrollbar_settings = EditorSettings::get_global(cx).scrollbar;
 
@@ -7127,18 +7267,18 @@ impl EditorElement {
                     let scrollbar_size = scrollbar_layout.hitbox.size;
                     let scrollbar_markers = cx
                         .background_spawn(async move {
-                            let max_point = snapshot.display_snapshot.buffer_snapshot().max_point();
+                            let max_point = display_snapshot.buffer_snapshot().max_point();
                             let mut marker_quads = Vec::new();
                             if scrollbar_settings.git_diff {
                                 let marker_row_ranges =
-                                    snapshot.buffer_snapshot().diff_hunks().map(|hunk| {
+                                    display_snapshot.buffer_snapshot().diff_hunks().map(|hunk| {
                                         let start_display_row =
                                             MultiBufferPoint::new(hunk.row_range.start.0, 0)
-                                                .to_display_point(&snapshot.display_snapshot)
+                                                .to_display_point(&display_snapshot)
                                                 .row();
                                         let mut end_display_row =
                                             MultiBufferPoint::new(hunk.row_range.end.0, 0)
-                                                .to_display_point(&snapshot.display_snapshot)
+                                                .to_display_point(&display_snapshot)
                                                 .row();
                                         if end_display_row != start_display_row {
                                             end_display_row.0 -= 1;
@@ -7187,11 +7327,10 @@ impl EditorElement {
                                         color.fade_out(0.5);
                                     }
                                     let marker_row_ranges = background_ranges.iter().map(|range| {
-                                        let display_start = range
-                                            .start
-                                            .to_display_point(&snapshot.display_snapshot);
+                                        let display_start =
+                                            range.start.to_display_point(&display_snapshot);
                                         let display_end =
-                                            range.end.to_display_point(&snapshot.display_snapshot);
+                                            range.end.to_display_point(&display_snapshot);
                                         ColoredRange {
                                             start: display_start.row(),
                                             end: display_end.row(),
@@ -7206,7 +7345,7 @@ impl EditorElement {
                             }
 
                             if scrollbar_settings.diagnostics != ScrollbarDiagnostics::None {
-                                let diagnostics = snapshot
+                                let diagnostics = display_snapshot
                                     .buffer_snapshot()
                                     .diagnostics_in_range::<Point>(Point::zero()..max_point)
                                     // Don't show diagnostics the user doesn't care about
@@ -7240,14 +7379,10 @@ impl EditorElement {
                                     });
 
                                 let marker_row_ranges = diagnostics.into_iter().map(|diagnostic| {
-                                    let start_display = diagnostic
-                                        .range
-                                        .start
-                                        .to_display_point(&snapshot.display_snapshot);
-                                    let end_display = diagnostic
-                                        .range
-                                        .end
-                                        .to_display_point(&snapshot.display_snapshot);
+                                    let start_display =
+                                        diagnostic.range.start.to_display_point(&display_snapshot);
+                                    let end_display =
+                                        diagnostic.range.end.to_display_point(&display_snapshot);
                                     let color = match diagnostic.diagnostic.severity {
                                         lsp::DiagnosticSeverity::ERROR => theme.status().error,
                                         lsp::DiagnosticSeverity::WARNING => theme.status().warning,
@@ -7676,7 +7811,11 @@ impl EditorElement {
                     delta = delta.coalesce(event.delta);
 
                     if event.modifiers.secondary()
-                        && editor.read(cx).enable_mouse_wheel_zoom
+                        && editor
+                            .read(cx)
+                            .mode
+                            .auto_height_features()
+                            .map_or(false, |f| f.enable_mouse_wheel_zoom)
                         && EditorSettings::get_global(cx).mouse_wheel_zoom
                     {
                         let delta_y = match event.delta {
@@ -9483,40 +9622,35 @@ impl EditorElement {
     ///
     /// This allows UI elements to scale based on the `buffer_font_size`.
     fn rem_size(&self, cx: &mut App) -> Option<Pixels> {
-        match self.editor.read(cx).mode {
-            EditorMode::Full {
-                scale_ui_elements_with_buffer_font_size: true,
-                ..
-            }
-            | EditorMode::Minimap { .. } => {
-                let buffer_font_size = self.style.text.font_size;
-                match buffer_font_size {
-                    AbsoluteLength::Pixels(pixels) => {
-                        let rem_size_scale = {
-                            // Our default UI font size is 14px on a 16px base scale.
-                            // This means the default UI font size is 0.875rems.
-                            let default_font_size_scale = 14. / ui::BASE_REM_SIZE_IN_PX;
+        let scale_with_buffer = match &self.editor.read(cx).mode {
+            EditorMode::Full { features } => features.scale_ui_elements_with_buffer_font_size,
+            EditorMode::Minimap { .. } => true,
+            _ => false,
+        };
+        if scale_with_buffer {
+            let buffer_font_size = self.style.text.font_size;
+            match buffer_font_size {
+                AbsoluteLength::Pixels(pixels) => {
+                    let rem_size_scale = {
+                        // Our default UI font size is 14px on a 16px base scale.
+                        // This means the default UI font size is 0.875rems.
+                        let default_font_size_scale = 14. / ui::BASE_REM_SIZE_IN_PX;
 
-                            // We then determine the delta between a single rem and the default font
-                            // size scale.
-                            let default_font_size_delta = 1. - default_font_size_scale;
+                        // We then determine the delta between a single rem and the default font
+                        // size scale.
+                        let default_font_size_delta = 1. - default_font_size_scale;
 
-                            // Finally, we add this delta to 1rem to get the scale factor that
-                            // should be used to scale up the UI.
-                            1. + default_font_size_delta
-                        };
+                        // Finally, we add this delta to 1rem to get the scale factor that
+                        // should be used to scale up the UI.
+                        1. + default_font_size_delta
+                    };
 
-                        Some(pixels * rem_size_scale)
-                    }
-                    AbsoluteLength::Rems(rems) => {
-                        Some(rems.to_pixels(ui::BASE_REM_SIZE_IN_PX.into()))
-                    }
+                    Some(pixels * rem_size_scale)
                 }
+                AbsoluteLength::Rems(rems) => Some(rems.to_pixels(ui::BASE_REM_SIZE_IN_PX.into())),
             }
-            // We currently use single-line and auto-height editors in UI contexts,
-            // so we don't want to scale everything with the buffer font size, as it
-            // ends up looking off.
-            _ => None,
+        } else {
+            None
         }
     }
 
@@ -9593,7 +9727,7 @@ impl Element for EditorElement {
             self.editor.update(cx, |editor, cx| {
                 editor.set_style(self.style.clone(), window, cx);
 
-                let layout_id = match editor.mode {
+                let layout_id = match &editor.mode {
                     EditorMode::SingleLine => {
                         let rem_size = window.rem_size();
                         let height = self.style.text.line_height_in_pixels(rem_size);
@@ -9605,7 +9739,10 @@ impl Element for EditorElement {
                     EditorMode::AutoHeight {
                         min_lines,
                         max_lines,
+                        ..
                     } => {
+                        let min_lines = *min_lines;
+                        let max_lines = *max_lines;
                         let editor_handle = cx.entity();
                         window.request_measured_layout(
                             Style::default(),
@@ -9632,9 +9769,8 @@ impl Element for EditorElement {
                         style.size.height = relative(1.).into();
                         window.request_layout(style, None, cx)
                     }
-                    EditorMode::Full {
-                        sizing_behavior, ..
-                    } => {
+                    EditorMode::Full { features } => {
+                        let sizing_behavior = features.sizing_behavior;
                         let mut style = Style::default();
                         style.size.width = relative(1.).into();
                         if sizing_behavior == SizingBehavior::SizeByContent {
@@ -9707,9 +9843,14 @@ impl Element for EditorElement {
                     let scrollbars_shown = settings.scrollbar.show != ShowScrollbar::Never;
                     let vertical_scrollbar_width = (scrollbars_shown
                         && settings.scrollbar.axes.vertical
-                        && self.editor.read(cx).show_scrollbars.vertical)
-                        .then_some(style.scrollbar_width)
-                        .unwrap_or_default();
+                        && self
+                            .editor
+                            .read(cx)
+                            .mode
+                            .full_features()
+                            .map_or(false, |f| f.show_scrollbars.vertical))
+                    .then_some(style.scrollbar_width)
+                    .unwrap_or_default();
                     let minimap_width = self
                         .get_minimap_width(
                             &settings.minimap,
@@ -9976,7 +10117,13 @@ impl Element for EditorElement {
                     }
 
                     // Add diff review drag selection highlight to text area
-                    if let Some(drag_state) = &self.editor.read(cx).diff_review_drag_state {
+                    if let Some(drag_state) = self
+                        .editor
+                        .read(cx)
+                        .mode
+                        .full_features()
+                        .and_then(|f| f.runtime.diff_review_drag_state.as_ref())
+                    {
                         let range = drag_state.row_range(&snapshot.display_snapshot);
                         let start_row = range.start().0;
                         let end_row = range.end().0;
@@ -10005,8 +10152,9 @@ impl Element for EditorElement {
                     let document_colors = self
                         .editor
                         .read(cx)
-                        .colors
-                        .as_ref()
+                        .mode
+                        .full_features()
+                        .and_then(|f| f.runtime.colors.as_ref())
                         .map(|colors| colors.editor_display_highlights(&snapshot));
                     let redacted_ranges = self.editor.read(cx).redacted_ranges(
                         start_anchor..end_anchor,
@@ -10143,10 +10291,12 @@ impl Element for EditorElement {
                     // line numbers so we don't paint a line number debug accent color if a user
                     // has their mouse over that line when a breakpoint isn't there
                     self.editor.update(cx, |editor, _| {
-                        if let Some(phantom_breakpoint) = &mut editor
-                            .gutter_breakpoint_indicator
-                            .0
-                            .filter(|phantom_breakpoint| phantom_breakpoint.is_active)
+                        let bp_indicator = editor
+                            .mode
+                            .full_features_mut()
+                            .and_then(|f| f.runtime.gutter_breakpoint_indicator.0.as_mut());
+                        if let Some(phantom_breakpoint) =
+                            bp_indicator.filter(|phantom_breakpoint| phantom_breakpoint.is_active)
                         {
                             // Is there a non-phantom breakpoint on this line?
                             phantom_breakpoint.collides_with_existing_breakpoint = true;
@@ -10276,10 +10426,11 @@ impl Element for EditorElement {
                     let longest_line_blame_width = self
                         .editor
                         .update(cx, |editor, cx| {
-                            if !editor.show_git_blame_inline {
+                            let full = editor.mode.full_features()?;
+                            if !full.runtime.show_git_blame_inline {
                                 return None;
                             }
-                            let blame = editor.blame.as_ref()?;
+                            let blame = full.runtime.blame.as_ref()?.clone();
                             let (_, blame_entry) = blame
                                 .update(cx, |blame, cx| {
                                     let row_infos =
@@ -10988,26 +11139,32 @@ impl Element for EditorElement {
                         sticky_scroll_header_height
                     };
 
-                    let (diff_hunk_controls, diff_hunk_control_bounds) =
-                        if is_read_only && !self.editor.read(cx).delegate_stage_and_restore {
-                            (vec![], vec![])
-                        } else {
-                            self.layout_diff_hunk_controls(
-                                start_row..end_row,
-                                &row_infos,
-                                &text_hitbox,
-                                current_selection_head,
-                                line_height,
-                                right_margin,
-                                scroll_pixel_position,
-                                sticky_header_height,
-                                &display_hunks,
-                                &highlighted_rows,
-                                self.editor.clone(),
-                                window,
-                                cx,
-                            )
-                        };
+                    let (diff_hunk_controls, diff_hunk_control_bounds) = if is_read_only
+                        && !self
+                            .editor
+                            .read(cx)
+                            .mode
+                            .full_features()
+                            .map_or(false, |f| f.delegate_stage_and_restore)
+                    {
+                        (vec![], vec![])
+                    } else {
+                        self.layout_diff_hunk_controls(
+                            start_row..end_row,
+                            &row_infos,
+                            &text_hitbox,
+                            current_selection_head,
+                            line_height,
+                            right_margin,
+                            scroll_pixel_position,
+                            sticky_header_height,
+                            &display_hunks,
+                            &highlighted_rows,
+                            self.editor.clone(),
+                            window,
+                            cx,
+                        )
+                    };
 
                     let position_map = Rc::new(PositionMap {
                         size: bounds.size,
@@ -12471,16 +12628,8 @@ mod tests {
         init_test(cx, |_| {});
         let window = cx.add_window(|window, cx| {
             let buffer = MultiBuffer::build_simple(&"a ".to_string().repeat(100), cx);
-            let mut editor = Editor::new(
-                EditorMode::AutoHeight {
-                    min_lines: 1,
-                    max_lines: None,
-                },
-                buffer,
-                None,
-                window,
-                cx,
-            );
+            let mut editor =
+                Editor::new(EditorMode::auto_height(1, None), buffer, None, window, cx);
             editor.set_soft_wrap_mode(language_settings::SoftWrap::EditorWidth, cx);
             editor
         });
@@ -12507,7 +12656,7 @@ mod tests {
         init_test(cx, |_| {});
         let window = cx.add_window(|window, cx| {
             let buffer = MultiBuffer::build_simple(&"a ".to_string().repeat(100), cx);
-            let mut editor = Editor::new(EditorMode::full(), buffer, None, window, cx);
+            let mut editor = Editor::new(EditorMode::full(cx), buffer, None, window, cx);
             editor.set_soft_wrap_mode(language_settings::SoftWrap::EditorWidth, cx);
             editor
         });
@@ -12534,7 +12683,7 @@ mod tests {
         init_test(cx, |_| {});
         let window = cx.add_window(|window, cx| {
             let buffer = MultiBuffer::build_simple(&sample_text(6, 6, 'a'), cx);
-            Editor::new(EditorMode::full(), buffer, None, window, cx)
+            Editor::new(EditorMode::full(cx), buffer, None, window, cx)
         });
 
         let editor = window.root(cx).unwrap();
@@ -12695,7 +12844,7 @@ mod tests {
             });
 
             let buffer = MultiBuffer::build_from_buffer(buffer, cx);
-            Editor::new(EditorMode::full(), buffer, None, window, cx)
+            Editor::new(EditorMode::full(cx), buffer, None, window, cx)
         });
 
         let editor = window.root(cx).unwrap();
@@ -12767,7 +12916,7 @@ mod tests {
         init_test(cx, |_| {});
         let window = cx.add_window(|window, cx| {
             let buffer = MultiBuffer::build_simple(&sample_text(6, 6, 'a'), cx);
-            Editor::new(EditorMode::full(), buffer, None, window, cx)
+            Editor::new(EditorMode::full(cx), buffer, None, window, cx)
         });
 
         update_test_language_settings(cx, &|s| {
@@ -12899,7 +13048,7 @@ mod tests {
 
         let window = cx.add_window(|window, cx| {
             let buffer = MultiBuffer::build_simple(&(sample_text(6, 6, 'a') + "\n"), cx);
-            Editor::new(EditorMode::full(), buffer, None, window, cx)
+            Editor::new(EditorMode::full(cx), buffer, None, window, cx)
         });
         let cx = &mut VisualTestContext::from_window(*window, cx);
         let editor = window.root(cx).unwrap();
@@ -12970,7 +13119,7 @@ mod tests {
 
         let window = cx.add_window(|window, cx| {
             let buffer = MultiBuffer::build_simple("", cx);
-            Editor::new(EditorMode::full(), buffer, None, window, cx)
+            Editor::new(EditorMode::full(cx), buffer, None, window, cx)
         });
         let cx = &mut VisualTestContext::from_window(*window, cx);
         let editor = window.root(cx).unwrap();
@@ -13062,7 +13211,7 @@ mod tests {
 
             let actual_invisibles = collect_invisibles_from_new_editor(
                 cx,
-                EditorMode::full(),
+                cx.read(|cx| EditorMode::full(cx)),
                 input_text,
                 px(500.0),
                 show_line_numbers,
@@ -13081,10 +13230,7 @@ mod tests {
 
         for editor_mode_without_invisibles in [
             EditorMode::SingleLine,
-            EditorMode::AutoHeight {
-                min_lines: 1,
-                max_lines: Some(100),
-            },
+            EditorMode::auto_height(1, Some(100)),
         ] {
             for show_line_numbers in [true, false] {
                 let invisibles = collect_invisibles_from_new_editor(
@@ -13159,7 +13305,7 @@ mod tests {
 
                 let actual_invisibles = collect_invisibles_from_new_editor(
                     cx,
-                    EditorMode::full(),
+                    cx.read(|cx| EditorMode::full(cx)),
                     &input_text,
                     px(editor_width),
                     show_line_numbers,

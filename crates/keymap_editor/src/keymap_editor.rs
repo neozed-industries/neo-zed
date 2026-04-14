@@ -3308,11 +3308,10 @@ impl ActionArgumentsEditor {
                 let editor = cx.new_window_entity(|window, cx| {
                     let multi_buffer = cx.new(|cx| editor::MultiBuffer::singleton(buffer, cx));
                     let mut editor = Editor::new(
-                        EditorMode::Full {
-                            scale_ui_elements_with_buffer_font_size: true,
-                            show_active_line_background: false,
-                            sizing_behavior: SizingBehavior::SizeByContent,
-                        },
+                        EditorMode::full(cx)
+                            .scale_ui_elements_with_buffer_font_size(true)
+                            .show_active_line_background(false)
+                            .sizing_behavior(SizingBehavior::SizeByContent),
                         multi_buffer,
                         project.upgrade(),
                         window,

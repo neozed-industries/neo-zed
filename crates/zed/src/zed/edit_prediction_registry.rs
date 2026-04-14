@@ -359,7 +359,7 @@ mod tests {
         // Create an editor in a window so observe_new registers it.
         let editor = cx.add_window(|window, cx| {
             let buffer = cx.new(|_cx| MultiBuffer::new(language::Capability::ReadWrite));
-            Editor::new(editor::EditorMode::full(), buffer, None, window, cx)
+            Editor::new(editor::EditorMode::full(cx), buffer, None, window, cx)
         });
 
         editor

@@ -14,16 +14,16 @@ use ui::{ActiveTheme, utils::ensure_minimum_contrast};
 
 impl Editor {
     pub(crate) fn colorize_brackets(&mut self, invalidate: bool, cx: &mut Context<Editor>) {
-        if !self.mode.is_full() {
-            return;
+        {
+            let Some(full) = self.mode.full_features_mut() else {
+                return;
+            };
+            if invalidate {
+                full.runtime.bracket_fetched_tree_sitter_chunks.clear();
+            }
         }
-
-        if invalidate {
-            self.bracket_fetched_tree_sitter_chunks.clear();
-        }
-
         let accents_count = cx.theme().accents().0.len();
-        let multi_buffer_snapshot = self.buffer().read(cx).snapshot(cx);
+        let multi_buffer_snapshot = self.buffer.read(cx).snapshot(cx);
 
         let visible_excerpts = self.visible_buffer_ranges(cx);
         let excerpt_data: Vec<(
@@ -33,13 +33,15 @@ impl Editor {
         )> = visible_excerpts
             .into_iter()
             .filter(|(buffer_snapshot, _, _)| {
-                let Some(buffer) = self.buffer().read(cx).buffer(buffer_snapshot.remote_id())
-                else {
+                let Some(buffer) = self.buffer.read(cx).buffer(buffer_snapshot.remote_id()) else {
                     return false;
                 };
                 LanguageSettings::for_buffer(buffer.read(cx), cx).colorize_brackets
             })
             .collect();
+        let Some(full) = self.mode.full_features_mut() else {
+            return;
+        };
 
         let mut fetched_tree_sitter_chunks = excerpt_data
             .iter()
@@ -47,7 +49,10 @@ impl Editor {
                 let key = excerpt_range.context.clone();
                 Some((
                     key.clone(),
-                    self.bracket_fetched_tree_sitter_chunks.get(&key).cloned()?,
+                    full.runtime
+                        .bracket_fetched_tree_sitter_chunks
+                        .get(&key)
+                        .cloned()?,
                 ))
             })
             .collect::<HashMap<Range<text::Anchor>, HashSet<Range<BufferRow>>>>();
@@ -95,7 +100,7 @@ impl Editor {
         let editor_background = cx.theme().colors().editor_background;
         let accents = cx.theme().accents().clone();
 
-        self.colorize_brackets_task = cx.spawn(async move |editor, cx| {
+        let colorize_brackets_task = cx.spawn(async move |editor, cx| {
             if invalidate {
                 editor
                     .update(cx, |editor, cx| {
@@ -111,9 +116,11 @@ impl Editor {
 
             editor
                 .update(cx, |editor, cx| {
-                    editor
-                        .bracket_fetched_tree_sitter_chunks
-                        .extend(updated_chunks);
+                    if let Some(full) = editor.mode.full_features_mut() {
+                        full.runtime
+                            .bracket_fetched_tree_sitter_chunks
+                            .extend(updated_chunks);
+                    }
                     for (accent_number, bracket_highlights) in bracket_matches_by_accent {
                         let bracket_color = accents.color_for_index(accent_number as u32);
                         let adjusted_color =
@@ -134,6 +141,9 @@ impl Editor {
                 })
                 .ok();
         });
+        if let Some(full) = self.mode.full_features_mut() {
+            full.runtime.colorize_brackets_task = colorize_brackets_task;
+        }
     }
 }
 
@@ -319,7 +329,7 @@ where
                         buffer.set_language(Some(rust_lang()), cx);
                     });
             });
-            Editor::new(EditorMode::full(), multi_buffer, None, window, cx)
+            Editor::new(EditorMode::full(cx), multi_buffer, None, window, cx)
         });
 
         cx.executor().advance_clock(Duration::from_millis(100));

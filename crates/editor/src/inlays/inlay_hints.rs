@@ -263,8 +263,9 @@ impl Editor {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.inline_value_cache.enabled = !self.inline_value_cache.enabled;
-
+        if let Some(full) = self.mode.full_features_mut() {
+            full.runtime.inline_value_cache.enabled = !full.runtime.inline_value_cache.enabled;
+        }
         self.refresh_inline_values(cx);
     }
 
@@ -281,7 +282,10 @@ impl Editor {
     }
 
     pub fn inlay_hints_enabled(&self) -> bool {
-        self.inlay_hints.as_ref().is_some_and(|cache| cache.enabled)
+        self.mode
+            .full_features()
+            .and_then(|f| f.runtime.inlay_hints.as_ref())
+            .is_some_and(|cache| cache.enabled)
     }
 
     /// Updates inlay hints for the visible ranges of the singleton buffer(s).
@@ -291,7 +295,12 @@ impl Editor {
         reason: InlayHintRefreshReason,
         cx: &mut Context<Self>,
     ) {
-        if !self.lsp_data_enabled() || self.inlay_hints.is_none() {
+        if !self.lsp_data_enabled()
+            || !self
+                .mode
+                .full_features()
+                .is_some_and(|f| f.runtime.inlay_hints.is_some())
+        {
             return;
         }
         let Some(semantics_provider) = self.semantics_provider() else {
@@ -306,13 +315,17 @@ impl Editor {
             | InlayHintRefreshReason::Toggle(_)
             | InlayHintRefreshReason::BuffersRemoved(_)
             | InlayHintRefreshReason::ModifiersChanged(_) => None,
-            _may_need_lsp_call => self.inlay_hints.as_ref().and_then(|inlay_hints| {
-                if invalidate_cache.should_invalidate() {
-                    inlay_hints.invalidate_debounce
-                } else {
-                    inlay_hints.append_debounce
-                }
-            }),
+            _may_need_lsp_call => self
+                .mode
+                .full_features()
+                .and_then(|f| f.runtime.inlay_hints.as_ref())
+                .and_then(|inlay_hints| {
+                    if invalidate_cache.should_invalidate() {
+                        inlay_hints.invalidate_debounce
+                    } else {
+                        inlay_hints.append_debounce
+                    }
+                }),
         };
 
         let mut visible_excerpts = self.visible_buffer_ranges(cx);
@@ -362,7 +375,10 @@ impl Editor {
 
         let multi_buffer = self.buffer().clone();
 
-        let Some(inlay_hints) = self.inlay_hints.as_mut() else {
+        let Some(full) = self.mode.full_features_mut() else {
+            return;
+        };
+        let Some(inlay_hints) = full.runtime.inlay_hints.as_mut() else {
             return;
         };
 
@@ -385,7 +401,7 @@ impl Editor {
         for (buffer_snapshot, visible_range, _) in visible_excerpts {
             let buffer_id = buffer_snapshot.remote_id();
 
-            if !self.registered_buffers.contains_key(&buffer_id) {
+            if !full.runtime.registered_buffers.contains_key(&buffer_id) {
                 continue;
             }
 
@@ -467,7 +483,11 @@ impl Editor {
         reason: &InlayHintRefreshReason,
         cx: &mut Context<'_, Editor>,
     ) -> Option<InvalidationStrategy> {
-        let Some(inlay_hints) = self.inlay_hints.as_mut() else {
+        let Some(inlay_hints) = self
+            .mode
+            .full_features_mut()
+            .and_then(|f| f.runtime.inlay_hints.as_mut())
+        else {
             return None;
         };
 
@@ -550,7 +570,11 @@ impl Editor {
             },
         };
 
-        match &mut self.inlay_hints {
+        let inlay_hints = self
+            .mode
+            .full_features_mut()
+            .and_then(|f| f.runtime.inlay_hints.as_mut());
+        match inlay_hints {
             Some(inlay_hints) => {
                 if !inlay_hints.enabled
                     && !matches!(reason, InlayHintRefreshReason::ModifiersChanged(_))
@@ -803,81 +827,87 @@ impl Editor {
             })
             .map(|inlay| inlay.id)
             .collect::<Vec<_>>();
-        let Some(inlay_hints) = &mut self.inlay_hints else {
-            return;
-        };
-        let Some(buffer_snapshot) = self
-            .buffer
-            .read(cx)
-            .buffer(buffer_id)
-            .map(|buffer| buffer.read(cx).snapshot())
-        else {
-            return;
-        };
-
         let mut hints_to_remove = Vec::new();
+        let (hints_to_insert, invalidate_hints_for_buffers) = {
+            let Some(full) = self.mode.full_features_mut() else {
+                return;
+            };
+            let Some(inlay_hints) = full.runtime.inlay_hints.as_mut() else {
+                return;
+            };
+            let Some(buffer_snapshot) = self
+                .buffer
+                .read(cx)
+                .buffer(buffer_id)
+                .map(|buffer| buffer.read(cx).snapshot())
+            else {
+                return;
+            };
 
-        // If we've received hints from the cache, it means `invalidate_cache` had invalidated whatever possible there,
-        // and most probably there are no more hints with IDs from `visible_inlay_hint_ids` in the cache.
-        // So, if we hover such hints, no resolve will happen.
-        //
-        // Another issue is in the fact that changing one buffer may lead to other buffers' hints changing, so more cache entries may be removed.
-        // Hence, clear all excerpts' hints in the multi buffer: later, the invalidated ones will re-trigger the LSP query, the rest will be restored
-        // from the cache.
-        if invalidate_cache.should_invalidate() {
-            hints_to_remove.extend(visible_inlay_hint_ids);
+            // If we've received hints from the cache, it means `invalidate_cache` had invalidated whatever possible there,
+            // and most probably there are no more hints with IDs from `visible_inlay_hint_ids` in the cache.
+            // So, if we hover such hints, no resolve will happen.
+            //
+            // Another issue is in the fact that changing one buffer may lead to other buffers' hints changing, so more cache entries may be removed.
+            // Hence, clear all excerpts' hints in the multi buffer: later, the invalidated ones will re-trigger the LSP query, the rest will be restored
+            // from the cache.
+            if invalidate_cache.should_invalidate() {
+                hints_to_remove.extend(visible_inlay_hint_ids);
 
-            // When invalidating, this task removes ALL visible hints for the buffer
-            // but only adds back hints for its own chunk ranges. Chunks fetched by
-            // other concurrent tasks (e.g., a scroll task that completed before this
-            // edit task) would have their hints removed but remain marked as "already
-            // fetched" in hint_chunk_fetching, preventing re-fetch on the next
-            // NewLinesShown. Fix: retain only chunks that this task has results for.
-            let task_chunk_ranges: HashSet<&Range<BufferRow>> =
-                new_hints.iter().map(|(range, _)| range).collect();
-            if let Some((_, fetched_chunks)) = inlay_hints.hint_chunk_fetching.get_mut(&buffer_id) {
-                fetched_chunks.retain(|chunk| task_chunk_ranges.contains(chunk));
-            }
-        }
-
-        let mut inserted_hint_text = HashMap::default();
-        let new_hints = new_hints
-            .into_iter()
-            .filter_map(|(chunk_range, hints_result)| {
-                let chunks_fetched = inlay_hints.hint_chunk_fetching.get_mut(&buffer_id);
-                match hints_result {
-                    Ok(new_hints) => {
-                        if new_hints.is_empty() {
-                            if let Some((_, chunks_fetched)) = chunks_fetched {
-                                chunks_fetched.remove(&chunk_range);
-                            }
-                        }
-                        Some(new_hints)
-                    }
-                    Err(e) => {
-                        log::error!(
-                            "Failed to query inlays for buffer row range {chunk_range:?}, {e:#}"
-                        );
-                        if let Some((for_version, chunks_fetched)) = chunks_fetched {
-                            if for_version == &query_version {
-                                chunks_fetched.remove(&chunk_range);
-                            }
-                        }
-                        None
-                    }
+                // When invalidating, this task removes ALL visible hints for the buffer
+                // but only adds back hints for its own chunk ranges. Chunks fetched by
+                // other concurrent tasks (e.g., a scroll task that completed before this
+                // edit task) would have their hints removed but remain marked as "already
+                // fetched" in hint_chunk_fetching, preventing re-fetch on the next
+                // NewLinesShown. Fix: retain only chunks that this task has results for.
+                let task_chunk_ranges: HashSet<&Range<BufferRow>> =
+                    new_hints.iter().map(|(range, _)| range).collect();
+                if let Some((_, fetched_chunks)) =
+                    inlay_hints.hint_chunk_fetching.get_mut(&buffer_id)
+                {
+                    fetched_chunks.retain(|chunk| task_chunk_ranges.contains(chunk));
                 }
-            })
-            .flat_map(|new_hints| {
-                let mut hints_deduplicated = Vec::new();
+            }
 
-                if new_hints.len() > 1 {
-                    for (server_id, new_hints) in new_hints {
-                        for (new_id, new_hint) in new_hints {
-                            let hints_text_for_position = inserted_hint_text
-                                .entry(new_hint.position)
-                                .or_insert_with(HashMap::default);
-                            let insert =
-                                match hints_text_for_position.entry(new_hint.text().to_string()) {
+            let mut inserted_hint_text = HashMap::default();
+            let new_hints = new_hints
+                .into_iter()
+                .filter_map(|(chunk_range, hints_result)| {
+                    let chunks_fetched = inlay_hints.hint_chunk_fetching.get_mut(&buffer_id);
+                    match hints_result {
+                        Ok(new_hints) => {
+                            if new_hints.is_empty() {
+                                if let Some((_, chunks_fetched)) = chunks_fetched {
+                                    chunks_fetched.remove(&chunk_range);
+                                }
+                            }
+                            Some(new_hints)
+                        }
+                        Err(e) => {
+                            log::error!(
+                                "Failed to query inlays for buffer row range {chunk_range:?}, {e:#}"
+                            );
+                            if let Some((for_version, chunks_fetched)) = chunks_fetched {
+                                if for_version == &query_version {
+                                    chunks_fetched.remove(&chunk_range);
+                                }
+                            }
+                            None
+                        }
+                    }
+                })
+                .flat_map(|new_hints| {
+                    let mut hints_deduplicated = Vec::new();
+
+                    if new_hints.len() > 1 {
+                        for (server_id, new_hints) in new_hints {
+                            for (new_id, new_hint) in new_hints {
+                                let hints_text_for_position = inserted_hint_text
+                                    .entry(new_hint.position)
+                                    .or_insert_with(HashMap::default);
+                                let insert = match hints_text_for_position
+                                    .entry(new_hint.text().to_string())
+                                {
                                     hash_map::Entry::Occupied(o) => o.get() == &server_id,
                                     hash_map::Entry::Vacant(v) => {
                                         v.insert(server_id);
@@ -885,37 +915,41 @@ impl Editor {
                                     }
                                 };
 
-                            if insert {
-                                hints_deduplicated.push((new_id, new_hint));
+                                if insert {
+                                    hints_deduplicated.push((new_id, new_hint));
+                                }
                             }
                         }
+                    } else {
+                        hints_deduplicated.extend(new_hints.into_values().flatten());
                     }
-                } else {
-                    hints_deduplicated.extend(new_hints.into_values().flatten());
-                }
 
-                hints_deduplicated
-            })
-            .filter(|(hint_id, lsp_hint)| {
-                inlay_hints.allowed_hint_kinds.contains(&lsp_hint.kind)
-                    && inlay_hints
-                        .added_hints
-                        .insert(*hint_id, lsp_hint.kind)
-                        .is_none()
-            })
-            .sorted_by(|(_, a), (_, b)| a.position.cmp(&b.position, &buffer_snapshot))
-            .collect::<Vec<_>>();
+                    hints_deduplicated
+                })
+                .filter(|(hint_id, lsp_hint)| {
+                    inlay_hints.allowed_hint_kinds.contains(&lsp_hint.kind)
+                        && inlay_hints
+                            .added_hints
+                            .insert(*hint_id, lsp_hint.kind)
+                            .is_none()
+                })
+                .sorted_by(|(_, a), (_, b)| a.position.cmp(&b.position, &buffer_snapshot))
+                .collect::<Vec<_>>();
 
-        let hints_to_insert = multi_buffer_snapshot
-            .text_anchors_to_visible_anchors(
-                new_hints.iter().map(|(_, lsp_hint)| lsp_hint.position),
-            )
-            .into_iter()
-            .zip(&new_hints)
-            .filter_map(|(position, (hint_id, hint))| Some(Inlay::hint(*hint_id, position?, &hint)))
-            .collect();
-        let invalidate_hints_for_buffers =
-            std::mem::take(&mut inlay_hints.invalidate_hints_for_buffers);
+            let hints_to_insert = multi_buffer_snapshot
+                .text_anchors_to_visible_anchors(
+                    new_hints.iter().map(|(_, lsp_hint)| lsp_hint.position),
+                )
+                .into_iter()
+                .zip(&new_hints)
+                .filter_map(|(position, (hint_id, hint))| {
+                    Some(Inlay::hint(*hint_id, position?, &hint))
+                })
+                .collect();
+            let invalidate_hints_for_buffers =
+                std::mem::take(&mut inlay_hints.invalidate_hints_for_buffers);
+            (hints_to_insert, invalidate_hints_for_buffers)
+        };
         if !invalidate_hints_for_buffers.is_empty() {
             hints_to_remove.extend(
                 Self::visible_inlay_hints(self.display_map.read(cx))
@@ -969,8 +1003,9 @@ fn spawn_editor_hints_refresh(
             editor
                 .update(cx, |editor, _| {
                     if let Some((_, hint_chunk_fetching)) = editor
-                        .inlay_hints
-                        .as_mut()
+                        .mode
+                        .full_features_mut()
+                        .and_then(|f| f.runtime.inlay_hints.as_mut())
                         .and_then(|inlay_hints| inlay_hints.hint_chunk_fetching.get_mut(&buffer_id))
                     {
                         for applicable_chunks in &applicable_chunks {
@@ -4909,10 +4944,10 @@ let c = 3;"#
 
     fn allowed_hint_kinds_for_editor(editor: &Editor) -> HashSet<Option<InlayHintKind>> {
         editor
-            .inlay_hints
-            .as_ref()
-            .unwrap()
-            .allowed_hint_kinds
-            .clone()
+            .mode
+            .full_features()
+            .and_then(|f| f.runtime.inlay_hints.as_ref())
+            .map(|h| h.allowed_hint_kinds.clone())
+            .unwrap_or_default()
     }
 }

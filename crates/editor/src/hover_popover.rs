@@ -162,7 +162,11 @@ pub fn hover_at_inlay(
     cx: &mut Context<Editor>,
 ) {
     if EditorSettings::get_global(cx).hover_popover_enabled {
-        if editor.pending_rename.is_some() {
+        if editor
+            .mode
+            .full_features()
+            .map_or(false, |f| f.runtime.pending_rename.is_some())
+        {
             return;
         }
 
@@ -275,7 +279,11 @@ fn show_hover(
     window: &mut Window,
     cx: &mut Context<Editor>,
 ) -> Option<()> {
-    if editor.pending_rename.is_some() {
+    if editor
+        .mode
+        .full_features()
+        .map_or(false, |f| f.runtime.pending_rename.is_some())
+    {
         return None;
     }
 
@@ -318,8 +326,12 @@ fn show_hover(
     }
 
     let hover_popover_delay = EditorSettings::get_global(cx).hover_popover_delay.0;
-    let all_diagnostics_active = editor.active_diagnostics == ActiveDiagnostic::All;
-    let active_group_id = if let ActiveDiagnostic::Group(group) = &editor.active_diagnostics {
+    let active_diagnostics = editor
+        .mode
+        .full_features()
+        .map(|f| &f.runtime.active_diagnostics);
+    let all_diagnostics_active = active_diagnostics == Some(&ActiveDiagnostic::All);
+    let active_group_id = if let Some(ActiveDiagnostic::Group(group)) = active_diagnostics {
         Some(group.group_id)
     } else {
         None

@@ -2215,30 +2215,28 @@ impl OnMatchingLines {
                 ..snapshot
                     .buffer_snapshot()
                     .clip_point(Point::new(range.end.0 + 1, 0), Bias::Left);
+            let text: String = snapshot
+                .buffer_snapshot()
+                .text_for_range(point_range)
+                .collect();
             cx.spawn_in(window, async move |editor, cx| {
                 let new_selections = cx
                     .background_spawn(async move {
                         let mut line = String::new();
                         let mut new_selections = Vec::new();
-                        let chunks = snapshot
-                            .buffer_snapshot()
-                            .text_for_range(point_range)
-                            .chain(["\n"]);
+                        let full_text = text + "\n";
 
-                        for chunk in chunks {
-                            for (newline_ix, text) in chunk.split('\n').enumerate() {
-                                if newline_ix > 0 {
-                                    if regexes.iter().all(|(regex, should_match)| {
-                                        regex.is_match(&line) == *should_match
-                                    }) {
-                                        new_selections
-                                            .push(Point::new(row, 0).to_display_point(&snapshot))
-                                    }
-                                    row += 1;
-                                    line.clear();
+                        for (newline_ix, segment) in full_text.split('\n').enumerate() {
+                            if newline_ix > 0 {
+                                if regexes.iter().all(|(regex, should_match)| {
+                                    regex.is_match(&line) == *should_match
+                                }) {
+                                    new_selections.push(row);
                                 }
-                                line.push_str(text)
+                                row += 1;
+                                line.clear();
                             }
+                            line.push_str(segment);
                         }
 
                         new_selections
@@ -2251,8 +2249,7 @@ impl OnMatchingLines {
 
                 if let Some(vim_norm) = action.as_any().downcast_ref::<VimNorm>() {
                     let mut vim_norm = vim_norm.clone();
-                    vim_norm.override_rows =
-                        Some(new_selections.iter().map(|point| point.row().0).collect());
+                    vim_norm.override_rows = Some(new_selections.iter().copied().collect());
                     editor
                         .update_in(cx, |_, window, cx| {
                             window.dispatch_action(vim_norm.boxed_clone(), cx);
@@ -2263,9 +2260,14 @@ impl OnMatchingLines {
 
                 editor
                     .update_in(cx, |editor, window, cx| {
+                        let snapshot = editor.snapshot(window, cx);
+                        let display_selections = new_selections
+                            .iter()
+                            .map(|&r| Point::new(r, 0).to_display_point(&snapshot))
+                            .collect::<Vec<_>>();
                         editor.start_transaction_at(Instant::now(), window, cx);
                         editor.change_selections(SelectionEffects::no_scroll(), window, cx, |s| {
-                            s.replace_cursors_with(|_| new_selections);
+                            s.replace_cursors_with(|_| display_selections);
                         });
                         window.dispatch_action(action, cx);
 

@@ -1242,10 +1242,7 @@ impl PromptEditor<BufferCodegen> {
 
         let prompt_editor = cx.new(|cx| {
             let mut editor = Editor::new(
-                EditorMode::AutoHeight {
-                    min_lines: 1,
-                    max_lines: Some(Self::MAX_LINES as usize),
-                },
+                EditorMode::auto_height(1, Some(Self::MAX_LINES as usize)),
                 prompt_buffer,
                 None,
                 window,
@@ -1401,10 +1398,7 @@ impl PromptEditor<TerminalCodegen> {
 
         let prompt_editor = cx.new(|cx| {
             let mut editor = Editor::new(
-                EditorMode::AutoHeight {
-                    min_lines: 1,
-                    max_lines: Some(Self::MAX_LINES as usize),
-                },
+                EditorMode::auto_height(1, Some(Self::MAX_LINES as usize)),
                 prompt_buffer,
                 None,
                 window,

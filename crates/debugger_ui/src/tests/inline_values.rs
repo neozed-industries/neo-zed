@@ -230,7 +230,7 @@ fn main() {
 
     let (editor, cx) = cx.add_window_view(|window, cx| {
         Editor::new(
-            EditorMode::full(),
+            EditorMode::full(cx),
             MultiBuffer::build_from_buffer(buffer, cx),
             Some(project),
             window,
@@ -1582,7 +1582,7 @@ def process_data(untyped_param, typed_param: int, another_typed: str):
 
     let (editor, cx) = cx.add_window_view(|window, cx| {
         Editor::new(
-            EditorMode::full(),
+            EditorMode::full(cx),
             MultiBuffer::build_from_buffer(buffer, cx),
             Some(project),
             window,
@@ -2082,7 +2082,7 @@ async fn test_inline_values_util(
 
     let (editor, cx) = cx.add_window_view(|window, cx| {
         Editor::new(
-            EditorMode::full(),
+            EditorMode::full(cx),
             MultiBuffer::build_from_buffer(buffer, cx),
             Some(project),
             window,

@@ -2383,10 +2383,7 @@ impl ConversationView {
                     session_capabilities.clone(),
                     agent_name.clone(),
                     "",
-                    EditorMode::AutoHeight {
-                        min_lines: 1,
-                        max_lines: Some(10),
-                    },
+                    EditorMode::auto_height(1, Some(10)),
                     window,
                     cx,
                 );

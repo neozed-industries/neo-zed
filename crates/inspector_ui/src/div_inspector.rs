@@ -486,7 +486,7 @@ impl DivInspector {
         cx.new(|cx| {
             let multi_buffer = cx.new(|cx| MultiBuffer::singleton(buffer, cx));
             let mut editor = Editor::new(
-                EditorMode::full(),
+                EditorMode::full(cx),
                 multi_buffer,
                 Some(self.project.clone()),
                 window,

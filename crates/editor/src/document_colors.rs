@@ -1,6 +1,6 @@
 use std::{cmp, ops::Range};
 
-use collections::HashMap;
+use collections::{HashMap, HashSet};
 use futures::future::join_all;
 use gpui::{Hsla, Rgba};
 use itertools::Itertools;
@@ -145,20 +145,30 @@ impl Editor {
         _: &Window,
         cx: &mut Context<Self>,
     ) {
-        if !self.lsp_data_enabled() {
-            return;
-        }
         let Some(project) = self.project.as_ref() else {
             return;
         };
-        if self
-            .colors
-            .as_ref()
-            .is_none_or(|colors| colors.render_mode == DocumentColorsRenderMode::None)
-        {
-            return;
-        }
-
+        let registered_buffer_ids = {
+            let Some(full) = self.mode.full_features_mut() else {
+                return;
+            };
+            if !full.enable_lsp_data {
+                return;
+            }
+            if full
+                .runtime
+                .colors
+                .as_ref()
+                .is_none_or(|colors| colors.render_mode == DocumentColorsRenderMode::None)
+            {
+                return;
+            }
+            full.runtime
+                .registered_buffers
+                .keys()
+                .copied()
+                .collect::<HashSet<_>>()
+        };
         let buffers_to_query = self
             .visible_buffers(cx)
             .into_iter()
@@ -167,13 +177,16 @@ impl Editor {
             .filter(|editor_buffer| {
                 let editor_buffer_id = editor_buffer.read(cx).remote_id();
                 buffer_id.is_none_or(|buffer_id| buffer_id == editor_buffer_id)
-                    && self.registered_buffers.contains_key(&editor_buffer_id)
+                    && registered_buffer_ids.contains(&editor_buffer_id)
             })
             .unique_by(|buffer| buffer.read(cx).remote_id())
             .collect::<Vec<_>>();
 
         let project = project.downgrade();
-        self.refresh_colors_task = cx.spawn(async move |editor, cx| {
+        let Some(full) = self.mode.full_features_mut() else {
+            return;
+        };
+        full.runtime.refresh_colors_task = cx.spawn(async move |editor, cx| {
             cx.background_executor()
                 .timer(LSP_REQUEST_DEBOUNCE_TIMEOUT)
                 .await;
@@ -259,58 +272,88 @@ impl Editor {
             editor
                 .update(cx, |editor, cx| {
                     let mut colors_splice = InlaySplice::default();
-                    let Some(colors) = &mut editor.colors else {
-                        return;
-                    };
                     let mut updated = false;
-                    for (buffer_id, new_buffer_colors) in new_editor_colors {
-                        let mut new_buffer_color_inlays =
-                            Vec::with_capacity(new_buffer_colors.len());
-                        let mut existing_buffer_colors = colors
-                            .buffer_colors
-                            .entry(buffer_id)
-                            .or_default()
-                            .colors
-                            .iter()
-                            .peekable();
-                        for (new_range, new_color) in new_buffer_colors {
-                            let rgba_color = Rgba {
-                                r: new_color.color.red,
-                                g: new_color.color.green,
-                                b: new_color.color.blue,
-                                a: new_color.color.alpha,
-                            };
+                    let render_mode = {
+                        let Some(full) = editor.mode.full_features_mut() else {
+                            return;
+                        };
+                        let Some(colors) = &mut full.runtime.colors else {
+                            return;
+                        };
+                        for (buffer_id, new_buffer_colors) in new_editor_colors {
+                            let mut new_buffer_color_inlays =
+                                Vec::with_capacity(new_buffer_colors.len());
+                            let mut existing_buffer_colors = colors
+                                .buffer_colors
+                                .entry(buffer_id)
+                                .or_default()
+                                .colors
+                                .iter()
+                                .peekable();
+                            for (new_range, new_color) in new_buffer_colors {
+                                let rgba_color = Rgba {
+                                    r: new_color.color.red,
+                                    g: new_color.color.green,
+                                    b: new_color.color.blue,
+                                    a: new_color.color.alpha,
+                                };
 
-                            loop {
-                                match existing_buffer_colors.peek() {
-                                    Some((existing_range, existing_color, existing_inlay_id)) => {
-                                        match existing_range
-                                            .start
-                                            .cmp(&new_range.start, &multi_buffer_snapshot)
-                                            .then_with(|| {
-                                                existing_range
-                                                    .end
-                                                    .cmp(&new_range.end, &multi_buffer_snapshot)
-                                            }) {
-                                            cmp::Ordering::Less => {
-                                                colors_splice.to_remove.push(*existing_inlay_id);
-                                                existing_buffer_colors.next();
-                                                continue;
-                                            }
-                                            cmp::Ordering::Equal => {
-                                                if existing_color == &new_color {
-                                                    new_buffer_color_inlays.push((
-                                                        new_range,
-                                                        new_color,
-                                                        *existing_inlay_id,
-                                                    ));
-                                                } else {
+                                loop {
+                                    match existing_buffer_colors.peek() {
+                                        Some((
+                                            existing_range,
+                                            existing_color,
+                                            existing_inlay_id,
+                                        )) => {
+                                            match existing_range
+                                                .start
+                                                .cmp(&new_range.start, &multi_buffer_snapshot)
+                                                .then_with(|| {
+                                                    existing_range
+                                                        .end
+                                                        .cmp(&new_range.end, &multi_buffer_snapshot)
+                                                }) {
+                                                cmp::Ordering::Less => {
                                                     colors_splice
                                                         .to_remove
                                                         .push(*existing_inlay_id);
+                                                    existing_buffer_colors.next();
+                                                    continue;
+                                                }
+                                                cmp::Ordering::Equal => {
+                                                    if existing_color == &new_color {
+                                                        new_buffer_color_inlays.push((
+                                                            new_range,
+                                                            new_color,
+                                                            *existing_inlay_id,
+                                                        ));
+                                                    } else {
+                                                        colors_splice
+                                                            .to_remove
+                                                            .push(*existing_inlay_id);
 
+                                                        let inlay = Inlay::color(
+                                                            post_inc(
+                                                                &mut full
+                                                                    .runtime
+                                                                    .next_color_inlay_id,
+                                                            ),
+                                                            new_range.start,
+                                                            rgba_color,
+                                                        );
+                                                        let inlay_id = inlay.id;
+                                                        colors_splice.to_insert.push(inlay);
+                                                        new_buffer_color_inlays
+                                                            .push((new_range, new_color, inlay_id));
+                                                    }
+                                                    existing_buffer_colors.next();
+                                                    break;
+                                                }
+                                                cmp::Ordering::Greater => {
                                                     let inlay = Inlay::color(
-                                                        post_inc(&mut editor.next_color_inlay_id),
+                                                        post_inc(
+                                                            &mut full.runtime.next_color_inlay_id,
+                                                        ),
                                                         new_range.start,
                                                         rgba_color,
                                                     );
@@ -318,51 +361,37 @@ impl Editor {
                                                     colors_splice.to_insert.push(inlay);
                                                     new_buffer_color_inlays
                                                         .push((new_range, new_color, inlay_id));
+                                                    break;
                                                 }
-                                                existing_buffer_colors.next();
-                                                break;
-                                            }
-                                            cmp::Ordering::Greater => {
-                                                let inlay = Inlay::color(
-                                                    post_inc(&mut editor.next_color_inlay_id),
-                                                    new_range.start,
-                                                    rgba_color,
-                                                );
-                                                let inlay_id = inlay.id;
-                                                colors_splice.to_insert.push(inlay);
-                                                new_buffer_color_inlays
-                                                    .push((new_range, new_color, inlay_id));
-                                                break;
                                             }
                                         }
-                                    }
-                                    None => {
-                                        let inlay = Inlay::color(
-                                            post_inc(&mut editor.next_color_inlay_id),
-                                            new_range.start,
-                                            rgba_color,
-                                        );
-                                        let inlay_id = inlay.id;
-                                        colors_splice.to_insert.push(inlay);
-                                        new_buffer_color_inlays
-                                            .push((new_range, new_color, inlay_id));
-                                        break;
+                                        None => {
+                                            let inlay = Inlay::color(
+                                                post_inc(&mut full.runtime.next_color_inlay_id),
+                                                new_range.start,
+                                                rgba_color,
+                                            );
+                                            let inlay_id = inlay.id;
+                                            colors_splice.to_insert.push(inlay);
+                                            new_buffer_color_inlays
+                                                .push((new_range, new_color, inlay_id));
+                                            break;
+                                        }
                                     }
                                 }
                             }
+
+                            if existing_buffer_colors.peek().is_some() {
+                                colors_splice
+                                    .to_remove
+                                    .extend(existing_buffer_colors.map(|(_, _, id)| *id));
+                            }
+                            updated |= colors.set_colors(buffer_id, new_buffer_color_inlays);
                         }
 
-                        if existing_buffer_colors.peek().is_some() {
-                            colors_splice
-                                .to_remove
-                                .extend(existing_buffer_colors.map(|(_, _, id)| *id));
-                        }
-                        updated |= colors.set_colors(buffer_id, new_buffer_color_inlays);
-                    }
-
-                    if colors.render_mode == DocumentColorsRenderMode::Inlay
-                        && !colors_splice.is_empty()
-                    {
+                        colors.render_mode
+                    };
+                    if render_mode == DocumentColorsRenderMode::Inlay && !colors_splice.is_empty() {
                         editor.splice_inlays(&colors_splice.to_remove, colors_splice.to_insert, cx);
                         updated = true;
                     }

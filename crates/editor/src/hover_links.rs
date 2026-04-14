@@ -321,7 +321,11 @@ pub fn show_link_definition(
             )
         };
 
-    if editor.pending_rename.is_some() {
+    if editor
+        .mode
+        .full_features()
+        .map_or(false, |f| f.runtime.pending_rename.is_some())
+    {
         return;
     }
 

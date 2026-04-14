@@ -1276,7 +1276,7 @@ async fn test_ssh_remote_worktree_trust(cx_a: &mut TestAppContext, server_cx: &m
 
     let (editor, cx_a) = cx_a.add_window_view(|window, cx| {
         Editor::new(
-            EditorMode::full(),
+            EditorMode::full(cx),
             cx.new(|cx| MultiBuffer::singleton(buffer_before_approval.clone(), cx)),
             Some(project_a.clone()),
             window,

@@ -983,7 +983,12 @@ impl Item for Editor {
     }
 
     fn breadcrumb_location(&self, cx: &App) -> ToolbarItemLocation {
-        if self.show_breadcrumbs && self.buffer().read(cx).is_singleton() {
+        if self
+            .mode
+            .full_features()
+            .map_or(false, |f| f.show_breadcrumbs)
+            && self.buffer().read(cx).is_singleton()
+        {
             ToolbarItemLocation::PrimaryLeft
         } else {
             ToolbarItemLocation::Hidden
@@ -1015,7 +1020,9 @@ impl Item for Editor {
                 |editor, _, event: &workspace::Event, _cx| {
                     if let workspace::Event::ModalOpened = event {
                         editor.mouse_context_menu.take();
-                        editor.inline_blame_popover.take();
+                        if let Some(full) = editor.mode.full_features_mut() {
+                            full.runtime.inline_blame_popover.take();
+                        }
                     }
                 },
             )
@@ -1048,7 +1055,10 @@ impl Item for Editor {
             .highlighted_rows
             .get(&TypeId::of::<ActiveDebugLine>())
             .is_some_and(|lines| !lines.is_empty())
-            && let Some(breakpoint_store) = self.breakpoint_store.as_ref()
+            && let Some(breakpoint_store) = self
+                .mode
+                .full_features()
+                .and_then(|f| f.runtime.breakpoint_store.as_ref())
         {
             breakpoint_store.update(cx, |store, _cx| {
                 store.set_active_debug_pane_id(new_pane_id);

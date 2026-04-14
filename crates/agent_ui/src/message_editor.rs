@@ -1542,7 +1542,7 @@ impl MessageEditor {
 
     pub fn set_mode(&mut self, mode: EditorMode, cx: &mut Context<Self>) {
         self.editor.update(cx, |editor, cx| {
-            if *editor.mode() != mode {
+            if std::mem::discriminant(editor.mode()) != std::mem::discriminant(&mode) {
                 editor.set_mode(mode);
                 cx.notify()
             }
@@ -2057,10 +2057,7 @@ mod tests {
                     Default::default(),
                     "Test Agent".into(),
                     "Test",
-                    EditorMode::AutoHeight {
-                        min_lines: 1,
-                        max_lines: None,
-                    },
+                    EditorMode::auto_height(1, None),
                     window,
                     cx,
                 )
@@ -2159,10 +2156,7 @@ mod tests {
                     session_capabilities.clone(),
                     "Claude Agent".into(),
                     "Test",
-                    EditorMode::AutoHeight {
-                        min_lines: 1,
-                        max_lines: None,
-                    },
+                    EditorMode::auto_height(1, None),
                     window,
                     cx,
                 )
@@ -2326,10 +2320,7 @@ mod tests {
                     session_capabilities.clone(),
                     "Test Agent".into(),
                     "Test",
-                    EditorMode::AutoHeight {
-                        max_lines: None,
-                        min_lines: 1,
-                    },
+                    EditorMode::auto_height(1, None),
                     window,
                     cx,
                 )
@@ -2553,10 +2544,7 @@ mod tests {
                     session_capabilities.clone(),
                     "Test Agent".into(),
                     "Test",
-                    EditorMode::AutoHeight {
-                        max_lines: None,
-                        min_lines: 1,
-                    },
+                    EditorMode::auto_height(1, None),
                     window,
                     cx,
                 )
@@ -3046,10 +3034,7 @@ mod tests {
                     Default::default(),
                     "Test Agent".into(),
                     "Test",
-                    EditorMode::AutoHeight {
-                        min_lines: 1,
-                        max_lines: None,
-                    },
+                    EditorMode::auto_height(1, None),
                     window,
                     cx,
                 );
@@ -3148,10 +3133,7 @@ mod tests {
                     Default::default(),
                     "Test Agent".into(),
                     "Test",
-                    EditorMode::AutoHeight {
-                        min_lines: 1,
-                        max_lines: None,
-                    },
+                    EditorMode::auto_height(1, None),
                     window,
                     cx,
                 );
@@ -3218,10 +3200,7 @@ mod tests {
                     Default::default(),
                     "Test Agent".into(),
                     "Test",
-                    EditorMode::AutoHeight {
-                        min_lines: 1,
-                        max_lines: None,
-                    },
+                    EditorMode::auto_height(1, None),
                     window,
                     cx,
                 );
@@ -3272,10 +3251,7 @@ mod tests {
                     Default::default(),
                     "Test Agent".into(),
                     "Test",
-                    EditorMode::AutoHeight {
-                        min_lines: 1,
-                        max_lines: None,
-                    },
+                    EditorMode::auto_height(1, None),
                     window,
                     cx,
                 )
@@ -3330,10 +3306,7 @@ mod tests {
                     Default::default(),
                     "Test Agent".into(),
                     "Test",
-                    EditorMode::AutoHeight {
-                        min_lines: 1,
-                        max_lines: None,
-                    },
+                    EditorMode::auto_height(1, None),
                     window,
                     cx,
                 )
@@ -3389,10 +3362,7 @@ mod tests {
                     Default::default(),
                     "Test Agent".into(),
                     "Test",
-                    EditorMode::AutoHeight {
-                        min_lines: 1,
-                        max_lines: None,
-                    },
+                    EditorMode::auto_height(1, None),
                     window,
                     cx,
                 )
@@ -3452,10 +3422,7 @@ mod tests {
                     Default::default(),
                     "Test Agent".into(),
                     "Test",
-                    EditorMode::AutoHeight {
-                        min_lines: 1,
-                        max_lines: None,
-                    },
+                    EditorMode::auto_height(1, None),
                     window,
                     cx,
                 )
@@ -3613,7 +3580,7 @@ mod tests {
                     Default::default(),
                     "Test Agent".into(),
                     "Test",
-                    EditorMode::full(),
+                    EditorMode::full(cx),
                     window,
                     cx,
                 )
@@ -3728,10 +3695,7 @@ mod tests {
                     Default::default(),
                     "Test Agent".into(),
                     "Test",
-                    EditorMode::AutoHeight {
-                        max_lines: None,
-                        min_lines: 1,
-                    },
+                    EditorMode::auto_height(1, None),
                     window,
                     cx,
                 )
@@ -3808,10 +3772,7 @@ mod tests {
                     Default::default(),
                     "Test Agent".into(),
                     "Test",
-                    EditorMode::AutoHeight {
-                        max_lines: None,
-                        min_lines: 1,
-                    },
+                    EditorMode::auto_height(1, None),
                     window,
                     cx,
                 )
@@ -3907,10 +3868,7 @@ mod tests {
                     Default::default(),
                     "Test Agent".into(),
                     "Test",
-                    EditorMode::AutoHeight {
-                        max_lines: None,
-                        min_lines: 1,
-                    },
+                    EditorMode::auto_height(1, None),
                     window,
                     cx,
                 )
@@ -4163,10 +4121,7 @@ mod tests {
                     Default::default(),
                     "Test Agent".into(),
                     "Test",
-                    EditorMode::AutoHeight {
-                        max_lines: None,
-                        min_lines: 1,
-                    },
+                    EditorMode::auto_height(1, None),
                     window,
                     cx,
                 )
@@ -4257,10 +4212,7 @@ mod tests {
                     Default::default(),
                     "Test Agent".into(),
                     "Test",
-                    EditorMode::AutoHeight {
-                        min_lines: 1,
-                        max_lines: None,
-                    },
+                    EditorMode::auto_height(1, None),
                     window,
                     cx,
                 )
@@ -4407,10 +4359,7 @@ mod tests {
                     Default::default(),
                     "Test Agent".into(),
                     "Test",
-                    EditorMode::AutoHeight {
-                        min_lines: 1,
-                        max_lines: None,
-                    },
+                    EditorMode::auto_height(1, None),
                     window,
                     cx,
                 )

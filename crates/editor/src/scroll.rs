@@ -641,12 +641,12 @@ impl Editor {
 
     pub(crate) fn scroll_beyond_last_line(&self, cx: &App) -> ScrollBeyondLastLine {
         match self.mode {
-            EditorMode::Minimap { .. }
-            | EditorMode::Full {
-                sizing_behavior: SizingBehavior::Default,
-                ..
-            } => EditorSettings::get_global(cx).scroll_beyond_last_line,
-
+            EditorMode::Minimap { .. } => EditorSettings::get_global(cx).scroll_beyond_last_line,
+            EditorMode::Full { ref features }
+                if features.sizing_behavior == SizingBehavior::Default =>
+            {
+                EditorSettings::get_global(cx).scroll_beyond_last_line
+            }
             EditorMode::Full { .. } | EditorMode::SingleLine | EditorMode::AutoHeight { .. } => {
                 ScrollBeyondLastLine::Off
             }
@@ -772,8 +772,11 @@ impl Editor {
         hide_hover(self, cx);
         let workspace_id = self.workspace.as_ref().and_then(|workspace| workspace.1);
 
-        self.edit_prediction_preview
-            .set_previous_scroll_position(None);
+        if let Some(full) = self.mode.full_features_mut() {
+            full.runtime
+                .edit_prediction_preview
+                .set_previous_scroll_position(None);
+        }
 
         let adjusted_position = if self.scroll_manager.forbid_vertical_scroll {
             let current_position = self.scroll_manager.scroll_position(&display_map, cx);

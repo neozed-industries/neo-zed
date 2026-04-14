@@ -114,110 +114,129 @@ impl Editor {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if !self.mode().is_full()
-            || !EditorSettings::get_global(cx).gutter.runnables
-            || !self.enable_runnables
-        {
+        let enabled = {
+            let Some(full) = self.mode.full_features_mut() else {
+                self.clear_runnables(None);
+                return;
+            };
+            EditorSettings::get_global(cx).gutter.runnables && full.enable_runnables
+        };
+        if !enabled {
             self.clear_runnables(None);
             return;
         }
-        if let Some(buffer) = self.buffer().read(cx).as_singleton() {
-            let buffer_id = buffer.read(cx).remote_id();
-            if invalidate_buffer_data != Some(buffer_id)
-                && self
-                    .runnables
-                    .has_cached(buffer_id, &buffer.read(cx).version())
-            {
+        {
+            let Some(full) = self.mode.full_features_mut() else {
                 return;
+            };
+            if let Some(buffer) = self.buffer.read(cx).as_singleton() {
+                let buffer_id = buffer.read(cx).remote_id();
+                if invalidate_buffer_data != Some(buffer_id)
+                    && full
+                        .runtime
+                        .runnables
+                        .has_cached(buffer_id, &buffer.read(cx).version())
+                {
+                    return;
+                }
+            }
+            if let Some(buffer_id) = invalidate_buffer_data {
+                full.runtime
+                    .runnables
+                    .invalidate_buffer_data
+                    .insert(buffer_id);
             }
         }
-        if let Some(buffer_id) = invalidate_buffer_data {
-            self.runnables.invalidate_buffer_data.insert(buffer_id);
-        }
-
         let project = self.project().map(Entity::downgrade);
         let lsp_task_sources = self.lsp_task_sources(true, true, cx);
+        let Some(full) = self.mode.full_features_mut() else {
+            return;
+        };
         let multi_buffer = self.buffer.downgrade();
-        self.runnables.runnables_update_task = cx.spawn_in(window, async move |editor, cx| {
-            cx.background_executor().timer(UPDATE_DEBOUNCE).await;
-            let Some(project) = project.and_then(|p| p.upgrade()) else {
-                return;
-            };
-
-            let hide_runnables = project.update(cx, |project, _| project.is_via_collab());
-            if hide_runnables {
-                return;
-            }
-            let lsp_tasks = if lsp_task_sources.is_empty() {
-                Vec::new()
-            } else {
-                let Ok(lsp_tasks) = cx
-                    .update(|_, cx| crate::lsp_tasks(project.clone(), &lsp_task_sources, None, cx))
-                else {
+        full.runtime.runnables.runnables_update_task =
+            cx.spawn_in(window, async move |editor, cx| {
+                cx.background_executor().timer(UPDATE_DEBOUNCE).await;
+                let Some(project) = project.and_then(|p| p.upgrade()) else {
                     return;
                 };
-                lsp_tasks.await
-            };
-            let new_rows = {
-                let Some((multi_buffer_snapshot, multi_buffer_query_range)) = editor
-                    .update(cx, |editor, cx| {
-                        let multi_buffer = editor.buffer().read(cx);
-                        if multi_buffer.is_singleton() {
-                            Some((multi_buffer.snapshot(cx), Anchor::Min..Anchor::Max))
-                        } else {
-                            let display_snapshot =
-                                editor.display_map.update(cx, |map, cx| map.snapshot(cx));
-                            let multi_buffer_query_range =
-                                editor.multi_buffer_visible_range(&display_snapshot, cx);
-                            let multi_buffer_snapshot = display_snapshot.buffer();
-                            Some((
-                                multi_buffer_snapshot.clone(),
-                                multi_buffer_query_range.to_anchors(&multi_buffer_snapshot),
-                            ))
+
+                let hide_runnables = project.update(cx, |project, _| project.is_via_collab());
+                if hide_runnables {
+                    return;
+                }
+                let lsp_tasks = if lsp_task_sources.is_empty() {
+                    Vec::new()
+                } else {
+                    let Ok(lsp_tasks) = cx.update(|_, cx| {
+                        crate::lsp_tasks(project.clone(), &lsp_task_sources, None, cx)
+                    }) else {
+                        return;
+                    };
+                    lsp_tasks.await
+                };
+                let new_rows = {
+                    let Some((multi_buffer_snapshot, multi_buffer_query_range)) = editor
+                        .update(cx, |editor, cx| {
+                            let multi_buffer = editor.buffer().read(cx);
+                            if multi_buffer.is_singleton() {
+                                Some((multi_buffer.snapshot(cx), Anchor::Min..Anchor::Max))
+                            } else {
+                                let display_snapshot =
+                                    editor.display_map.update(cx, |map, cx| map.snapshot(cx));
+                                let multi_buffer_query_range =
+                                    editor.multi_buffer_visible_range(&display_snapshot, cx);
+                                let multi_buffer_snapshot = display_snapshot.buffer();
+                                Some((
+                                    multi_buffer_snapshot.clone(),
+                                    multi_buffer_query_range.to_anchors(&multi_buffer_snapshot),
+                                ))
+                            }
+                        })
+                        .ok()
+                        .flatten()
+                    else {
+                        return;
+                    };
+                    cx.background_spawn({
+                        async move {
+                            multi_buffer_snapshot
+                                .runnable_ranges(multi_buffer_query_range)
+                                .collect()
                         }
                     })
-                    .ok()
-                    .flatten()
+                    .await
+                };
+
+                let Ok(multi_buffer_snapshot) =
+                    editor.update(cx, |editor, cx| editor.buffer().read(cx).snapshot(cx))
                 else {
                     return;
                 };
-                cx.background_spawn({
-                    async move {
-                        multi_buffer_snapshot
-                            .runnable_ranges(multi_buffer_query_range)
-                            .collect()
-                    }
-                })
-                .await
-            };
-
-            let Ok(multi_buffer_snapshot) =
-                editor.update(cx, |editor, cx| editor.buffer().read(cx).snapshot(cx))
-            else {
-                return;
-            };
-            let Ok(mut lsp_tasks_by_rows) = cx.update(|_, cx| {
-                lsp_tasks
-                    .into_iter()
-                    .flat_map(|(kind, tasks)| {
-                        tasks.into_iter().filter_map(move |(location, task)| {
-                            Some((kind.clone(), location?, task))
+                let Ok(mut lsp_tasks_by_rows) = cx.update(|_, cx| {
+                    lsp_tasks
+                        .into_iter()
+                        .flat_map(|(kind, tasks)| {
+                            tasks.into_iter().filter_map(move |(location, task)| {
+                                Some((kind.clone(), location?, task))
+                            })
                         })
-                    })
-                    .fold(HashMap::default(), |mut acc, (kind, location, task)| {
-                        let buffer = location.target.buffer;
-                        let buffer_snapshot = buffer.read(cx).snapshot();
-                        let offset =
-                            multi_buffer_snapshot.anchor_in_excerpt(location.target.range.start);
-                        if let Some(offset) = offset {
-                            let task_buffer_range =
-                                location.target.range.to_point(&buffer_snapshot);
-                            let context_buffer_range =
-                                task_buffer_range.to_offset(&buffer_snapshot);
-                            let context_range = BufferOffset(context_buffer_range.start)
-                                ..BufferOffset(context_buffer_range.end);
+                        .fold(HashMap::default(), |mut acc, (kind, location, task)| {
+                            let buffer = location.target.buffer;
+                            let buffer_snapshot = buffer.read(cx).snapshot();
+                            let offset = multi_buffer_snapshot
+                                .anchor_in_excerpt(location.target.range.start);
+                            if let Some(offset) = offset {
+                                let task_buffer_range =
+                                    location.target.range.to_point(&buffer_snapshot);
+                                let context_buffer_range =
+                                    task_buffer_range.to_offset(&buffer_snapshot);
+                                let context_range = BufferOffset(context_buffer_range.start)
+                                    ..BufferOffset(context_buffer_range.end);
 
-                            acc.entry((buffer_snapshot.remote_id(), task_buffer_range.start.row))
+                                acc.entry((
+                                    buffer_snapshot.remote_id(),
+                                    task_buffer_range.start.row,
+                                ))
                                 .or_insert_with(|| RunnableTasks {
                                     templates: Vec::new(),
                                     offset,
@@ -227,63 +246,70 @@ impl Editor {
                                 })
                                 .templates
                                 .push((kind, task.original_task().clone()));
+                            }
+
+                            acc
+                        })
+                }) else {
+                    return;
+                };
+
+                let Ok(prefer_lsp) = multi_buffer.update(cx, |buffer, cx| {
+                    buffer.language_settings(cx).tasks.prefer_lsp
+                }) else {
+                    return;
+                };
+
+                let rows = Self::runnable_rows(
+                    project,
+                    multi_buffer_snapshot,
+                    prefer_lsp && !lsp_tasks_by_rows.is_empty(),
+                    new_rows,
+                    cx.clone(),
+                )
+                .await;
+                editor
+                    .update(cx, |editor, cx| {
+                        let invalidate_ids = editor
+                            .mode
+                            .full_features_mut()
+                            .map(|f| {
+                                std::mem::take(&mut f.runtime.runnables.invalidate_buffer_data)
+                            })
+                            .unwrap_or_default();
+                        for buffer_id in invalidate_ids {
+                            editor.clear_runnables(Some(buffer_id));
                         }
 
-                        acc
+                        for ((buffer_id, row), mut new_tasks) in rows {
+                            let Some(buffer) = editor.buffer().read(cx).buffer(buffer_id) else {
+                                continue;
+                            };
+
+                            if let Some(lsp_tasks) = lsp_tasks_by_rows.remove(&(buffer_id, row)) {
+                                new_tasks.templates.extend(lsp_tasks.templates);
+                            }
+                            editor.insert_runnables(
+                                buffer_id,
+                                buffer.read(cx).version(),
+                                row,
+                                new_tasks,
+                            );
+                        }
+                        for ((buffer_id, row), new_tasks) in lsp_tasks_by_rows {
+                            let Some(buffer) = editor.buffer().read(cx).buffer(buffer_id) else {
+                                continue;
+                            };
+                            editor.insert_runnables(
+                                buffer_id,
+                                buffer.read(cx).version(),
+                                row,
+                                new_tasks,
+                            );
+                        }
                     })
-            }) else {
-                return;
-            };
-
-            let Ok(prefer_lsp) = multi_buffer.update(cx, |buffer, cx| {
-                buffer.language_settings(cx).tasks.prefer_lsp
-            }) else {
-                return;
-            };
-
-            let rows = Self::runnable_rows(
-                project,
-                multi_buffer_snapshot,
-                prefer_lsp && !lsp_tasks_by_rows.is_empty(),
-                new_rows,
-                cx.clone(),
-            )
-            .await;
-            editor
-                .update(cx, |editor, cx| {
-                    for buffer_id in std::mem::take(&mut editor.runnables.invalidate_buffer_data) {
-                        editor.clear_runnables(Some(buffer_id));
-                    }
-
-                    for ((buffer_id, row), mut new_tasks) in rows {
-                        let Some(buffer) = editor.buffer().read(cx).buffer(buffer_id) else {
-                            continue;
-                        };
-
-                        if let Some(lsp_tasks) = lsp_tasks_by_rows.remove(&(buffer_id, row)) {
-                            new_tasks.templates.extend(lsp_tasks.templates);
-                        }
-                        editor.insert_runnables(
-                            buffer_id,
-                            buffer.read(cx).version(),
-                            row,
-                            new_tasks,
-                        );
-                    }
-                    for ((buffer_id, row), new_tasks) in lsp_tasks_by_rows {
-                        let Some(buffer) = editor.buffer().read(cx).buffer(buffer_id) else {
-                            continue;
-                        };
-                        editor.insert_runnables(
-                            buffer_id,
-                            buffer.read(cx).version(),
-                            row,
-                            new_tasks,
-                        );
-                    }
-                })
-                .ok();
-        });
+                    .ok();
+            });
     }
 
     pub fn spawn_nearest_task(
@@ -333,13 +359,16 @@ impl Editor {
     }
 
     pub fn clear_runnables(&mut self, for_buffer: Option<BufferId>) {
+        let Some(full) = self.mode.full_features_mut() else {
+            return;
+        };
         if let Some(buffer_id) = for_buffer {
-            self.runnables.runnables.remove(&buffer_id);
+            full.runtime.runnables.runnables.remove(&buffer_id);
         } else {
-            self.runnables.runnables.clear();
+            full.runtime.runnables.runnables.clear();
         }
-        self.runnables.invalidate_buffer_data.clear();
-        self.runnables.runnables_update_task = Task::ready(());
+        full.runtime.runnables.invalidate_buffer_data.clear();
+        full.runtime.runnables.runnables_update_task = Task::ready(());
     }
 
     pub fn task_context(&self, window: &mut Window, cx: &mut App) -> Task<Option<TaskContext>> {
@@ -384,9 +413,9 @@ impl Editor {
             let starting_point = location.range.start.to_point(&snapshot);
             let starting_offset = starting_point.to_offset(&snapshot);
             for (_, tasks) in self
-                .runnables
-                .runnables
-                .get(&buffer_id)
+                .mode
+                .full_features()
+                .and_then(|f| f.runtime.runnables.runnables.get(&buffer_id))
                 .into_iter()
                 .flat_map(|(_, tasks)| tasks.range(0..starting_point.row + 1))
             {
@@ -447,9 +476,11 @@ impl Editor {
                 {
                     let buffer_id = buffer.read(cx).remote_id();
                     if skip_cached
-                        && self
-                            .runnables
-                            .has_cached(buffer_id, &buffer.read(cx).version())
+                        && self.mode.full_features().map_or(false, |f| {
+                            f.runtime
+                                .runnables
+                                .has_cached(buffer_id, &buffer.read(cx).version())
+                        })
                     {
                         None
                     } else {
@@ -498,9 +529,14 @@ impl Editor {
             if node_range.start <= offset && node_range.end >= offset {
                 // If it contains offset, check for task
                 if let Some(tasks) = self
-                    .runnables
-                    .runnables
-                    .get(&buffer_snapshot.remote_id())
+                    .mode
+                    .full_features()
+                    .and_then(|f| {
+                        f.runtime
+                            .runnables
+                            .runnables
+                            .get(&buffer_snapshot.remote_id())
+                    })
                     .and_then(|(_, tasks)| tasks.get(&symbol_start_row))
                 {
                     let buffer = self.buffer.read(cx).buffer(buffer_snapshot.remote_id())?;
@@ -562,7 +598,10 @@ impl Editor {
         row: BufferRow,
         new_tasks: RunnableTasks,
     ) {
-        let (old_version, tasks) = self.runnables.runnables.entry(buffer).or_default();
+        let Some(full) = self.mode.full_features_mut() else {
+            return;
+        };
+        let (old_version, tasks) = full.runtime.runnables.runnables.entry(buffer).or_default();
         if !old_version.changed_since(&version) {
             *old_version = version;
             tasks.insert(row, new_tasks);
@@ -689,8 +728,8 @@ impl Editor {
             .head()
             .row;
 
-        let ((buffer_id, row), tasks) = self
-            .runnables
+        let runnables = &self.mode.full_features()?.runtime.runnables;
+        let ((buffer_id, row), tasks) = runnables
             .runnables
             .iter()
             .flat_map(|(buffer_id, (_, tasks))| {
@@ -799,10 +838,10 @@ mod tests {
     fn collect_runnable_labels(
         editor: &Editor,
     ) -> Vec<(text::BufferId, language::BufferRow, Vec<String>)> {
-        let mut result = editor
-            .runnables
-            .runnables
-            .iter()
+        let runnables = editor.mode.full_features().map(|f| &f.runtime.runnables);
+        let mut result = runnables
+            .into_iter()
+            .flat_map(|r| r.runnables.iter())
             .flat_map(|(buffer_id, (_, tasks))| {
                 tasks.iter().map(move |(row, runnable_tasks)| {
                     let mut labels: Vec<String> = runnable_tasks

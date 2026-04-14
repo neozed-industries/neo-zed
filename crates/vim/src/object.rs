@@ -3370,7 +3370,7 @@ mod test {
             // is handled automatically when simply using `VimTestContext::new`
             // but, since this is being set manually, the language isn't
             // automatically set.
-            let editor = Editor::new(EditorMode::full(), multi_buffer.clone(), None, window, cx);
+            let editor = Editor::new(EditorMode::full(cx), multi_buffer.clone(), None, window, cx);
             let buffer_ids = multi_buffer
                 .read(cx)
                 .snapshot(cx)

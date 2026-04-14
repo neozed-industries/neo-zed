@@ -38,11 +38,16 @@ impl Editor {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.auto_signature_help = self
-            .auto_signature_help
-            .map(|auto_signature_help| !auto_signature_help)
+        let auto_sig = self
+            .mode
+            .full_features()
+            .and_then(|f| f.runtime.auto_signature_help)
+            .map(|v| !v)
             .or_else(|| Some(!EditorSettings::get_global(cx).auto_signature_help));
-        match self.auto_signature_help {
+        if let Some(full) = self.mode.full_features_mut() {
+            full.runtime.auto_signature_help = auto_sig;
+        }
+        match auto_sig {
             Some(true) => {
                 self.show_signature_help(&ShowSignatureHelp, window, cx);
             }
@@ -58,9 +63,14 @@ impl Editor {
         cx: &mut Context<Self>,
         signature_help_hidden_by: SignatureHelpHiddenBy,
     ) -> bool {
-        if self.signature_help_state.is_shown() {
-            self.signature_help_state.task = None;
-            self.signature_help_state.hide(signature_help_hidden_by);
+        let Some(full) = self.mode.full_features_mut() else {
+            return false;
+        };
+        if full.runtime.signature_help_state.is_shown() {
+            full.runtime.signature_help_state.task = None;
+            full.runtime
+                .signature_help_state
+                .hide(signature_help_hidden_by);
             cx.notify();
             true
         } else {
@@ -69,7 +79,11 @@ impl Editor {
     }
 
     pub fn auto_signature_help_enabled(&self, cx: &App) -> bool {
-        if let Some(auto_signature_help) = self.auto_signature_help {
+        if let Some(auto_signature_help) = self
+            .mode
+            .full_features()
+            .and_then(|f| f.runtime.auto_signature_help)
+        {
             auto_signature_help
         } else {
             EditorSettings::get_global(cx).auto_signature_help
@@ -81,7 +95,11 @@ impl Editor {
         old_cursor_position: &Anchor,
         cx: &mut Context<Self>,
     ) -> bool {
-        if !(self.signature_help_state.is_shown() || self.auto_signature_help_enabled(cx)) {
+        let signature_shown = self
+            .mode
+            .full_features()
+            .map_or(false, |f| f.runtime.signature_help_state.is_shown());
+        if !(signature_shown || self.auto_signature_help_enabled(cx)) {
             return false;
         }
         let newest_selection = self
@@ -90,8 +108,11 @@ impl Editor {
         let head = newest_selection.head();
 
         if !newest_selection.is_empty() && head != newest_selection.tail() {
-            self.signature_help_state
-                .hide(SignatureHelpHiddenBy::Selection);
+            if let Some(full) = self.mode.full_features_mut() {
+                full.runtime
+                    .signature_help_state
+                    .hide(SignatureHelpHiddenBy::Selection);
+            }
             return false;
         }
 
@@ -139,23 +160,36 @@ impl Editor {
 
         match (previous_brackets_surround, current_brackets_surround) {
             (None, None) => {
-                self.signature_help_state
-                    .hide(SignatureHelpHiddenBy::AutoClose);
+                if let Some(full) = self.mode.full_features_mut() {
+                    full.runtime
+                        .signature_help_state
+                        .hide(SignatureHelpHiddenBy::AutoClose);
+                }
                 false
             }
             (Some(_), None) => {
-                self.signature_help_state
-                    .hide(SignatureHelpHiddenBy::AutoClose);
+                if let Some(full) = self.mode.full_features_mut() {
+                    full.runtime
+                        .signature_help_state
+                        .hide(SignatureHelpHiddenBy::AutoClose);
+                }
                 false
             }
             (None, Some(_)) => true,
             (Some(previous), Some(current)) => {
-                let condition = self.signature_help_state.hidden_by_selection()
+                let sig_state = self
+                    .mode
+                    .full_features()
+                    .map(|f| &f.runtime.signature_help_state);
+                let condition = sig_state.map_or(false, |s| s.hidden_by_selection())
                     || previous != current
-                    || (previous == current && self.signature_help_state.is_shown());
+                    || (previous == current && sig_state.map_or(false, |s| s.is_shown()));
                 if !condition {
-                    self.signature_help_state
-                        .hide(SignatureHelpHiddenBy::AutoClose);
+                    if let Some(full) = self.mode.full_features_mut() {
+                        full.runtime
+                            .signature_help_state
+                            .hide(SignatureHelpHiddenBy::AutoClose);
+                    }
                 }
                 condition
             }
@@ -181,13 +215,18 @@ impl Editor {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.pending_rename.is_some() || self.has_visible_completions_menu() {
+        if self
+            .mode
+            .full_features()
+            .map_or(false, |f| f.runtime.pending_rename.is_some())
+            || self.has_visible_completions_menu()
+        {
             return;
         }
 
-        // If there's an already running signature
-        // help task, this will drop it.
-        self.signature_help_state.task = None;
+        if let Some(full) = self.mode.full_features_mut() {
+            full.runtime.signature_help_state.task = None;
+        }
 
         let position = self.selections.newest_anchor().head();
         let Some((buffer, buffer_position)) =
@@ -209,92 +248,100 @@ impl Editor {
             0
         };
 
-        self.signature_help_state
-            .set_task(cx.spawn_in(window, async move |editor, cx| {
-                if signature_help_delay_ms > 0 {
-                    cx.background_executor()
-                        .timer(Duration::from_millis(signature_help_delay_ms))
-                        .await;
-                }
+        let task = cx.spawn_in(window, async move |editor, cx| {
+            if signature_help_delay_ms > 0 {
+                cx.background_executor()
+                    .timer(Duration::from_millis(signature_help_delay_ms))
+                    .await;
+            }
 
-                let signature_help = lsp_task.await;
+            let signature_help = lsp_task.await;
 
-                editor
-                    .update(cx, |editor, cx| {
-                        let Some(mut signature_help) =
-                            signature_help.unwrap_or_default().into_iter().next()
-                        else {
-                            editor
+            editor
+                .update(cx, |editor, cx| {
+                    let Some(mut signature_help) =
+                        signature_help.unwrap_or_default().into_iter().next()
+                    else {
+                        if let Some(full) = editor.mode.full_features_mut() {
+                            full.runtime
                                 .signature_help_state
                                 .hide(SignatureHelpHiddenBy::AutoClose);
-                            return;
-                        };
-
-                        if let Some(language) = language {
-                            for signature in &mut signature_help.signatures {
-                                let text = Rope::from(signature.label.as_ref());
-                                let highlights = language
-                                    .highlight_text(&text, 0..signature.label.len())
-                                    .into_iter()
-                                    .flat_map(|(range, highlight_id)| {
-                                        Some((range, *cx.theme().syntax().get(highlight_id)?))
-                                    });
-                                signature.highlights =
-                                    combine_highlights(signature.highlights.clone(), highlights)
-                                        .collect();
-                            }
                         }
-                        let settings = ThemeSettings::get_global(cx);
-                        let style = TextStyle {
-                            color: cx.theme().colors().text,
-                            font_family: settings.buffer_font.family.clone(),
-                            font_fallbacks: settings.buffer_font.fallbacks.clone(),
-                            font_features: settings.buffer_font.features.clone(),
-                            font_size: settings.buffer_font_size(cx).into(),
-                            font_weight: settings.buffer_font.weight,
-                            line_height: relative(settings.buffer_line_height.value()),
-                            ..TextStyle::default()
-                        };
-                        let scroll_handle = ScrollHandle::new();
-                        let signatures = signature_help
-                            .signatures
-                            .into_iter()
-                            .map(|s| SignatureHelp {
-                                label: s.label,
-                                documentation: s.documentation,
-                                highlights: s.highlights,
-                                active_parameter: s.active_parameter,
-                                parameter_documentation: s
-                                    .active_parameter
-                                    .and_then(|idx| s.parameters.get(idx))
-                                    .and_then(|param| param.documentation.clone()),
-                            })
-                            .collect::<Vec<_>>();
+                        return;
+                    };
 
-                        if signatures.is_empty() {
-                            editor
+                    if let Some(language) = language {
+                        for signature in &mut signature_help.signatures {
+                            let text = Rope::from(signature.label.as_ref());
+                            let highlights = language
+                                .highlight_text(&text, 0..signature.label.len())
+                                .into_iter()
+                                .flat_map(|(range, highlight_id)| {
+                                    Some((range, *cx.theme().syntax().get(highlight_id)?))
+                                });
+                            signature.highlights =
+                                combine_highlights(signature.highlights.clone(), highlights)
+                                    .collect();
+                        }
+                    }
+                    let settings = ThemeSettings::get_global(cx);
+                    let style = TextStyle {
+                        color: cx.theme().colors().text,
+                        font_family: settings.buffer_font.family.clone(),
+                        font_fallbacks: settings.buffer_font.fallbacks.clone(),
+                        font_features: settings.buffer_font.features.clone(),
+                        font_size: settings.buffer_font_size(cx).into(),
+                        font_weight: settings.buffer_font.weight,
+                        line_height: relative(settings.buffer_line_height.value()),
+                        ..TextStyle::default()
+                    };
+                    let scroll_handle = ScrollHandle::new();
+                    let signatures = signature_help
+                        .signatures
+                        .into_iter()
+                        .map(|s| SignatureHelp {
+                            label: s.label,
+                            documentation: s.documentation,
+                            highlights: s.highlights,
+                            active_parameter: s.active_parameter,
+                            parameter_documentation: s
+                                .active_parameter
+                                .and_then(|idx| s.parameters.get(idx))
+                                .and_then(|param| param.documentation.clone()),
+                        })
+                        .collect::<Vec<_>>();
+
+                    if signatures.is_empty() {
+                        if let Some(full) = editor.mode.full_features_mut() {
+                            full.runtime
                                 .signature_help_state
                                 .hide(SignatureHelpHiddenBy::AutoClose);
-                            return;
                         }
+                        return;
+                    }
 
-                        let current_signature = signature_help
-                            .active_signature
-                            .min(signatures.len().saturating_sub(1));
+                    let current_signature = signature_help
+                        .active_signature
+                        .min(signatures.len().saturating_sub(1));
 
-                        let signature_help_popover = SignatureHelpPopover {
-                            style,
-                            signatures,
-                            current_signature,
-                            scroll_handle,
-                        };
-                        editor
+                    let signature_help_popover = SignatureHelpPopover {
+                        style,
+                        signatures,
+                        current_signature,
+                        scroll_handle,
+                    };
+                    if let Some(full) = editor.mode.full_features_mut() {
+                        full.runtime
                             .signature_help_state
                             .set_popover(signature_help_popover);
-                        cx.notify();
-                    })
-                    .ok();
-            }));
+                    }
+                    cx.notify();
+                })
+                .ok();
+        });
+        if let Some(full) = self.mode.full_features_mut() {
+            full.runtime.signature_help_state.set_task(task);
+        }
     }
 }
 

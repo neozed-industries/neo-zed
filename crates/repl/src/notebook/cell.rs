@@ -355,11 +355,10 @@ impl MarkdownCell {
 
         let editor = cx.new(|cx| {
             let mut editor = Editor::new(
-                EditorMode::Full {
-                    scale_ui_elements_with_buffer_font_size: false,
-                    show_active_line_background: false,
-                    sizing_behavior: SizingBehavior::SizeByContent,
-                },
+                EditorMode::full(cx)
+                    .scale_ui_elements_with_buffer_font_size(false)
+                    .show_active_line_background(false)
+                    .sizing_behavior(SizingBehavior::SizeByContent),
                 multi_buffer,
                 None,
                 window,
@@ -622,11 +621,10 @@ impl CodeCell {
 
         let editor_view = cx.new(|cx| {
             let mut editor = Editor::new(
-                EditorMode::Full {
-                    scale_ui_elements_with_buffer_font_size: false,
-                    show_active_line_background: false,
-                    sizing_behavior: SizingBehavior::SizeByContent,
-                },
+                EditorMode::full(cx)
+                    .scale_ui_elements_with_buffer_font_size(false)
+                    .show_active_line_background(false)
+                    .sizing_behavior(SizingBehavior::SizeByContent),
                 multi_buffer,
                 None,
                 window,
@@ -700,11 +698,10 @@ impl CodeCell {
 
         let editor_view = cx.new(|cx| {
             let mut editor = Editor::new(
-                EditorMode::Full {
-                    scale_ui_elements_with_buffer_font_size: false,
-                    show_active_line_background: false,
-                    sizing_behavior: SizingBehavior::SizeByContent,
-                },
+                EditorMode::full(cx)
+                    .scale_ui_elements_with_buffer_font_size(false)
+                    .show_active_line_background(false)
+                    .sizing_behavior(SizingBehavior::SizeByContent),
                 multi_buffer,
                 None,
                 window,

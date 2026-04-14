@@ -144,10 +144,7 @@ impl ThreadFeedbackState {
 
         let editor = cx.new(|cx| {
             let mut editor = Editor::new(
-                editor::EditorMode::AutoHeight {
-                    min_lines: 1,
-                    max_lines: Some(4),
-                },
+                editor::EditorMode::auto_height(1, Some(4)),
                 buffer,
                 None,
                 window,
@@ -409,10 +406,10 @@ impl ThreadView {
                 session_capabilities.clone(),
                 agent_id.clone(),
                 &placeholder,
-                editor::EditorMode::AutoHeight {
-                    min_lines: AgentSettings::get_global(cx).message_editor_min_lines,
-                    max_lines: Some(AgentSettings::get_global(cx).set_message_editor_max_lines()),
-                },
+                editor::EditorMode::auto_height(
+                    AgentSettings::get_global(cx).message_editor_min_lines,
+                    Some(AgentSettings::get_global(cx).set_message_editor_max_lines()),
+                ),
                 window,
                 cx,
             );
@@ -1626,20 +1623,19 @@ impl ThreadView {
         self.message_editor.update(cx, |editor, cx| {
             if is_expanded {
                 editor.set_mode(
-                    EditorMode::Full {
-                        scale_ui_elements_with_buffer_font_size: false,
-                        show_active_line_background: false,
-                        sizing_behavior: SizingBehavior::ExcludeOverscrollMargin,
-                    },
+                    EditorMode::full(cx)
+                        .scale_ui_elements_with_buffer_font_size(false)
+                        .show_active_line_background(false)
+                        .sizing_behavior(SizingBehavior::ExcludeOverscrollMargin),
                     cx,
                 )
             } else {
                 let agent_settings = AgentSettings::get_global(cx);
                 editor.set_mode(
-                    EditorMode::AutoHeight {
-                        min_lines: agent_settings.message_editor_min_lines,
-                        max_lines: Some(agent_settings.set_message_editor_max_lines()),
-                    },
+                    EditorMode::auto_height(
+                        agent_settings.message_editor_min_lines,
+                        Some(agent_settings.set_message_editor_max_lines()),
+                    ),
                     cx,
                 )
             }
@@ -5330,16 +5326,15 @@ impl ThreadView {
         let v2_empty_state = !has_messages;
 
         let mode = if v2_empty_state {
-            EditorMode::Full {
-                scale_ui_elements_with_buffer_font_size: false,
-                show_active_line_background: false,
-                sizing_behavior: SizingBehavior::Default,
-            }
+            EditorMode::full(cx)
+                .scale_ui_elements_with_buffer_font_size(false)
+                .show_active_line_background(false)
+                .sizing_behavior(SizingBehavior::Default)
         } else {
-            EditorMode::AutoHeight {
-                min_lines: AgentSettings::get_global(cx).message_editor_min_lines,
-                max_lines: Some(AgentSettings::get_global(cx).set_message_editor_max_lines()),
-            }
+            EditorMode::auto_height(
+                AgentSettings::get_global(cx).message_editor_min_lines,
+                Some(AgentSettings::get_global(cx).set_message_editor_max_lines()),
+            )
         };
         self.message_editor.update(cx, |editor, cx| {
             editor.set_mode(mode, cx);

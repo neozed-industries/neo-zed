@@ -37,7 +37,7 @@ impl Editor {
             let buffer_snapshot = buffer_snapshot.clone();
             async move { buffer_snapshot.innermost_enclosing_bracket_ranges(head..tail, None) }
         });
-        self.refresh_matching_bracket_highlights_task = cx.spawn({
+        let spawn = cx.spawn({
             let buffer_snapshot = buffer_snapshot.clone();
             async move |this, cx| {
                 let bracket_ranges = task.await;
@@ -81,6 +81,9 @@ impl Editor {
                 }
             }
         });
+        if let Some(full) = self.mode.full_features_mut() {
+            full.runtime.refresh_matching_bracket_highlights_task = spawn;
+        }
     }
 }
 

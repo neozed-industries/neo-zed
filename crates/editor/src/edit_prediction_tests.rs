@@ -281,7 +281,12 @@ async fn test_edit_prediction_invalidation_range(cx: &mut gpui::TestAppContext) 
         line
     "});
     cx.editor(|editor, _, _| {
-        assert!(editor.active_edit_prediction.is_none());
+        assert!(
+            editor
+                .mode
+                .full_features()
+                .map_or(true, |f| f.runtime.active_edit_prediction.is_none())
+        );
     });
 
     // Cursor is 3+ lines below the proposed edit
@@ -329,7 +334,12 @@ async fn test_edit_prediction_invalidation_range(cx: &mut gpui::TestAppContext) 
         line ˇ5
     "});
     cx.editor(|editor, _, _| {
-        assert!(editor.active_edit_prediction.is_none());
+        assert!(
+            editor
+                .mode
+                .full_features()
+                .map_or(true, |f| f.runtime.active_edit_prediction.is_none())
+        );
     });
 }
 
@@ -360,7 +370,11 @@ async fn test_edit_prediction_jump_disabled_for_non_zed_providers(cx: &mut gpui:
 
     // For non-Zed providers, there should be no move completion (jump functionality disabled)
     cx.editor(|editor, _, _| {
-        if let Some(completion_state) = &editor.active_edit_prediction {
+        if let Some(completion_state) = &editor
+            .mode
+            .full_features()
+            .and_then(|f| f.runtime.active_edit_prediction.as_ref())
+        {
             // Should be an Edit prediction, not a Move prediction
             match &completion_state.completion {
                 EditPrediction::Edit { .. } => {
@@ -399,7 +413,12 @@ async fn test_edit_prediction_refresh_suppressed_while_following(cx: &mut gpui::
         1
     );
     cx.editor(|editor, _, _| {
-        assert!(editor.active_edit_prediction.is_some());
+        assert!(
+            editor
+                .mode
+                .full_features()
+                .map_or(false, |f| f.runtime.active_edit_prediction.is_some())
+        );
     });
 
     cx.update_editor(|editor, window, cx| {
@@ -414,7 +433,12 @@ async fn test_edit_prediction_refresh_suppressed_while_following(cx: &mut gpui::
         1
     );
     cx.editor(|editor, _, _| {
-        assert!(editor.active_edit_prediction.is_none());
+        assert!(
+            editor
+                .mode
+                .full_features()
+                .map_or(true, |f| f.runtime.active_edit_prediction.is_none())
+        );
     });
 
     cx.update_editor(|editor, window, cx| {
@@ -952,11 +976,31 @@ async fn test_cursor_popover_edit_prediction_keybind_cases(cx: &mut gpui::TestAp
                     editor.update_visible_edit_prediction(window, cx)
                 });
                 cx.update_editor(|editor, _window, cx| {
-                    assert!(editor.active_edit_prediction.is_some());
-                    assert!(editor.stale_edit_prediction_in_menu.is_none());
+                    assert!(
+                        editor
+                            .mode
+                            .full_features()
+                            .map_or(false, |f| f.runtime.active_edit_prediction.is_some())
+                    );
+                    assert!(
+                        editor
+                            .mode
+                            .full_features()
+                            .map_or(true, |f| f.runtime.stale_edit_prediction_in_menu.is_none())
+                    );
                     editor.take_active_edit_prediction(true, cx);
-                    assert!(editor.active_edit_prediction.is_none());
-                    assert!(editor.stale_edit_prediction_in_menu.is_some());
+                    assert!(
+                        editor
+                            .mode
+                            .full_features()
+                            .map_or(true, |f| f.runtime.active_edit_prediction.is_none())
+                    );
+                    assert!(
+                        editor
+                            .mode
+                            .full_features()
+                            .map_or(false, |f| f.runtime.stale_edit_prediction_in_menu.is_some())
+                    );
                 });
 
                 propose_edits(&provider, vec![(8..8, "42")], &mut cx);
@@ -1009,7 +1053,10 @@ async fn test_cursor_popover_edit_prediction_keybind_cases(cx: &mut gpui::TestAp
                 CursorPopoverPredictionKind::StaleSingleLineAfterMultiLine
             ) {
                 assert!(
-                    editor.stale_edit_prediction_in_menu.is_none(),
+                    editor
+                        .mode
+                        .full_features()
+                        .map_or(true, |f| f.runtime.stale_edit_prediction_in_menu.is_none()),
                     "case '{}' should clear stale menu state",
                     case.name
                 );
@@ -1024,8 +1071,9 @@ fn assert_editor_active_edit_completion(
 ) {
     cx.editor(|editor, _, cx| {
         let completion_state = editor
-            .active_edit_prediction
-            .as_ref()
+            .mode
+            .full_features()
+            .and_then(|f| f.runtime.active_edit_prediction.as_ref())
             .expect("editor has no active completion");
 
         if let EditPrediction::Edit { edits, .. } = &completion_state.completion {
@@ -1042,8 +1090,9 @@ fn assert_editor_active_move_completion(
 ) {
     cx.editor(|editor, _, cx| {
         let completion_state = editor
-            .active_edit_prediction
-            .as_ref()
+            .mode
+            .full_features()
+            .and_then(|f| f.runtime.active_edit_prediction.as_ref())
             .expect("editor has no active completion");
 
         if let EditPrediction::MoveWithin { target, .. } = &completion_state.completion {
@@ -1068,16 +1117,36 @@ async fn test_cancel_clears_stale_edit_prediction_in_menu(cx: &mut gpui::TestApp
     cx.update_editor(|editor, window, cx| editor.update_visible_edit_prediction(window, cx));
 
     cx.update_editor(|editor, _window, _cx| {
-        assert!(editor.active_edit_prediction.is_some());
-        assert!(editor.stale_edit_prediction_in_menu.is_none());
+        assert!(
+            editor
+                .mode
+                .full_features()
+                .map_or(false, |f| f.runtime.active_edit_prediction.is_some())
+        );
+        assert!(
+            editor
+                .mode
+                .full_features()
+                .map_or(true, |f| f.runtime.stale_edit_prediction_in_menu.is_none())
+        );
     });
 
     cx.simulate_keystroke("escape");
     cx.run_until_parked();
 
     cx.update_editor(|editor, _window, _cx| {
-        assert!(editor.active_edit_prediction.is_none());
-        assert!(editor.stale_edit_prediction_in_menu.is_none());
+        assert!(
+            editor
+                .mode
+                .full_features()
+                .map_or(true, |f| f.runtime.active_edit_prediction.is_none())
+        );
+        assert!(
+            editor
+                .mode
+                .full_features()
+                .map_or(true, |f| f.runtime.stale_edit_prediction_in_menu.is_none())
+        );
     });
 }
 
@@ -1095,7 +1164,12 @@ async fn test_discard_clears_delegate_completion(cx: &mut gpui::TestAppContext) 
     cx.update_editor(|editor, window, cx| editor.update_visible_edit_prediction(window, cx));
 
     cx.update_editor(|editor, _window, _cx| {
-        assert!(editor.active_edit_prediction.is_some());
+        assert!(
+            editor
+                .mode
+                .full_features()
+                .map_or(false, |f| f.runtime.active_edit_prediction.is_some())
+        );
     });
 
     // Dismiss the prediction — this must call discard() on the delegate,
@@ -1104,7 +1178,12 @@ async fn test_discard_clears_delegate_completion(cx: &mut gpui::TestAppContext) 
     cx.run_until_parked();
 
     cx.update_editor(|editor, _window, _cx| {
-        assert!(editor.active_edit_prediction.is_none());
+        assert!(
+            editor
+                .mode
+                .full_features()
+                .map_or(true, |f| f.runtime.active_edit_prediction.is_none())
+        );
     });
 
     // update_visible_edit_prediction must NOT bring the prediction back,
@@ -1113,7 +1192,10 @@ async fn test_discard_clears_delegate_completion(cx: &mut gpui::TestAppContext) 
 
     cx.update_editor(|editor, _window, _cx| {
         assert!(
-            editor.active_edit_prediction.is_none(),
+            editor
+                .mode
+                .full_features()
+                .map_or(true, |f| f.runtime.active_edit_prediction.is_none()),
             "prediction must not resurface after discard()"
         );
     });

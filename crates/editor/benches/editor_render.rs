@@ -17,7 +17,7 @@ fn editor_input_with_1000_cursors(bencher: &mut Bencher<'_>, cx: &TestAppContext
     let cx = cx.add_empty_window();
     let editor = cx.update(|window, cx| {
         let editor = cx.new(|cx| {
-            let mut editor = Editor::new(EditorMode::full(), buffer, None, window, cx);
+            let mut editor = Editor::new(EditorMode::full(cx), buffer, None, window, cx);
             editor.set_style(editor::EditorStyle::default(), window, cx);
             editor.select_all(&SelectAll, window, cx);
             editor.split_selection_into_lines(
@@ -68,7 +68,7 @@ fn open_editor_with_one_long_line(bencher: &mut Bencher<'_>, args: &(String, Tes
         let cx = cx.add_empty_window();
         let _ = cx.update(|window, cx| {
             let editor = cx.new(|cx| {
-                let mut editor = Editor::new(EditorMode::full(), buffer, None, window, cx);
+                let mut editor = Editor::new(EditorMode::full(cx), buffer, None, window, cx);
                 editor.set_style(editor::EditorStyle::default(), window, cx);
                 editor
             });
@@ -96,7 +96,7 @@ fn editor_render(bencher: &mut Bencher<'_>, cx: &TestAppContext) {
     let cx = cx.add_empty_window();
     let editor = cx.update(|window, cx| {
         let editor = cx.new(|cx| {
-            let mut editor = Editor::new(EditorMode::full(), buffer, None, window, cx);
+            let mut editor = Editor::new(EditorMode::full(cx), buffer, None, window, cx);
             editor.set_style(editor::EditorStyle::default(), window, cx);
             editor
         });
