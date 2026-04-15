@@ -65,6 +65,21 @@ pub(crate) fn list_thread_metadata_from_connection(
     connection.select::<ThreadMetadata>(ThreadMetadataDb::LIST_QUERY)?()
 }
 
+/// Run the `ThreadMetadataDb` migrations on a raw connection.
+///
+/// This is used in tests to set up the sidebar_threads schema in a
+/// temporary database.
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) fn run_thread_metadata_migrations(connection: &db::sqlez::connection::Connection) {
+    connection
+        .migrate(
+            ThreadMetadataDb::NAME,
+            ThreadMetadataDb::MIGRATIONS,
+            &mut |_, _, _| false,
+        )
+        .expect("thread metadata migrations should succeed");
+}
+
 pub fn init(cx: &mut App) {
     ThreadMetadataStore::init_global(cx);
     let migration_task = migrate_thread_metadata(cx);
@@ -1695,7 +1710,7 @@ mod tests {
             .unwrap();
     }
 
-    fn run_thread_metadata_migrations(cx: &mut TestAppContext) {
+    fn run_store_migrations(cx: &mut TestAppContext) {
         clear_thread_metadata_remote_connection_backfill(cx);
         cx.update(|cx| {
             let migration_task = migrate_thread_metadata(cx);
@@ -1974,7 +1989,7 @@ mod tests {
             cx.run_until_parked();
         }
 
-        run_thread_metadata_migrations(cx);
+        run_store_migrations(cx);
 
         let list = cx.update(|cx| {
             let store = ThreadMetadataStore::global(cx);
@@ -2065,7 +2080,7 @@ mod tests {
         save_task.await.unwrap();
         cx.run_until_parked();
 
-        run_thread_metadata_migrations(cx);
+        run_store_migrations(cx);
 
         let list = cx.update(|cx| {
             let store = ThreadMetadataStore::global(cx);
@@ -2203,7 +2218,7 @@ mod tests {
             cx.run_until_parked();
         }
 
-        run_thread_metadata_migrations(cx);
+        run_store_migrations(cx);
 
         let list = cx.update(|cx| {
             let store = ThreadMetadataStore::global(cx);
@@ -3383,13 +3398,7 @@ mod tests {
         .unwrap();
 
         // Run all migrations (0-7). sqlez skips 0-6 and runs only migration 7.
-        connection
-            .migrate(
-                ThreadMetadataDb::NAME,
-                ThreadMetadataDb::MIGRATIONS,
-                &mut |_, _, _| false,
-            )
-            .expect("new migration should succeed");
+        run_thread_metadata_migrations(&connection);
 
         // All 3 rows should survive with non-NULL thread_ids.
         let count: i64 = connection
