@@ -562,7 +562,7 @@ impl ComponentPreview {
                 let status_toast =
                     StatusToast::new("`zed/new-notification-system` created!", cx, |this, _cx| {
                         this.icon(
-                            Icon::new(IconName::GitBranchAlt)
+                            Icon::new(IconName::GitBranch)
                                 .size(IconSize::Small)
                                 .color(Color::Muted),
                         )

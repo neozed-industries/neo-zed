@@ -3865,13 +3865,13 @@ impl GitPanel {
                 use remote_output::SuccessStyle::*;
                 match style {
                     Toast => this.icon(
-                        Icon::new(IconName::GitBranchAlt)
+                        Icon::new(IconName::GitBranch)
                             .size(IconSize::Small)
                             .color(Color::Muted),
                     ),
                     ToastWithLog { output } => this
                         .icon(
-                            Icon::new(IconName::GitBranchAlt)
+                            Icon::new(IconName::GitBranch)
                                 .size(IconSize::Small)
                                 .color(Color::Muted),
                         )
@@ -3887,7 +3887,7 @@ impl GitPanel {
                         }),
                     PushPrLink { text, link } => this
                         .icon(
-                            Icon::new(IconName::GitBranchAlt)
+                            Icon::new(IconName::GitBranch)
                                 .size(IconSize::Small)
                                 .color(Color::Muted),
                         )
@@ -5819,7 +5819,7 @@ impl Panel for GitPanel {
     }
 
     fn icon(&self, _: &Window, cx: &App) -> Option<ui::IconName> {
-        Some(ui::IconName::GitBranchAlt).filter(|_| GitPanelSettings::get_global(cx).button)
+        Some(ui::IconName::GitBranch).filter(|_| GitPanelSettings::get_global(cx).button)
     }
 
     fn icon_tooltip(&self, _window: &Window, _cx: &App) -> Option<&'static str> {
@@ -6139,15 +6139,13 @@ impl RenderOnce for PanelRepoFooter {
                     .flex_1()
                     .overflow_hidden()
                     .gap_px()
-                    .child(
-                        Icon::new(IconName::GitBranchAlt)
-                            .size(IconSize::Small)
-                            .color(if single_repo {
-                                Color::Disabled
-                            } else {
-                                Color::Muted
-                            }),
-                    )
+                    .child(Icon::new(IconName::GitBranch).size(IconSize::Small).color(
+                        if single_repo {
+                            Color::Disabled
+                        } else {
+                            Color::Muted
+                        },
+                    ))
                     .child(repo_selector)
                     .when(show_separator, |this| {
                         this.child(
