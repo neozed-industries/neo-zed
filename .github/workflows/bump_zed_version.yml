@@ -32,7 +32,7 @@ jobs:
     - id: compute-matrix
       name: bump_zed_version::plan_version_bump::compute_matrix
       run: |
-        matrix=$(cargo run -p xtask -- bump-version-plan --bump-type "$BUMP_TYPE" --patch-channel "$PATCH_CHANNEL")
+        matrix=$(script/bump-zed-version plan "$BUMP_TYPE" "$PATCH_CHANNEL")
         echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
       env:
         BUMP_TYPE: ${{ inputs.bump_type }}
@@ -64,51 +64,7 @@ jobs:
         ref: ${{ matrix.checkout_ref }}
         token: ${{ steps.generate-token.outputs.token }}
     - name: bump_zed_version::execute_version_bump::run_version_bump
-      run: |
-        # Create the target branch from current HEAD when bootstrapping a new version branch
-        if [ "$CREATE_BRANCH" = "true" ]; then
-          git push origin "HEAD:refs/heads/${TARGET_BRANCH}"
-        fi
-
-        # Bump the crate version if requested
-        if [ -n "$BUMP" ]; then
-          which cargo-set-version > /dev/null || cargo install cargo-edit -f --no-default-features --features "set-version"
-          cargo set-version -p zed --bump "$BUMP" 2>&1
-        fi
-
-        # Switch the release channel if requested
-        if [ -n "$NEW_CHANNEL" ]; then
-          printf '%s' "$NEW_CHANNEL" > crates/zed/RELEASE_CHANNEL
-        fi
-
-        # Read resulting version and channel for PR metadata
-        version=$(script/get-crate-version zed)
-        channel=$(cat crates/zed/RELEASE_CHANNEL)
-
-        # Build the PR title: version bumps say "Bump Zed to …",
-        # channel-only changes say "{branch} {channel}".
-        if [ -n "$BUMP" ]; then
-          if [ "$TARGET_BRANCH" = "main" ]; then
-            title="Bump Zed to v${version}"
-          else
-            title="Bump Zed to v${version} (${channel})"
-          fi
-          pr_branch="bump-zed-to-${version}"
-        else
-          title="${TARGET_BRANCH} ${channel}"
-          pr_branch="${TARGET_BRANCH}-${channel}"
-        fi
-
-        git checkout -b "$pr_branch"
-        git commit -am "$title"
-        git push origin "$pr_branch"
-
-        printf "%s\n\nRelease Notes:\n\n- N/A" "$title" | \
-          gh pr create \
-            --title "$title" \
-            --body-file - \
-            --base "$TARGET_BRANCH" \
-            --head "$pr_branch"
+      run: script/bump-zed-version execute "$TARGET_BRANCH" "$BUMP" "$NEW_CHANNEL"
       env:
         GIT_COMMITTER_NAME: Zed Zippy
         GIT_COMMITTER_EMAIL: 234243425+zed-zippy[bot]@users.noreply.github.com
@@ -118,7 +74,6 @@ jobs:
         TARGET_BRANCH: ${{ matrix.target_branch }}
         BUMP: ${{ matrix.bump }}
         NEW_CHANNEL: ${{ matrix.new_channel }}
-        CREATE_BRANCH: ${{ matrix.create_branch }}
 concurrency:
   group: bump-zed-version
 defaults:

@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+RELEASE_API="https://cloud.zed.dev/releases"
+RELEASE_CHANNEL_PATH="crates/zed/RELEASE_CHANNEL"
+
+# Resolve the version branch (e.g. "v0.232.x") for a release channel.
+resolve_branch() {
+    local channel="$1"
+    local version
+    version=$(curl -fsSL "${RELEASE_API}/${channel}/latest/asset?asset=zed&os=macos&arch=aarch64" | jq -r '.version')
+    if [ -z "$version" ] || [ "$version" = "null" ]; then
+        echo "error: failed to resolve latest ${channel} version from API" >&2
+        return 1
+    fi
+    local major minor
+    major=$(echo "$version" | cut -d. -f1)
+    minor=$(echo "$version" | cut -d. -f2)
+    echo "v${major}.${minor}.x"
+}
+
+# Outputs a JSON matrix array to stdout.
+#
+# Usage: bump-zed-version plan <bump_type> [patch_channel]
+#   bump_type:     major | minor | patch
+#   patch_channel: preview | stable | both  (default: both, only for patch)
+plan_bump() {
+    local bump_type="${1:?missing bump_type (major|minor|patch)}"
+    local patch_channel="${2:-both}"
+
+    case "$bump_type" in
+        major|minor|patch) ;;
+        *) echo "error: invalid bump_type '$bump_type'" >&2; exit 1 ;;
+    esac
+
+    if [ "$bump_type" = "patch" ]; then
+        case "$patch_channel" in
+            preview|stable|both) ;;
+            *) echo "error: invalid patch_channel '$patch_channel'" >&2; exit 1 ;;
+        esac
+    fi
+
+    local preview_branch stable_branch
+    preview_branch=$(resolve_branch preview)
+    stable_branch=$(resolve_branch stable)
+    echo "Resolved preview branch: $preview_branch" >&2
+    echo "Resolved stable branch:  $stable_branch" >&2
+
+    local version major minor
+    version=$(script/get-crate-version zed)
+    major=$(echo "$version" | cut -d. -f1)
+    minor=$(echo "$version" | cut -d. -f2)
+    echo "Version on main: $version" >&2
+
+    local channel
+    channel=$(cat "$RELEASE_CHANNEL_PATH")
+    if [ "$channel" != "dev" ] && [ "$channel" != "nightly" ]; then
+        echo "error: RELEASE_CHANNEL on main must be 'dev' or 'nightly', found: '$channel'" >&2
+        exit 1
+    fi
+
+    if [ "$bump_type" = "patch" ]; then
+        local matrix="[]"
+        if [ "$patch_channel" = "preview" ] || [ "$patch_channel" = "both" ]; then
+            matrix=$(echo "$matrix" | jq -c \
+            --arg checkout_ref "$preview_branch" \
+            --arg target_branch "$preview_branch" \
+            '. + [{"checkout_ref": $checkout_ref, "target_branch": $target_branch, "bump": "patch", "new_channel": ""}]')
+        fi
+        if [ "$patch_channel" = "stable" ] || [ "$patch_channel" = "both" ]; then
+            matrix=$(echo "$matrix" | jq -c \
+            --arg checkout_ref "$stable_branch" \
+            --arg target_branch "$stable_branch" \
+            '. + [{"checkout_ref": $checkout_ref, "target_branch": $target_branch, "bump": "patch", "new_channel": ""}]')
+        fi
+        echo "$matrix"
+    else
+        local new_preview_branch="v${major}.${minor}.x"
+        jq -nc \
+            --arg bump "$bump_type" \
+            --arg new_preview "$new_preview_branch" \
+            --arg old_preview "$preview_branch" \
+            '[
+            {"checkout_ref": "main",       "target_branch": "main",       "bump": $bump, "new_channel": ""},
+            {"checkout_ref": "main",       "target_branch": $new_preview, "bump": "",    "new_channel": "preview"},
+            {"checkout_ref": $old_preview, "target_branch": $old_preview, "bump": "",    "new_channel": "stable"}
+            ]'
+    fi
+}
+
+plan_bump "$@"

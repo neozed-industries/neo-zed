@@ -1,4 +1,3 @@
-pub mod bump_version;
 pub mod clippy;
 pub mod compliance;
 pub mod licenses;

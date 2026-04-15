@@ -31,7 +31,7 @@ pub fn bump_zed_version() -> Workflow {
 fn plan_version_bump(bump_type: &WorkflowInput, patch_channel: &WorkflowInput) -> NamedJob {
     fn compute_matrix(bump_type: &WorkflowInput, patch_channel: &WorkflowInput) -> Step<Run> {
         named::bash(indoc::indoc! {r#"
-            matrix=$(cargo xtask bump-version-plan --bump-type "$BUMP_TYPE" --patch-channel "$PATCH_CHANNEL")
+            matrix=$(script/bump-zed-version plan "$BUMP_TYPE" "$PATCH_CHANNEL")
             echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
         "#})
         .id("compute-matrix")
@@ -107,7 +107,6 @@ fn execute_version_bump(plan: &NamedJob) -> NamedJob {
         .add_env(("TARGET_BRANCH", "${{ matrix.target_branch }}"))
         .add_env(("BUMP", "${{ matrix.bump }}"))
         .add_env(("NEW_CHANNEL", "${{ matrix.new_channel }}"))
-        .add_env(("CREATE_BRANCH", "${{ matrix.create_branch }}"))
     }
 
     let (authenticate, token) = steps::authenticate_as_zippy()
