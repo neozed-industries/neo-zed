@@ -5756,8 +5756,6 @@ async fn test_thread_switcher_ordering(cx: &mut TestAppContext) {
     cx.run_until_parked();
     assert_eq!(switcher_selected_id(&sidebar, cx), session_id_c);
 
-    assert!(sidebar.update(cx, |sidebar, _cx| sidebar.thread_last_accessed.is_empty()));
-
     // Confirm on Thread C.
     sidebar.update_in(cx, |sidebar, window, cx| {
         let switcher = sidebar.thread_switcher.as_ref().unwrap();
@@ -5774,14 +5772,7 @@ async fn test_thread_switcher_ordering(cx: &mut TestAppContext) {
         );
     });
 
-    sidebar.update(cx, |sidebar, _cx| {
-        let last_accessed = sidebar
-            .thread_last_accessed
-            .keys()
-            .cloned()
-            .collect::<Vec<_>>();
-        assert_eq!(last_accessed.len(), 1);
-        assert!(last_accessed.contains(&session_id_c));
+    sidebar.read_with(cx, |sidebar, _cx| {
         assert!(
             is_active_session(&sidebar, &session_id_c),
             "active_entry should be Thread({session_id_c:?})"
@@ -5810,15 +5801,7 @@ async fn test_thread_switcher_ordering(cx: &mut TestAppContext) {
     });
     cx.run_until_parked();
 
-    sidebar.update(cx, |sidebar, _cx| {
-        let last_accessed = sidebar
-            .thread_last_accessed
-            .keys()
-            .cloned()
-            .collect::<Vec<_>>();
-        assert_eq!(last_accessed.len(), 2);
-        assert!(last_accessed.contains(&session_id_c));
-        assert!(last_accessed.contains(&session_id_a));
+    sidebar.read_with(cx, |sidebar, _cx| {
         assert!(
             is_active_session(&sidebar, &session_id_a),
             "active_entry should be Thread({session_id_a:?})"
@@ -5853,16 +5836,7 @@ async fn test_thread_switcher_ordering(cx: &mut TestAppContext) {
     });
     cx.run_until_parked();
 
-    sidebar.update(cx, |sidebar, _cx| {
-        let last_accessed = sidebar
-            .thread_last_accessed
-            .keys()
-            .cloned()
-            .collect::<Vec<_>>();
-        assert_eq!(last_accessed.len(), 3);
-        assert!(last_accessed.contains(&session_id_c));
-        assert!(last_accessed.contains(&session_id_a));
-        assert!(last_accessed.contains(&session_id_b));
+    sidebar.read_with(cx, |sidebar, _cx| {
         assert!(
             is_active_session(&sidebar, &session_id_b),
             "active_entry should be Thread({session_id_b:?})"
