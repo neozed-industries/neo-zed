@@ -69,7 +69,7 @@ pub(crate) fn list_thread_metadata_from_connection(
 ///
 /// This is used in tests to set up the sidebar_threads schema in a
 /// temporary database.
-#[cfg(any(test, feature = "test-support"))]
+#[cfg(test)]
 pub(crate) fn run_thread_metadata_migrations(connection: &db::sqlez::connection::Connection) {
     connection
         .migrate(
