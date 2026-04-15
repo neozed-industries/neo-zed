@@ -29,7 +29,7 @@ impl ThreadInteractionTimes {
     pub fn record_access(&mut self, id: ThreadId) {
         self.last_accessed.insert(id, Utc::now());
     }
-    
+
     /// Should be called any time a thread has a message sent or queued (but not
     /// when a queued message is finally sent).
     pub fn record_message_sent_or_queued(&mut self, id: ThreadId) {
@@ -48,29 +48,26 @@ impl ThreadInteractionTimes {
             .unwrap_or_else(|| thread.updated_at)
     }
 
-    pub fn last_message_sent_or_queued(
-        &self,
-        thread: &ThreadMetadata,
-    ) -> DateTime<Utc> {
+    pub fn last_message_sent_or_queued(&self, thread: &ThreadMetadata) -> DateTime<Utc> {
         self.last_message_sent_or_queued
             .get(&thread.thread_id)
             .cloned()
             .unwrap_or_else(|| thread.updated_at)
     }
-    
+
     /// How threads should be sorted in the ctrl-tab switcher
     pub fn cmp_for_tab_switcher(&self, lhs: &ThreadMetadata, rhs: &ThreadMetadata) -> Ordering {
         let lhs = self.last_accessed(lhs);
         let rhs = self.last_accessed(rhs);
-        
+
         lhs.cmp(&rhs).reverse()
     }
-    
+
     /// How threads should be sorted in the sidebar
     pub fn cmp_for_sidebar(&self, lhs: &ThreadMetadata, rhs: &ThreadMetadata) -> Ordering {
         let lhs = self.last_message_sent_or_queued(lhs);
         let rhs = self.last_message_sent_or_queued(rhs);
-        
+
         lhs.cmp(&rhs).reverse()
     }
 }
