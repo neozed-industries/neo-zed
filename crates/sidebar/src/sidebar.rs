@@ -68,7 +68,7 @@ gpui::actions!(
         /// Creates a new thread in the currently selected or active project group.
         NewThreadInGroup,
         /// Toggles between the thread list and the archive view.
-        ToggleArchive,
+        ViewAllThreads,
     ]
 );
 
@@ -192,7 +192,6 @@ struct ThreadEntry {
     is_live: bool,
     is_background: bool,
     is_title_generating: bool,
-    is_draft: bool,
     highlight_positions: Vec<usize>,
     worktrees: Vec<ThreadItemWorktreeInfo>,
     diff_stats: DiffStats,
@@ -377,7 +376,6 @@ pub struct Sidebar {
     recent_projects_popover_handle: PopoverMenuHandle<SidebarRecentProjects>,
     project_header_menu_ix: Option<usize>,
     _subscriptions: Vec<gpui::Subscription>,
-    _draft_observations: Vec<gpui::Subscription>,
 }
 
 impl Sidebar {
@@ -404,14 +402,14 @@ impl Sidebar {
                 MultiWorkspaceEvent::ActiveWorkspaceChanged => {
                     this.sync_active_entry_from_active_workspace(cx);
                     this.replace_archived_panel_thread(window, cx);
-                    this.observe_draft_editors(cx);
                     this.update_entries(cx);
                 }
                 MultiWorkspaceEvent::WorkspaceAdded(workspace) => {
                     this.subscribe_to_workspace(workspace, window, cx);
                     this.update_entries(cx);
                 }
-                MultiWorkspaceEvent::WorkspaceRemoved(_) => {
+                MultiWorkspaceEvent::WorkspaceRemoved(_)
+                | MultiWorkspaceEvent::ProjectGroupsChanged => {
                     this.update_entries(cx);
                 }
             },
@@ -466,7 +464,6 @@ impl Sidebar {
             recent_projects_popover_handle: PopoverMenuHandle::default(),
             project_header_menu_ix: None,
             _subscriptions: Vec::new(),
-            _draft_observations: Vec::new(),
         }
     }
 
@@ -544,12 +541,10 @@ impl Sidebar {
                 ProjectEvent::WorktreeAdded(_)
                 | ProjectEvent::WorktreeRemoved(_)
                 | ProjectEvent::WorktreeOrderChanged => {
-                    this.observe_draft_editors(cx);
                     this.update_entries(cx);
                 }
                 ProjectEvent::WorktreePathsChanged { old_worktree_paths } => {
                     this.move_thread_paths(project, old_worktree_paths, cx);
-                    this.observe_draft_editors(cx);
                     this.update_entries(cx);
                 }
                 _ => {}
@@ -595,7 +590,6 @@ impl Sidebar {
 
         if let Some(agent_panel) = workspace.read(cx).panel::<AgentPanel>(cx) {
             self.subscribe_to_agent_panel(&agent_panel, window, cx);
-            self.observe_draft_editors(cx);
         }
     }
 
@@ -660,7 +654,6 @@ impl Sidebar {
             |this, _agent_panel, event: &AgentPanelEvent, _window, cx| match event {
                 AgentPanelEvent::ActiveViewChanged => {
                     this.sync_active_entry_from_panel(_agent_panel, cx);
-                    this.observe_draft_editors(cx);
                     this.update_entries(cx);
                 }
                 AgentPanelEvent::ThreadFocused | AgentPanelEvent::RetainedThreadChanged => {
@@ -793,63 +786,6 @@ impl Sidebar {
             })
             .detach();
         }
-    }
-
-    fn observe_draft_editors(&mut self, cx: &mut Context<Self>) {
-        let Some(multi_workspace) = self.multi_workspace.upgrade() else {
-            self._draft_observations.clear();
-            return;
-        };
-
-        // Collect conversation views up front to avoid holding a
-        // borrow on `cx` across `cx.observe` calls.
-        let conversation_views: Vec<_> = multi_workspace
-            .read(cx)
-            .workspaces()
-            .filter_map(|ws| ws.read(cx).panel::<AgentPanel>(cx))
-            .flat_map(|panel| panel.read(cx).conversation_views())
-            .collect();
-
-        let mut subscriptions = Vec::with_capacity(conversation_views.len());
-        for cv in conversation_views {
-            if let Some(thread_view) = cv.read(cx).active_thread() {
-                let editor = thread_view.read(cx).message_editor.clone();
-                subscriptions.push(cx.observe(&editor, |this, _editor, cx| {
-                    this.update_entries(cx);
-                }));
-            } else {
-                subscriptions.push(cx.observe(&cv, |this, _cv, cx| {
-                    this.observe_draft_editors(cx);
-                    this.update_entries(cx);
-                }));
-            }
-        }
-
-        self._draft_observations = subscriptions;
-    }
-
-    fn clean_mention_links(input: &str) -> String {
-        let mut result = String::with_capacity(input.len());
-        let mut remaining = input;
-
-        while let Some(start) = remaining.find("[@") {
-            result.push_str(&remaining[..start]);
-            let after_bracket = &remaining[start + 1..]; // skip '['
-            if let Some(close_bracket) = after_bracket.find("](") {
-                let mention = &after_bracket[..close_bracket]; // "@something"
-                let after_link_start = &after_bracket[close_bracket + 2..]; // after "]("
-                if let Some(close_paren) = after_link_start.find(')') {
-                    result.push_str(mention);
-                    remaining = &after_link_start[close_paren + 1..];
-                    continue;
-                }
-            }
-            // Couldn't parse full link syntax — emit the literal "[@" and move on.
-            result.push_str("[@");
-            remaining = &remaining[start + 2..];
-        }
-        result.push_str(remaining);
-        result
     }
 
     /// Opens a new workspace for a group that has no open workspaces.
@@ -989,6 +925,8 @@ impl Sidebar {
             let icon = match agent {
                 Agent::NativeAgent => IconName::ZedAgent,
                 Agent::Custom { .. } => IconName::Terminal,
+
+                _ => IconName::ZedAgent,
             };
             let icon_from_external_svg = agent_server_store
                 .as_ref()
@@ -1091,7 +1029,6 @@ impl Sidebar {
                         let (icon, icon_from_external_svg) = resolve_agent_icon(&row.agent_id);
                         let worktrees =
                             worktree_info_from_thread_paths(&row.worktree_paths, &branch_by_path);
-                        let is_draft = row.is_draft();
                         ThreadEntry {
                             metadata: row,
                             icon,
@@ -1101,7 +1038,6 @@ impl Sidebar {
                             is_live: false,
                             is_background: false,
                             is_title_generating: false,
-                            is_draft,
                             highlight_positions: Vec::new(),
                             worktrees,
                             diff_stats: DiffStats::default(),
@@ -1314,26 +1250,6 @@ impl Sidebar {
                     continue;
                 }
 
-                {
-                    // Override titles with editor text for drafts and
-                    // threads that still have the default placeholder
-                    // title (panel considers them drafts even if they
-                    // have a session_id).
-                    for thread in &mut threads {
-                        let needs_title_override =
-                            thread.is_draft || thread.metadata.title.is_none();
-                        if needs_title_override {
-                            if let ThreadEntryWorkspace::Open(workspace) = &thread.workspace {
-                                if let Some(text) =
-                                    self.read_draft_text(thread.metadata.thread_id, workspace, cx)
-                                {
-                                    thread.metadata.title = Some(text);
-                                }
-                            }
-                        }
-                    }
-                }
-
                 let total = threads.len();
 
                 let extra_batches = self.group_extra_batches(&group_key, cx);
@@ -1472,19 +1388,31 @@ impl Sidebar {
                 waiting_thread_count,
                 is_active: is_active_group,
                 has_threads,
-            } => self.render_project_header(
-                ix,
-                false,
-                key,
-                label,
-                highlight_positions,
-                *has_running_threads,
-                *waiting_thread_count,
-                *is_active_group,
-                is_selected,
-                *has_threads,
-                cx,
-            ),
+            } => {
+                let has_active_draft = is_active
+                    && self
+                        .active_workspace(cx)
+                        .and_then(|ws| ws.read(cx).panel::<AgentPanel>(cx))
+                        .is_some_and(|panel| {
+                            let panel = panel.read(cx);
+                            panel.active_thread_is_draft(cx)
+                                || panel.active_conversation_view().is_none()
+                        });
+                self.render_project_header(
+                    ix,
+                    false,
+                    key,
+                    label,
+                    highlight_positions,
+                    *has_running_threads,
+                    *waiting_thread_count,
+                    *is_active_group,
+                    is_selected,
+                    *has_threads,
+                    has_active_draft,
+                    cx,
+                )
+            }
             ListEntry::Thread(thread) => self.render_thread(ix, thread, is_active, is_selected, cx),
             ListEntry::ViewMore {
                 key,
@@ -1540,6 +1468,7 @@ impl Sidebar {
         is_active: bool,
         is_focused: bool,
         has_threads: bool,
+        has_active_draft: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let host = key.host();
@@ -1664,7 +1593,7 @@ impl Sidebar {
             .child(gradient_overlay())
             .child(
                 h_flex()
-                    .when(!is_ellipsis_menu_open, |this| {
+                    .when(!is_ellipsis_menu_open && !has_active_draft, |this| {
                         this.visible_on_hover(&group_name)
                     })
                     .child(gradient_overlay())
@@ -1682,6 +1611,7 @@ impl Sidebar {
                             IconName::Plus,
                         )
                         .icon_size(IconSize::Small)
+                        .when(has_active_draft, |this| this.icon_color(Color::Accent))
                         .tooltip(move |_, cx| {
                             Tooltip::for_action_in(
                                 "Start New Agent Thread",
@@ -1954,6 +1884,14 @@ impl Sidebar {
         let is_focused = self.focus_handle.is_focused(window);
         let is_selected = is_focused && self.selection == Some(header_idx);
 
+        let has_active_draft = *is_active
+            && self
+                .active_workspace(cx)
+                .and_then(|ws| ws.read(cx).panel::<AgentPanel>(cx))
+                .is_some_and(|panel| {
+                    let panel = panel.read(cx);
+                    panel.active_thread_is_draft(cx) || panel.active_conversation_view().is_none()
+                });
         let header_element = self.render_project_header(
             header_idx,
             true,
@@ -1965,6 +1903,7 @@ impl Sidebar {
             *is_active,
             is_selected,
             *has_threads,
+            has_active_draft,
             cx,
         );
 
@@ -2277,6 +2216,7 @@ impl Sidebar {
                     Some(metadata.folder_paths().clone()),
                     metadata.title.clone(),
                     focus,
+                    "sidebar",
                     window,
                     cx,
                 );
@@ -2374,7 +2314,6 @@ impl Sidebar {
                 ws.focus_panel::<AgentPanel>(window, cx);
             });
             self.pending_thread_activation = None;
-            self.observe_draft_editors(cx);
         } else {
             Self::load_agent_thread_in_workspace(workspace, metadata, true, window, cx);
         }
@@ -2551,7 +2490,7 @@ impl Sidebar {
         })
     }
 
-    fn activate_archived_thread(
+    fn open_thread_from_archive(
         &mut self,
         metadata: ThreadMetadata,
         window: &mut Window,
@@ -2594,9 +2533,13 @@ impl Sidebar {
         }
 
         let store = ThreadMetadataStore::global(cx);
-        let task = store
-            .read(cx)
-            .get_archived_worktrees_for_thread(thread_id, cx);
+        let task = if metadata.archived {
+            store
+                .read(cx)
+                .get_archived_worktrees_for_thread(thread_id, cx)
+        } else {
+            Task::ready(Ok(Vec::new()))
+        };
         let path_list = metadata.folder_paths().clone();
 
         let restore_task = cx.spawn_in(window, async move |this, cx| {
@@ -2606,8 +2549,10 @@ impl Sidebar {
                 if archived_worktrees.is_empty() {
                     this.update_in(cx, |this, window, cx| {
                         this.restoring_tasks.remove(&thread_id);
-                        ThreadMetadataStore::global(cx)
-                            .update(cx, |store, cx| store.unarchive(thread_id, cx));
+                        if metadata.archived {
+                            ThreadMetadataStore::global(cx)
+                                .update(cx, |store, cx| store.unarchive(thread_id, cx));
+                        }
 
                         if let Some(workspace) = this.find_current_workspace_for_path_list(
                             &path_list,
@@ -2958,9 +2903,7 @@ impl Sidebar {
                 .iter()
                 .chain(self.contents.entries[..pos].iter().rev())
                 .find_map(|entry| match entry {
-                    ListEntry::Thread(t)
-                        if !t.is_draft && t.metadata.session_id.as_ref() != Some(session_id) =>
-                    {
+                    ListEntry::Thread(t) if t.metadata.session_id.as_ref() != Some(session_id) => {
                         let (workspace_paths, project_group_key) = match &t.workspace {
                             ThreadEntryWorkspace::Open(ws) => (
                                 PathList::new(&ws.read(cx).root_paths(cx)),
@@ -3260,7 +3203,7 @@ impl Sidebar {
                             });
                         if panel_shows_archived {
                             panel.update(cx, |panel, cx| {
-                                panel.clear_base_view(cx);
+                                panel.clear_base_view(window, cx);
                             });
                         }
                     }
@@ -3300,7 +3243,7 @@ impl Sidebar {
             if let Some(workspace) = workspace {
                 if let Some(panel) = workspace.read(cx).panel::<AgentPanel>(cx) {
                     panel.update(cx, |panel, cx| {
-                        panel.clear_base_view(cx);
+                        panel.clear_base_view(window, cx);
                     });
                 }
             }
@@ -3416,13 +3359,6 @@ impl Sidebar {
             return;
         };
         match self.contents.entries.get(ix) {
-            Some(ListEntry::Thread(thread)) if thread.is_draft => {
-                let draft_id = thread.metadata.thread_id;
-                if let ThreadEntryWorkspace::Open(workspace) = &thread.workspace {
-                    let workspace = workspace.clone();
-                    self.remove_draft(draft_id, &workspace, window, cx);
-                }
-            }
             Some(ListEntry::Thread(thread)) => {
                 match thread.status {
                     AgentThreadStatus::Running | AgentThreadStatus::WaitingForConfirmation => {
@@ -3735,7 +3671,6 @@ impl Sidebar {
         let title: SharedString = thread.metadata.display_title();
         let metadata = thread.metadata.clone();
         let thread_workspace = thread.workspace.clone();
-        let is_draft = thread.is_draft;
 
         let is_hovered = self.hovered_thread_index == Some(ix);
         let is_selected = is_active;
@@ -3746,7 +3681,6 @@ impl Sidebar {
 
         let thread_id_for_actions = thread.metadata.thread_id;
         let session_id_for_delete = thread.metadata.session_id.clone();
-        let thread_workspace_for_dismiss = thread.workspace.clone();
         let focus_handle = self.focus_handle.clone();
 
         let id = SharedString::from(format!("thread-entry-{}", ix));
@@ -3804,36 +3738,7 @@ impl Sidebar {
                         }),
                 )
             })
-            .when(is_hovered && !is_running && is_draft, |this| {
-                this.action_slot(
-                    div()
-                        .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| {
-                            cx.stop_propagation();
-                        })
-                        .child(
-                            IconButton::new("close-draft", IconName::Close)
-                                .icon_size(IconSize::Small)
-                                .icon_color(Color::Muted)
-                                .tooltip(Tooltip::text("Remove Draft"))
-                                .on_click({
-                                    let thread_workspace = thread_workspace_for_dismiss.clone();
-                                    cx.listener(move |this, _, window, cx| {
-                                        if let ThreadEntryWorkspace::Open(workspace) =
-                                            &thread_workspace
-                                        {
-                                            this.remove_draft(
-                                                thread_id_for_actions,
-                                                workspace,
-                                                window,
-                                                cx,
-                                            );
-                                        }
-                                    })
-                                }),
-                        ),
-                )
-            })
-            .when(is_hovered && !is_running && !is_draft, |this| {
+            .when(is_hovered && !is_running, |this| {
                 this.action_slot(
                     IconButton::new("archive-thread", IconName::Archive)
                         .icon_size(IconSize::Small)
@@ -4018,19 +3923,11 @@ impl Sidebar {
         let draft_id = workspace.update(cx, |workspace, cx| {
             let panel = workspace.panel::<AgentPanel>(cx)?;
             let draft_id = panel.update(cx, |panel, cx| {
-                if let Some(id) = panel.draft_thread_ids(cx).first().copied() {
-                    if panel.active_thread_id(cx) != Some(id) {
-                        panel.activate_retained_thread(id, true, window, cx);
-                    }
-                    id
-                } else {
-                    let id = panel.create_thread(window, cx);
-                    panel.activate_retained_thread(id, true, window, cx);
-                    id
-                }
+                panel.activate_draft(true, window, cx);
+                panel.active_thread_id(cx)
             });
             workspace.focus_panel::<AgentPanel>(window, cx);
-            Some(draft_id)
+            draft_id
         });
 
         if let Some(draft_id) = draft_id {
@@ -4040,80 +3937,6 @@ impl Sidebar {
                 workspace: workspace.clone(),
             });
         }
-    }
-
-    fn remove_draft(
-        &mut self,
-        draft_id: ThreadId,
-        workspace: &Entity<Workspace>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        workspace.update(cx, |ws, cx| {
-            if let Some(panel) = ws.panel::<AgentPanel>(cx) {
-                panel.update(cx, |panel, cx| {
-                    panel.remove_thread(draft_id, cx);
-                });
-            }
-        });
-
-        let was_active = self
-            .active_entry
-            .as_ref()
-            .is_some_and(|e| e.is_active_thread(&draft_id));
-
-        if was_active {
-            let group_key = workspace.read(cx).project_group_key(cx);
-
-            // Find any remaining thread in the same group.
-            let next = self.contents.entries.iter().find_map(|entry| {
-                if let ListEntry::Thread(thread) = entry {
-                    if thread.metadata.thread_id != draft_id {
-                        if let ThreadEntryWorkspace::Open(ws) = &thread.workspace {
-                            if ws.read(cx).project_group_key(cx) == group_key {
-                                return Some((thread.metadata.clone(), ws.clone()));
-                            }
-                        }
-                    }
-                }
-                None
-            });
-            if let Some((metadata, ws)) = next {
-                self.activate_thread(metadata, &ws, false, window, cx);
-            } else {
-                self.active_entry = None;
-            }
-        }
-
-        self.update_entries(cx);
-    }
-
-    /// Cleans, collapses whitespace, and truncates raw editor text
-    /// for display as a draft label in the sidebar.
-    fn truncate_draft_label(raw: &str) -> Option<SharedString> {
-        let first_line = raw.lines().next().unwrap_or("");
-        let cleaned = Self::clean_mention_links(first_line);
-        let mut text: String = cleaned.split_whitespace().collect::<Vec<_>>().join(" ");
-        if text.is_empty() {
-            return None;
-        }
-        const MAX_CHARS: usize = 250;
-        if let Some((truncate_at, _)) = text.char_indices().nth(MAX_CHARS) {
-            text.truncate(truncate_at);
-        }
-        Some(text.into())
-    }
-
-    /// Reads a draft's prompt text from its ConversationView in the AgentPanel.
-    fn read_draft_text(
-        &self,
-        draft_id: ThreadId,
-        workspace: &Entity<Workspace>,
-        cx: &App,
-    ) -> Option<SharedString> {
-        let panel = workspace.read(cx).panel::<AgentPanel>(cx)?;
-        let raw = panel.read(cx).editor_text(draft_id, cx)?;
-        Self::truncate_draft_label(&raw)
     }
 
     fn selected_group_key(&self) -> Option<ProjectGroupKey> {
@@ -4385,6 +4208,11 @@ impl Sidebar {
                     .full_width()
                     .key_binding(KeyBinding::for_action(&workspace::Open::default(), cx))
                     .on_click(|_, window, cx| {
+                        let side = match AgentSettings::get_global(cx).sidebar_side() {
+                            SidebarSide::Left => "left",
+                            SidebarSide::Right => "right",
+                        };
+                        telemetry::event!("Sidebar Add Project Clicked", side = side);
                         window.dispatch_action(
                             Open {
                                 create_new_window: false,
@@ -4567,7 +4395,7 @@ impl Sidebar {
                 this.child(
                     IconButton::new("thread-import", IconName::ThreadImport)
                         .icon_size(IconSize::Small)
-                        .tooltip(Tooltip::text("Import ACP Threads"))
+                        .tooltip(Tooltip::text("Import External Agent Threads"))
                         .on_click(cx.listener(|this, _, window, cx| {
                             this.show_archive(window, cx);
                             this.show_thread_import_modal(window, cx);
@@ -4579,10 +4407,10 @@ impl Sidebar {
                     .icon_size(IconSize::Small)
                     .toggle_state(is_archive)
                     .tooltip(move |_, cx| {
-                        Tooltip::for_action("Toggle Archived Threads", &ToggleArchive, cx)
+                        Tooltip::for_action("View All Threads", &ViewAllThreads, cx)
                     })
                     .on_click(cx.listener(|this, _, window, cx| {
-                        this.toggle_archive(&ToggleArchive, window, cx);
+                        this.toggle_archive(&ViewAllThreads, window, cx);
                     })),
             )
             .child(self.render_recent_projects_button(cx));
@@ -4700,9 +4528,16 @@ impl Sidebar {
             )
     }
 
-    fn toggle_archive(&mut self, _: &ToggleArchive, window: &mut Window, cx: &mut Context<Self>) {
+    fn toggle_archive(&mut self, _: &ViewAllThreads, window: &mut Window, cx: &mut Context<Self>) {
         match &self.view {
-            SidebarView::ThreadList => self.show_archive(window, cx),
+            SidebarView::ThreadList => {
+                let side = match self.side(cx) {
+                    SidebarSide::Left => "left",
+                    SidebarSide::Right => "right",
+                };
+                telemetry::event!("Sidebar Archive Viewed", side = side);
+                self.show_archive(window, cx);
+            }
             SidebarView::Archive(_) => self.show_thread_list(window, cx),
         }
     }
@@ -4745,8 +4580,8 @@ impl Sidebar {
                 ThreadsArchiveViewEvent::Close => {
                     this.show_thread_list(window, cx);
                 }
-                ThreadsArchiveViewEvent::Unarchive { thread } => {
-                    this.activate_archived_thread(thread.clone(), window, cx);
+                ThreadsArchiveViewEvent::Activate { thread } => {
+                    this.open_thread_from_archive(thread.clone(), window, cx);
                 }
                 ThreadsArchiveViewEvent::CancelRestore { thread_id } => {
                     this.restoring_tasks.remove(thread_id);
