@@ -48,8 +48,8 @@ use util::path_list::PathList;
 use workspace::{
     CloseWindow, FocusWorkspaceSidebar, MultiWorkspace, MultiWorkspaceEvent, NextProject,
     NextThread, Open, OpenMode, PreviousProject, PreviousThread, ProjectGroupKey, SaveIntent,
-    ShowFewerThreads, ShowMoreThreads, Sidebar as WorkspaceSidebar, SidebarSide, Toast,
-    ToggleWorkspaceSidebar, Workspace, notifications::NotificationId, sidebar_side_context_menu,
+    Sidebar as WorkspaceSidebar, SidebarSide, Toast, ToggleWorkspaceSidebar, Workspace,
+    notifications::NotificationId, sidebar_side_context_menu,
 };
 
 use zed_actions::OpenRecent;
@@ -68,7 +68,7 @@ gpui::actions!(
         /// Creates a new thread in the currently selected or active project group.
         NewThreadInGroup,
         /// Toggles between the thread list and the archive view.
-        ToggleArchive,
+        ViewAllThreads,
     ]
 );
 
@@ -83,7 +83,6 @@ gpui::actions!(
 const DEFAULT_WIDTH: Pixels = px(300.0);
 const MIN_WIDTH: Pixels = px(200.0);
 const MAX_WIDTH: Pixels = px(800.0);
-const DEFAULT_THREADS_SHOWN: usize = 5;
 
 #[derive(Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 enum SerializedSidebarView {
@@ -227,10 +226,6 @@ enum ListEntry {
         has_threads: bool,
     },
     Thread(ThreadEntry),
-    ViewMore {
-        key: ProjectGroupKey,
-        is_fully_expanded: bool,
-    },
 }
 
 #[cfg(test)]
@@ -255,7 +250,6 @@ impl ListEntry {
             ListEntry::ProjectHeader { key, .. } => multi_workspace
                 .workspaces_for_project_group(key, cx)
                 .unwrap_or_default(),
-            ListEntry::ViewMore { .. } => Vec::new(),
         }
     }
 }
@@ -475,38 +469,11 @@ impl Sidebar {
             .unwrap_or(false)
     }
 
-    fn group_extra_batches(&self, key: &ProjectGroupKey, cx: &App) -> usize {
-        self.multi_workspace
-            .upgrade()
-            .and_then(|mw| {
-                mw.read(cx)
-                    .group_state_by_key(key)
-                    .and_then(|state| state.visible_thread_count)
-            })
-            .unwrap_or(0)
-    }
-
     fn set_group_expanded(&self, key: &ProjectGroupKey, expanded: bool, cx: &mut Context<Self>) {
         if let Some(mw) = self.multi_workspace.upgrade() {
             mw.update(cx, |mw, cx| {
                 if let Some(state) = mw.group_state_by_key_mut(key) {
                     state.expanded = expanded;
-                }
-                mw.serialize(cx);
-            });
-        }
-    }
-
-    fn set_group_visible_thread_count(
-        &self,
-        key: &ProjectGroupKey,
-        count: Option<usize>,
-        cx: &mut Context<Self>,
-    ) {
-        if let Some(mw) = self.multi_workspace.upgrade() {
-            mw.update(cx, |mw, cx| {
-                if let Some(state) = mw.group_state_by_key_mut(key) {
-                    state.visible_thread_count = count;
                 }
                 mw.serialize(cx);
             });
@@ -1242,51 +1209,10 @@ impl Sidebar {
                     continue;
                 }
 
-                let total = threads.len();
-
-                let extra_batches = self.group_extra_batches(&group_key, cx);
-                let threads_to_show =
-                    DEFAULT_THREADS_SHOWN + (extra_batches * DEFAULT_THREADS_SHOWN);
-                let count = threads_to_show.min(total);
-
-                let mut promoted_threads: HashSet<agent_ui::ThreadId> = HashSet::new();
-
-                // Build visible entries in a single pass. Threads within
-                // the cutoff are always shown. Threads beyond it are shown
-                // only if they should be promoted (running, waiting, or
-                // focused)
-                for (index, thread) in threads.into_iter().enumerate() {
-                    let is_hidden = index >= count;
-
-                    if is_hidden {
-                        let is_notified = notified_threads.contains(&thread.metadata.thread_id);
-                        let is_promoted = thread.status == AgentThreadStatus::Running
-                            || thread.status == AgentThreadStatus::WaitingForConfirmation
-                            || is_notified
-                            || self.active_entry.as_ref().is_some_and(|active| {
-                                active.matches_entry(&ListEntry::Thread(thread.clone()))
-                            });
-                        if is_promoted {
-                            promoted_threads.insert(thread.metadata.thread_id);
-                        }
-                        let is_in_promoted = promoted_threads.contains(&thread.metadata.thread_id);
-                        if !is_in_promoted {
-                            continue;
-                        }
-                    }
+                for thread in threads {
 
                     current_thread_ids.insert(thread.metadata.thread_id);
                     entries.push(thread.into());
-                }
-
-                let visible = count + promoted_threads.len();
-                let is_fully_expanded = visible >= total;
-
-                if total > DEFAULT_THREADS_SHOWN {
-                    entries.push(ListEntry::ViewMore {
-                        key: group_key.clone(),
-                        is_fully_expanded,
-                    });
                 }
             }
         }
@@ -1401,10 +1327,6 @@ impl Sidebar {
                 )
             }
             ListEntry::Thread(thread) => self.render_thread(ix, thread, is_active, is_selected, cx),
-            ListEntry::ViewMore {
-                key,
-                is_fully_expanded,
-            } => self.render_view_more(ix, key, *is_fully_expanded, is_selected, cx),
         };
 
         if is_group_header_after_first {
@@ -1472,8 +1394,6 @@ impl Sidebar {
         };
 
         let key_for_toggle = key.clone();
-        let key_for_collapse = key.clone();
-        let view_more_expanded = self.group_extra_batches(key, cx) > 0;
 
         let label = if highlight_positions.is_empty() {
             Label::new(label.clone())
@@ -1618,30 +1538,6 @@ impl Sidebar {
                                 }
                             },
                         ))
-                    })
-                    .when(has_threads && view_more_expanded && !is_collapsed, |this| {
-                        this.child(
-                            IconButton::new(
-                                SharedString::from(format!(
-                                    "{id_prefix}project-header-collapse-{ix}",
-                                )),
-                                IconName::ListCollapse,
-                            )
-                            .icon_size(IconSize::Small)
-                            .tooltip(Tooltip::text("Show Fewer Threads"))
-                            .on_click(cx.listener({
-                                let key_for_collapse = key_for_collapse.clone();
-                                move |this, _, _window, cx| {
-                                    this.selection = None;
-                                    this.set_group_visible_thread_count(
-                                        &key_for_collapse,
-                                        None,
-                                        cx,
-                                    );
-                                    this.update_entries(cx);
-                                }
-                            })),
-                        )
                     })
                     .child(self.render_project_header_ellipsis_menu(ix, id_prefix, key, cx)),
             )
@@ -2133,18 +2029,6 @@ impl Sidebar {
                     }
                 }
             }
-            ListEntry::ViewMore {
-                key,
-                is_fully_expanded,
-                ..
-            } => {
-                let key = key.clone();
-                if *is_fully_expanded {
-                    self.reset_thread_group_expansion(&key, cx);
-                } else {
-                    self.expand_thread_group(&key, cx);
-                }
-            }
         }
     }
 
@@ -2477,7 +2361,7 @@ impl Sidebar {
         })
     }
 
-    fn activate_archived_thread(
+    fn open_thread_from_archive(
         &mut self,
         metadata: ThreadMetadata,
         window: &mut Window,
@@ -2520,9 +2404,13 @@ impl Sidebar {
         }
 
         let store = ThreadMetadataStore::global(cx);
-        let task = store
-            .read(cx)
-            .get_archived_worktrees_for_thread(thread_id, cx);
+        let task = if metadata.archived {
+            store
+                .read(cx)
+                .get_archived_worktrees_for_thread(thread_id, cx)
+        } else {
+            Task::ready(Ok(Vec::new()))
+        };
         let path_list = metadata.folder_paths().clone();
 
         let restore_task = cx.spawn_in(window, async move |this, cx| {
@@ -2532,8 +2420,10 @@ impl Sidebar {
                 if archived_worktrees.is_empty() {
                     this.update_in(cx, |this, window, cx| {
                         this.restoring_tasks.remove(&thread_id);
-                        ThreadMetadataStore::global(cx)
-                            .update(cx, |store, cx| store.unarchive(thread_id, cx));
+                        if metadata.archived {
+                            ThreadMetadataStore::global(cx)
+                                .update(cx, |store, cx| store.unarchive(thread_id, cx));
+                        }
 
                         if let Some(workspace) = this.find_current_workspace_for_path_list(
                             &path_list,
@@ -2699,7 +2589,7 @@ impl Sidebar {
                     self.update_entries(cx);
                 }
             }
-            Some(ListEntry::Thread(_) | ListEntry::ViewMore { .. }) => {
+            Some(ListEntry::Thread(_)) => {
                 for i in (0..ix).rev() {
                     if let Some(ListEntry::ProjectHeader { key, .. }) = self.contents.entries.get(i)
                     {
@@ -2726,7 +2616,7 @@ impl Sidebar {
         // Find the group header for the current selection.
         let header_ix = match self.contents.entries.get(ix) {
             Some(ListEntry::ProjectHeader { .. }) => Some(ix),
-            Some(ListEntry::Thread(_) | ListEntry::ViewMore { .. }) => (0..ix).rev().find(|&i| {
+            Some(ListEntry::Thread(_)) => (0..ix).rev().find(|&i| {
                 matches!(
                     self.contents.entries.get(i),
                     Some(ListEntry::ProjectHeader { .. })
@@ -3419,7 +3309,6 @@ impl Sidebar {
                         timestamp,
                     })
                 }
-                _ => None,
             })
             .collect();
 
@@ -3814,38 +3703,6 @@ impl Sidebar {
             .anchor(gpui::Corner::BottomRight)
     }
 
-    fn render_view_more(
-        &self,
-        ix: usize,
-        key: &ProjectGroupKey,
-        is_fully_expanded: bool,
-        is_selected: bool,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let key = key.clone();
-        let id = SharedString::from(format!("view-more-{}", ix));
-
-        let label: SharedString = if is_fully_expanded {
-            "Collapse".into()
-        } else {
-            "View More".into()
-        };
-
-        ThreadItem::new(id, label)
-            .focused(is_selected)
-            .icon_visible(false)
-            .title_label_color(Color::Muted)
-            .on_click(cx.listener(move |this, _, _window, cx| {
-                this.selection = None;
-                if is_fully_expanded {
-                    this.reset_thread_group_expansion(&key, cx);
-                } else {
-                    this.expand_thread_group(&key, cx);
-                }
-            }))
-            .into_any_element()
-    }
-
     fn new_thread_in_group(
         &mut self,
         _: &NewThreadInGroup,
@@ -3902,7 +3759,7 @@ impl Sidebar {
         let ix = self.selection?;
         match self.contents.entries.get(ix) {
             Some(ListEntry::ProjectHeader { key, .. }) => Some(key.clone()),
-            Some(ListEntry::Thread(_) | ListEntry::ViewMore { .. }) => {
+            Some(ListEntry::Thread(_)) => {
                 (0..ix)
                     .rev()
                     .find_map(|i| match self.contents.entries.get(i) {
@@ -4077,59 +3934,6 @@ impl Sidebar {
         cx: &mut Context<Self>,
     ) {
         self.cycle_thread_impl(false, window, cx);
-    }
-
-    fn expand_thread_group(&mut self, project_group_key: &ProjectGroupKey, cx: &mut Context<Self>) {
-        let current = self.group_extra_batches(project_group_key, cx);
-        self.set_group_visible_thread_count(project_group_key, Some(current + 1), cx);
-        self.update_entries(cx);
-    }
-
-    fn reset_thread_group_expansion(
-        &mut self,
-        project_group_key: &ProjectGroupKey,
-        cx: &mut Context<Self>,
-    ) {
-        self.set_group_visible_thread_count(project_group_key, None, cx);
-        self.update_entries(cx);
-    }
-
-    fn collapse_thread_group(
-        &mut self,
-        project_group_key: &ProjectGroupKey,
-        cx: &mut Context<Self>,
-    ) {
-        let batches = self.group_extra_batches(project_group_key, cx);
-        match batches {
-            0 => return,
-            1 => self.set_group_visible_thread_count(project_group_key, None, cx),
-            _ => self.set_group_visible_thread_count(project_group_key, Some(batches - 1), cx),
-        }
-        self.update_entries(cx);
-    }
-
-    fn on_show_more_threads(
-        &mut self,
-        _: &ShowMoreThreads,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let Some(active_key) = self.active_project_group_key(cx) else {
-            return;
-        };
-        self.expand_thread_group(&active_key, cx);
-    }
-
-    fn on_show_fewer_threads(
-        &mut self,
-        _: &ShowFewerThreads,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let Some(active_key) = self.active_project_group_key(cx) else {
-            return;
-        };
-        self.collapse_thread_group(&active_key, cx);
     }
 
     fn render_no_results(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -4354,7 +4158,7 @@ impl Sidebar {
                 this.child(
                     IconButton::new("thread-import", IconName::ThreadImport)
                         .icon_size(IconSize::Small)
-                        .tooltip(Tooltip::text("Import ACP Threads"))
+                        .tooltip(Tooltip::text("Import External Agent Threads"))
                         .on_click(cx.listener(|this, _, window, cx| {
                             this.show_archive(window, cx);
                             this.show_thread_import_modal(window, cx);
@@ -4366,10 +4170,10 @@ impl Sidebar {
                     .icon_size(IconSize::Small)
                     .toggle_state(is_archive)
                     .tooltip(move |_, cx| {
-                        Tooltip::for_action("Toggle Archived Threads", &ToggleArchive, cx)
+                        Tooltip::for_action("View All Threads", &ViewAllThreads, cx)
                     })
                     .on_click(cx.listener(|this, _, window, cx| {
-                        this.toggle_archive(&ToggleArchive, window, cx);
+                        this.toggle_archive(&ViewAllThreads, window, cx);
                     })),
             )
             .child(self.render_recent_projects_button(cx));
@@ -4487,7 +4291,7 @@ impl Sidebar {
             )
     }
 
-    fn toggle_archive(&mut self, _: &ToggleArchive, window: &mut Window, cx: &mut Context<Self>) {
+    fn toggle_archive(&mut self, _: &ViewAllThreads, window: &mut Window, cx: &mut Context<Self>) {
         match &self.view {
             SidebarView::ThreadList => {
                 let side = match self.side(cx) {
@@ -4539,8 +4343,8 @@ impl Sidebar {
                 ThreadsArchiveViewEvent::Close => {
                     this.show_thread_list(window, cx);
                 }
-                ThreadsArchiveViewEvent::Unarchive { thread } => {
-                    this.activate_archived_thread(thread.clone(), window, cx);
+                ThreadsArchiveViewEvent::Activate { thread } => {
+                    this.open_thread_from_archive(thread.clone(), window, cx);
                 }
                 ThreadsArchiveViewEvent::CancelRestore { thread_id } => {
                     this.restoring_tasks.remove(thread_id);
@@ -4688,8 +4492,6 @@ impl Render for Sidebar {
             .on_action(cx.listener(Self::on_previous_project))
             .on_action(cx.listener(Self::on_next_thread))
             .on_action(cx.listener(Self::on_previous_thread))
-            .on_action(cx.listener(Self::on_show_more_threads))
-            .on_action(cx.listener(Self::on_show_fewer_threads))
             .on_action(cx.listener(|this, _: &OpenRecent, window, cx| {
                 this.recent_projects_popover_handle.toggle(window, cx);
             }))
