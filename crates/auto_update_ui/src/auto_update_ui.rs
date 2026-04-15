@@ -207,7 +207,6 @@ fn announcement_for_version(version: &Version, cx: &App) -> Option<AnnouncementC
     if *version >= version_with_parallel_agents && !ParallelAgentAnnouncement::dismissed(cx) {
         let fs = <dyn Fs>::global(cx);
         Some(AnnouncementContent {
-            // todo dl: Improve title label here
             heading: "Introducing Parallel Agents".into(),
             description: "Run multiple threads of your favorite agents simultaneously across projects in a new workspace layout, tailored for agentic workflows.".into(),
             bullet_items: vec![
@@ -243,8 +242,7 @@ fn announcement_for_version(version: &Version, cx: &App) -> Option<AnnouncementC
                             if !already_agent_layout {
                                 if let Some(workspace) = Workspace::for_window(window, cx) {
                                     let toast = StatusToast::new(
-                                        // todo dl: Improve title label here
-                                        "Switched to New Layout",
+                                        "You are in the new agentic layout!",
                                         cx,
                                         move |this, _cx| {
                                             this.icon(
@@ -252,8 +250,7 @@ fn announcement_for_version(version: &Version, cx: &App) -> Option<AnnouncementC
                                                     .size(IconSize::Small)
                                                     .color(Color::Success),
                                             )
-                                            // todo dl: Improve copywriting
-                                            .action("Revert Layout", move |_window, cx| {
+                                            .action("Revert", move |_window, cx| {
                                                 let _ = AgentSettings::set_layout(
                                                     get_layout.clone(),
                                                     revert_fs.clone(),
