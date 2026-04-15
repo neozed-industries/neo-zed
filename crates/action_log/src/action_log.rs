@@ -285,14 +285,9 @@ impl ActionLog {
         let (mut git_diff_updates_tx, mut git_diff_updates_rx) = watch::channel(());
         let _diff_subscription = if let Some(git_diff) = git_diff.as_ref() {
             cx.update(|cx| {
-                let mut old_base_version = git_diff.read(cx).base_text(cx).version().clone();
-                Some(cx.subscribe(git_diff, move |git_diff, event, cx| {
-                    if let buffer_diff::BufferDiffEvent::DiffChanged { .. } = event {
-                        let new_base_version = git_diff.read(cx).base_text(cx).version().clone();
-                        if new_base_version != old_base_version {
-                            old_base_version = new_base_version;
-                            git_diff_updates_tx.send(()).ok();
-                        }
+                Some(cx.subscribe(git_diff, move |_, event, _cx| {
+                    if matches!(event, buffer_diff::BufferDiffEvent::BaseTextChanged) {
+                        git_diff_updates_tx.send(()).ok();
                     }
                 }))
             })

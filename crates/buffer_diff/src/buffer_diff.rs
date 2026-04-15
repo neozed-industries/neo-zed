@@ -1515,9 +1515,15 @@ pub struct DiffChanged {
 
 #[derive(Clone, Debug)]
 pub enum BufferDiffEvent {
+    BaseTextChanged,
     DiffChanged(DiffChanged),
     LanguageChanged,
     HunksStagedOrUnstaged(Option<Rope>),
+}
+
+struct SetSnapshotResult {
+    change: DiffChanged,
+    base_text_changed: bool,
 }
 
 impl EventEmitter<BufferDiffEvent> for BufferDiff {}
@@ -1784,7 +1790,7 @@ impl BufferDiff {
         secondary_diff_change: Option<Range<Anchor>>,
         clear_pending_hunks: bool,
         cx: &mut Context<Self>,
-    ) -> impl Future<Output = DiffChanged> + use<> {
+    ) -> impl Future<Output = SetSnapshotResult> + use<> {
         log::debug!("set snapshot with secondary {secondary_diff_change:?}");
 
         let old_snapshot = self.snapshot(cx);
@@ -1904,10 +1910,13 @@ impl BufferDiff {
             if let Some(parsing_idle) = parsing_idle {
                 parsing_idle.await;
             }
-            DiffChanged {
-                changed_range,
-                base_text_changed_range,
-                extended_range,
+            SetSnapshotResult {
+                change: DiffChanged {
+                    changed_range,
+                    base_text_changed_range,
+                    extended_range,
+                },
+                base_text_changed,
             }
         }
     }
@@ -1938,12 +1947,15 @@ impl BufferDiff {
         );
 
         cx.spawn(async move |this, cx| {
-            let change = fut.await;
+            let result = fut.await;
             this.update(cx, |_, cx| {
-                cx.emit(BufferDiffEvent::DiffChanged(change.clone()));
+                if result.base_text_changed {
+                    cx.emit(BufferDiffEvent::BaseTextChanged);
+                }
+                cx.emit(BufferDiffEvent::DiffChanged(result.change.clone()));
             })
             .ok();
-            change.changed_range
+            result.change.changed_range
         })
     }
 
@@ -2019,8 +2031,11 @@ impl BufferDiff {
         let fg_executor = cx.foreground_executor().clone();
         let snapshot = fg_executor.block_on(fut);
         let fut = self.set_snapshot_with_secondary_inner(snapshot, buffer, None, false, cx);
-        let change = fg_executor.block_on(fut);
-        cx.emit(BufferDiffEvent::DiffChanged(change));
+        let result = fg_executor.block_on(fut);
+        if result.base_text_changed {
+            cx.emit(BufferDiffEvent::BaseTextChanged);
+        }
+        cx.emit(BufferDiffEvent::DiffChanged(result.change));
     }
 
     pub fn base_text_buffer(&self) -> &Entity<language::Buffer> {
@@ -4013,5 +4028,45 @@ mod tests {
         let snapshot = diff.update(cx, |diff, cx| diff.snapshot(cx));
         snapshot.buffer_point_to_base_text_range(Point::new(0, 0), &buffer_snapshot);
         snapshot.buffer_point_to_base_text_range(Point::new(1, 0), &buffer_snapshot);
+    }
+
+    #[gpui::test]
+    async fn test_set_base_text_emits_base_text_changed(cx: &mut gpui::TestAppContext) {
+        let buffer = Buffer::new(
+            ReplicaId::LOCAL,
+            BufferId::new(1).unwrap(),
+            "one\nTWO\nthree\n".to_string(),
+        );
+        let buffer_snapshot = buffer.snapshot();
+
+        let diff = cx.new(|cx| BufferDiff::new(&buffer_snapshot, cx));
+        let (tx, rx) = mpsc::channel();
+        let _subscription =
+            cx.update(|cx| cx.subscribe(&diff, move |_, event, _| tx.send(event.clone()).unwrap()));
+
+        diff.update(cx, |diff, cx| {
+            diff.set_base_text(
+                Some(Arc::from("one\ntwo\nthree\n")),
+                None,
+                buffer_snapshot.clone(),
+                cx,
+            )
+        })
+        .await
+        .ok();
+        cx.run_until_parked();
+
+        let events = rx.try_iter().collect::<Vec<_>>();
+        assert!(matches!(
+            events.first(),
+            Some(BufferDiffEvent::BaseTextChanged)
+        ));
+        assert!(matches!(
+            events.get(1),
+            Some(BufferDiffEvent::DiffChanged(DiffChanged {
+                base_text_changed_range: Some(_),
+                ..
+            }))
+        ));
     }
 }
