@@ -364,7 +364,7 @@ pub fn init(cx: &mut App) {
                                 auto_submit: true,
                             }),
                             true,
-                            "agent_panel",
+                            "git_panel",
                             window,
                             cx,
                         );
@@ -391,7 +391,7 @@ pub fn init(cx: &mut App) {
                                     auto_submit: true,
                                 }),
                                 true,
-                                "agent_panel",
+                                "git_panel",
                                 window,
                                 cx,
                             );
@@ -420,7 +420,7 @@ pub fn init(cx: &mut App) {
                                     auto_submit: true,
                                 }),
                                 true,
-                                "agent_panel",
+                                "git_panel",
                                 window,
                                 cx,
                             );
