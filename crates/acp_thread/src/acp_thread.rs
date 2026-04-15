@@ -342,7 +342,7 @@ impl ToolCall {
         }
 
         if let Some(status) = status {
-            self.set_status_from_agent(status.into());
+            self.status = status.into();
         }
 
         if let Some(subagent_session_info) = subagent_session_info_from_meta(&meta) {
@@ -419,12 +419,6 @@ impl ToolCall {
             self.raw_output = Some(raw_output);
         }
         Ok(())
-    }
-
-    fn set_status_from_agent(&mut self, status: ToolCallStatus) {
-        if !matches!(self.status, ToolCallStatus::WaitingForConfirmation { .. }) {
-            self.status = status;
-        }
     }
 
     pub fn diffs(&self) -> impl Iterator<Item = &Entity<Diff>> {
@@ -1457,9 +1451,18 @@ impl AcpThread {
                 self.push_assistant_content_block(content, true, cx);
             }
             acp::SessionUpdate::ToolCall(tool_call) => {
-                self.upsert_tool_call(tool_call, cx)?;
+                if self.is_tool_waiting_for_confirmation(&tool_call.tool_call_id) {
+                    let mut update: acp::ToolCallUpdate = tool_call.into();
+                    update.fields.status = None;
+                    self.update_tool_call(update, cx)?;
+                } else {
+                    self.upsert_tool_call(tool_call, cx)?;
+                }
             }
-            acp::SessionUpdate::ToolCallUpdate(tool_call_update) => {
+            acp::SessionUpdate::ToolCallUpdate(mut tool_call_update) => {
+                if self.is_tool_waiting_for_confirmation(&tool_call_update.tool_call_id) {
+                    tool_call_update.fields.status = None;
+                }
                 self.update_tool_call(tool_call_update, cx)?;
             }
             acp::SessionUpdate::Plan(plan) => {
@@ -1934,7 +1937,7 @@ impl AcpThread {
                 &self.terminals,
                 cx,
             )?;
-            call.set_status_from_agent(status);
+            call.status = status;
 
             cx.emit(AcpThreadEvent::EntryUpdated(ix));
         } else {
@@ -1951,6 +1954,18 @@ impl AcpThread {
 
         self.resolve_locations(id, cx);
         Ok(())
+    }
+
+    fn is_tool_waiting_for_confirmation(&self, id: &acp::ToolCallId) -> bool {
+        self.index_for_tool_call(id).is_some_and(|ix| {
+            matches!(
+                self.entries[ix],
+                AgentThreadEntry::ToolCall(ToolCall {
+                    status: ToolCallStatus::WaitingForConfirmation { .. },
+                    ..
+                })
+            )
+        })
     }
 
     fn index_for_tool_call(&self, id: &acp::ToolCallId) -> Option<usize> {
@@ -4698,6 +4713,7 @@ mod tests {
                 .unwrap()
         });
 
+        // Server sends a ToolCallUpdate with InProgress — should not overwrite WaitingForConfirmation
         thread.update(cx, |thread, cx| {
             thread
                 .handle_session_update(
@@ -4715,7 +4731,34 @@ mod tests {
             if let AgentThreadEntry::ToolCall(call) = entry {
                 assert!(
                     matches!(call.status, ToolCallStatus::WaitingForConfirmation { .. }),
-                    "expected WaitingForConfirmation, got {:?}",
+                    "expected WaitingForConfirmation after ToolCallUpdate, got {:?}",
+                    call.status
+                );
+            } else {
+                panic!("expected ToolCall entry");
+            }
+        });
+
+        // Server re-sends the full ToolCall with InProgress — should not overwrite either
+        thread.update(cx, |thread, cx| {
+            thread
+                .handle_session_update(
+                    acp::SessionUpdate::ToolCall(
+                        acp::ToolCall::new("tool-1", "write")
+                            .kind(acp::ToolKind::Edit)
+                            .status(acp::ToolCallStatus::InProgress),
+                    ),
+                    cx,
+                )
+                .unwrap();
+        });
+
+        thread.read_with(cx, |thread, _cx| {
+            let entry = &thread.entries[0];
+            if let AgentThreadEntry::ToolCall(call) = entry {
+                assert!(
+                    matches!(call.status, ToolCallStatus::WaitingForConfirmation { .. }),
+                    "expected WaitingForConfirmation after ToolCall re-send, got {:?}",
                     call.status
                 );
             } else {
