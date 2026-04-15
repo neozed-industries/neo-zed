@@ -209,14 +209,13 @@ fn announcement_for_version(version: &Version, cx: &App) -> Option<AnnouncementC
         Some(AnnouncementContent {
             // todo dl: Improve title label here
             heading: "Introducing Parallel Agents".into(),
-            description: "Run multiple agent threads simultaneously across projects.".into(),
+            description: "Run multiple threads of your favorite agents simultaneously across projects in a new workspace layout, tailored for agentic workflows.".into(),
             bullet_items: vec![
                 "Use your favorite agents in parallel".into(),
                 "Optionally isolate agents using worktrees".into(),
                 "Combine multiple projects in one window".into(),
-                "Explore the new workspace layout for agentic workflows".into(),
             ],
-            primary_action_label: "Try Now".into(),
+            primary_action_label: "Try Agentic Layout".into(),
             primary_action_url: None,
             primary_action_callback: Some(Arc::new(move |window, cx| {
                 let get_layout = AgentSettings::get_layout(cx);
