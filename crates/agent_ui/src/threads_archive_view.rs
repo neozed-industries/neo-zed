@@ -30,10 +30,9 @@ use picker::{
 use project::{AgentId, AgentServerStore};
 use settings::Settings as _;
 use theme::ActiveTheme;
-use ui::{AgentThreadStatus, IconDecoration, IconDecorationKind, Tab, ThreadItem};
 use ui::{
-    Divider, KeyBinding, ListItem, ListItemSpacing, ListSubHeader, Tooltip, WithScrollbar,
-    prelude::*, utils::platform_title_bar_height,
+    AgentThreadStatus, Divider, KeyBinding, ListItem, ListItemSpacing, ListSubHeader, Tab,
+    ThreadItem, Tooltip, WithScrollbar, prelude::*, utils::platform_title_bar_height,
 };
 use ui_input::ErasedEditor;
 use util::ResultExt;
@@ -155,7 +154,7 @@ impl ThreadsArchiveView {
 
         let filter_editor = cx.new(|cx| {
             let mut editor = Editor::single_line(window, cx);
-            editor.set_placeholder_text("Search threads…", window, cx);
+            editor.set_placeholder_text("Search all threads…", window, cx);
             editor
         });
 
@@ -606,24 +605,13 @@ impl ThreadsArchiveView {
                     &branch_names_for_thread,
                 );
 
-                let color = cx.theme().colors();
-                let knockout_color = color
-                    .title_bar_background
-                    .blend(color.panel_background.opacity(0.25));
-                let archived_decoration =
-                    IconDecoration::new(IconDecorationKind::Archive, knockout_color, cx)
-                        .color(color.icon_disabled)
-                        .position(gpui::Point {
-                            x: px(-3.),
-                            y: px(-3.5),
-                        });
+                let archived_color = Color::Custom(cx.theme().colors().text_muted.opacity(0.85));
 
                 let base = ThreadItem::new(id, thread.display_title())
                     .icon(icon)
                     .when(is_archived, |this| {
-                        this.icon_color(Color::Muted)
-                            .title_label_color(Color::Muted)
-                            .icon_decoration(archived_decoration)
+                        this.icon_color(archived_color)
+                            .title_label_color(archived_color)
                     })
                     .when_some(icon_from_external_svg, |this, svg| {
                         this.custom_icon_from_external_svg(svg)
@@ -895,7 +883,7 @@ impl ThreadsArchiveView {
                     .color(Color::Muted),
             )
             .child(
-                IconButton::new("toggle-archived-only", IconName::ListFilter)
+                IconButton::new("toggle-archived-only", IconName::Archive)
                     .icon_size(IconSize::Small)
                     .toggle_state(self.show_archived_only)
                     .tooltip(Tooltip::text(if self.show_archived_only {

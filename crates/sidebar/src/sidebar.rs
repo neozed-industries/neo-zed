@@ -4200,7 +4200,7 @@ impl Sidebar {
                 )
             })
             .child(
-                IconButton::new("archive", IconName::Archive)
+                IconButton::new("history", IconName::History)
                     .icon_size(IconSize::Small)
                     .toggle_state(is_archive)
                     .tooltip(move |_, cx| {
