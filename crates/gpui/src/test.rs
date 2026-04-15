@@ -44,6 +44,28 @@ pub fn seed_strategy() -> impl Strategy<Value = u64> {
     }
 }
 
+/// Returns a proptest config that is deterministic by default, matching
+/// `#[gpui::test]`'s behavior of using fixed seeds. When `$SEED` is set,
+/// uses that value; otherwise defaults to `0`.
+pub fn default_proptest_config() -> proptest::test_runner::Config {
+    apply_seed_to_config(proptest::test_runner::Config::default())
+}
+
+/// Applies a fixed RNG seed to a proptest config so that case generation
+/// is deterministic. Uses `$SEED` if set, otherwise defaults to `0`.
+/// This bridges the GPUI `SEED` env var to proptest's RNG seed, so that
+/// a single variable controls both the scheduler seed and case generation.
+pub fn apply_seed_to_config(
+    mut config: proptest::test_runner::Config,
+) -> proptest::test_runner::Config {
+    let seed = env::var("SEED")
+        .ok()
+        .and_then(|val| val.parse::<u64>().ok())
+        .unwrap_or(0);
+    config.rng_seed = proptest::test_runner::RngSeed::Fixed(seed);
+    config
+}
+
 /// Similar to [`run_test`], but only runs the callback once, allowing
 /// [`FnOnce`] callbacks. This is intended for use with the
 /// `gpui::property_test` macro and generally should not be used directly.

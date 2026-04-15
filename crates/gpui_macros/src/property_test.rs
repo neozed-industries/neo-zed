@@ -6,6 +6,7 @@ use syn::{
 
 pub fn test(args: TokenStream, item: TokenStream) -> TokenStream {
     let item_span = item.span();
+    let args = inject_seed_config(args);
     let Ok(func) = parse2::<ItemFn>(item) else {
         return quote_spanned! { item_span =>
             compile_error!("#[gpui::property_test] must be placed on a function");
@@ -67,6 +68,58 @@ pub fn test(args: TokenStream, item: TokenStream) -> TokenStream {
             )
         }
     }
+}
+
+fn inject_seed_config(args: TokenStream) -> TokenStream {
+    use proc_macro2::TokenTree;
+
+    let mut segments: Vec<Vec<TokenTree>> = vec![vec![]];
+    for tt in args {
+        match &tt {
+            TokenTree::Punct(p) if p.as_char() == ',' => {
+                segments.push(vec![]);
+            }
+            _ => {
+                segments
+                    .last_mut()
+                    .expect("segments should never be empty")
+                    .push(tt);
+            }
+        }
+    }
+    segments.retain(|s| !s.is_empty());
+
+    let mut found_config = false;
+    let mut result_segments: Vec<TokenStream> = Vec::new();
+
+    for segment in segments {
+        let is_config = segment
+            .first()
+            .is_some_and(|tt| matches!(tt, TokenTree::Ident(ident) if *ident == "config"));
+
+        if is_config {
+            found_config = true;
+            let expr_tokens: TokenStream = segment.into_iter().skip(2).collect();
+            result_segments.push(quote!(config = ::gpui::apply_seed_to_config(#expr_tokens)));
+        } else {
+            let segment_stream: TokenStream = segment.into_iter().collect();
+            result_segments.push(segment_stream);
+        }
+    }
+
+    if !found_config {
+        result_segments.push(quote!(config = ::gpui::default_proptest_config()));
+    }
+
+    let mut result = TokenStream::new();
+    for (i, segment) in result_segments.iter().enumerate() {
+        if i > 0 {
+            result.extend(quote!(,));
+        }
+        result.extend(segment.clone());
+    }
+
+    result
 }
 
 #[derive(Default)]
