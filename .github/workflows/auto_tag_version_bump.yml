@@ -1,0 +1,85 @@
+# Generated from xtask::workflows::auto_tag_version_bump
+# Rebuild with `cargo xtask workflows`.
+name: auto_tag_version_bump
+on:
+  pull_request:
+    types:
+    - closed
+    branches:
+    - v*.x
+jobs:
+  tag_merged_version_bump:
+    if: github.repository_owner == 'zed-industries' && github.event.pull_request.merged == true && github.event.pull_request.user.login == 'zed-zippy[bot]'
+    runs-on: namespace-profile-2x4-ubuntu-2404
+    steps:
+    - id: generate-token
+      name: steps::authenticate_as_zippy
+      uses: actions/create-github-app-token@f8d387b68d61c58ab83c6c016672934102569859
+      with:
+        app-id: ${{ secrets.ZED_ZIPPY_APP_ID }}
+        private-key: ${{ secrets.ZED_ZIPPY_APP_PRIVATE_KEY }}
+        permission-contents: write
+    - name: steps::checkout_repo
+      uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+      with:
+        clean: false
+        ref: ${{ github.event.pull_request.merge_commit_sha }}
+        token: ${{ steps.generate-token.outputs.token }}
+    - name: auto_tag_version_bump::tag_merged_version_bump::validate_and_tag
+      run: |
+        # Read version and channel from the merged commit
+        version=$(script/get-crate-version zed)
+        channel=$(cat crates/zed/RELEASE_CHANNEL)
+
+        echo "Version: $version"
+        echo "Channel: $channel"
+
+        # Validate only version-related files were changed in the PR
+        CHANGED_FILES=$(gh pr view "$PR_NUMBER" --json files --jq '.files[].path' | sort)
+        echo "Changed files in PR:"
+        echo "$CHANGED_FILES"
+
+        ALLOWED_PATTERN="^(crates/zed/RELEASE_CHANNEL|crates/zed/Cargo\.toml|Cargo\.lock|Cargo\.toml)$"
+        while IFS= read -r file; do
+          if [ -z "$file" ]; then continue; fi
+          if ! echo "$file" | grep -qE "$ALLOWED_PATTERN"; then
+            echo "::error::Unexpected file changed: $file — only version-related files should be changed for auto-tagging"
+            exit 1
+          fi
+        done <<< "$CHANGED_FILES"
+
+        # Determine tag name based on channel
+        case "$channel" in
+          stable)
+            tag="v${version}"
+            ;;
+          preview)
+            tag="v${version}-pre"
+            ;;
+          *)
+            echo "::error::Unexpected RELEASE_CHANNEL: '$channel' (expected 'stable' or 'preview')"
+            exit 1
+            ;;
+        esac
+
+        # Verify tag doesn't already exist
+        if git ls-remote --tags origin "refs/tags/${tag}" | grep -q .; then
+          echo "::error::Tag ${tag} already exists on remote"
+          exit 1
+        fi
+
+        echo "Creating and pushing tag: $tag"
+        git tag "$tag"
+        git push origin "$tag"
+
+        echo "Successfully tagged: $tag"
+      env:
+        GIT_COMMITTER_NAME: Zed Zippy
+        GIT_COMMITTER_EMAIL: 234243425+zed-zippy[bot]@users.noreply.github.com
+        GIT_AUTHOR_NAME: Zed Zippy
+        GIT_AUTHOR_EMAIL: 234243425+zed-zippy[bot]@users.noreply.github.com
+        GITHUB_TOKEN: ${{ steps.generate-token.outputs.token }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+defaults:
+  run:
+    shell: bash -euxo pipefail {0}
