@@ -1,4 +1,3 @@
-mod thread_interaction_times;
 mod thread_switcher;
 
 use acp_thread::ThreadStatus;
@@ -58,7 +57,6 @@ use zed_actions::editor::{MoveDown, MoveUp};
 
 use zed_actions::agents_sidebar::{FocusSidebarFilter, ToggleThreadSwitcher};
 
-use crate::thread_interaction_times::ThreadInteractionTimes;
 use crate::thread_switcher::{ThreadSwitcher, ThreadSwitcherEntry, ThreadSwitcherEvent};
 
 #[cfg(test)]
@@ -361,7 +359,9 @@ pub struct Sidebar {
     /// Tracks which sidebar entry is currently active (highlighted).
     active_entry: Option<ActiveEntry>,
     hovered_thread_index: Option<usize>,
-    interaction_times: ThreadInteractionTimes,
+    /// The last time the user opened/focused each thread in the agent panel.
+    /// Used for ordering the ctrl-tab switcher.
+    last_accessed: HashMap<ThreadId, DateTime<Utc>>,
     thread_switcher: Option<Entity<ThreadSwitcher>>,
     _thread_switcher_subscriptions: Vec<gpui::Subscription>,
     pending_thread_activation: Option<agent_ui::ThreadId>,
@@ -448,7 +448,7 @@ impl Sidebar {
             active_entry: None,
             hovered_thread_index: None,
 
-            interaction_times: ThreadInteractionTimes::new(),
+            last_accessed: HashMap::default(),
             thread_switcher: None,
             _thread_switcher_subscriptions: Vec::new(),
             pending_thread_activation: None,
@@ -654,11 +654,10 @@ impl Sidebar {
                     this.update_entries(cx);
                 }
                 AgentPanelEvent::MessageSentOrQueued { thread_id } => {
-                    {
-                        let this = &mut *this;
-                        this.interaction_times
-                            .record_message_sent_or_queued(*thread_id);
-                    };
+                    let now = Utc::now();
+                    ThreadMetadataStore::global(cx).update(cx, |store, cx| {
+                        store.update_last_user_interaction(*thread_id, now, cx);
+                    });
                     this.update_entries(cx);
                 }
             },
@@ -1149,8 +1148,9 @@ impl Sidebar {
                 }
 
                 threads.sort_by(|a, b| {
-                    self.interaction_times
-                        .cmp_for_sidebar(&a.metadata, &b.metadata)
+                    b.metadata
+                        .last_user_interaction
+                        .cmp(&a.metadata.last_user_interaction)
                 });
             } else {
                 for info in live_infos {
@@ -1293,8 +1293,8 @@ impl Sidebar {
 
         notified_threads.retain(|id| current_thread_ids.contains(id));
 
-        self.interaction_times
-            .retain(|id| current_thread_ids.contains(id));
+        self.last_accessed
+            .retain(|id, _| current_thread_ids.contains(id));
 
         self.contents = SidebarContents {
             entries,
@@ -2275,11 +2275,7 @@ impl Sidebar {
             session_id: metadata.session_id.clone(),
             workspace: workspace.clone(),
         });
-        {
-            let this = &mut *self;
-            let thread_id = metadata.thread_id;
-            this.interaction_times.record_access(thread_id);
-        };
+        self.record_thread_accessed(metadata.thread_id);
 
         if metadata.session_id.is_some() {
             self.pending_thread_activation = Some(metadata.thread_id);
@@ -2348,10 +2344,7 @@ impl Sidebar {
                         session_id: target_session_id.clone(),
                         workspace: workspace_for_entry.clone(),
                     });
-                    {
-                        let this = &mut *sidebar;
-                        this.interaction_times.record_access(metadata_thread_id);
-                    };
+                    sidebar.record_thread_accessed(metadata_thread_id);
                     sidebar.update_entries(cx);
                 });
             }
@@ -3362,8 +3355,12 @@ impl Sidebar {
         }
     }
 
+    fn record_thread_accessed(&mut self, thread_id: ThreadId) {
+        self.last_accessed.insert(thread_id, Utc::now());
+    }
+
     fn display_time(&self, metadata: &ThreadMetadata) -> DateTime<Utc> {
-        self.interaction_times.last_message_sent_or_queued(metadata)
+        metadata.last_user_interaction
     }
 
     fn mru_threads_for_switcher(&self, cx: &App) -> Vec<ThreadSwitcherEntry> {
@@ -3427,8 +3424,17 @@ impl Sidebar {
             .collect();
 
         entries.sort_by(|a, b| {
-            self.interaction_times
-                .cmp_for_tab_switcher(&a.metadata, &b.metadata)
+            let a_accessed = self.last_accessed.get(&a.metadata.thread_id);
+            let b_accessed = self.last_accessed.get(&b.metadata.thread_id);
+            match (a_accessed, b_accessed) {
+                (Some(a_time), Some(b_time)) => b_time.cmp(a_time),
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (None, None) => b
+                    .metadata
+                    .last_user_interaction
+                    .cmp(&a.metadata.last_user_interaction),
+            }
         });
 
         entries
@@ -3525,11 +3531,7 @@ impl Sidebar {
                             mw.retain_active_workspace(cx);
                         });
                     }
-                    {
-                        let this = &mut *this;
-                        let thread_id = metadata.thread_id;
-                        this.interaction_times.record_access(thread_id);
-                    };
+                    this.record_thread_accessed(metadata.thread_id);
                     this.active_entry = Some(ActiveEntry {
                         thread_id: metadata.thread_id,
                         session_id: metadata.session_id.clone(),

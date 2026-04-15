@@ -520,15 +520,17 @@ fn collect_importable_threads(
             let Some(folder_paths) = session.work_dirs else {
                 continue;
             };
+            let updated_at = session.updated_at.unwrap_or_else(|| Utc::now());
             to_insert.push(ThreadMetadata {
                 thread_id: ThreadId::new(),
                 session_id: Some(session.session_id),
                 agent_id: agent_id.clone(),
                 title: session.title,
-                updated_at: session.updated_at.unwrap_or_else(|| Utc::now()),
+                updated_at,
                 created_at: session.created_at,
                 worktree_paths: WorktreePaths::from_folder_paths(&folder_paths),
                 remote_connection: remote_connection.clone(),
+                last_user_interaction: updated_at,
                 archived: true,
             });
         }
