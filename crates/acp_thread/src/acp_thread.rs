@@ -342,7 +342,7 @@ impl ToolCall {
         }
 
         if let Some(status) = status {
-            self.status = status.into();
+            self.set_status_from_agent(status.into());
         }
 
         if let Some(subagent_session_info) = subagent_session_info_from_meta(&meta) {
@@ -419,6 +419,12 @@ impl ToolCall {
             self.raw_output = Some(raw_output);
         }
         Ok(())
+    }
+
+    fn set_status_from_agent(&mut self, status: ToolCallStatus) {
+        if !matches!(self.status, ToolCallStatus::WaitingForConfirmation { .. }) {
+            self.status = status;
+        }
     }
 
     pub fn diffs(&self) -> impl Iterator<Item = &Entity<Diff>> {
@@ -1928,7 +1934,7 @@ impl AcpThread {
                 &self.terminals,
                 cx,
             )?;
-            call.status = status;
+            call.set_status_from_agent(status);
 
             cx.emit(AcpThreadEvent::EntryUpdated(ix));
         } else {
@@ -4648,6 +4654,92 @@ mod tests {
                 panic!("Expected ToolCall entry, got: {:?}", thread.entries[0]);
             }
         });
+    }
+
+    #[gpui::test]
+    async fn test_tool_call_update_does_not_cancel_pending_permission(cx: &mut TestAppContext) {
+        init_test(cx);
+
+        let fs = FakeFs::new(cx.executor());
+        let project = Project::test(fs, [], cx).await;
+        let connection = Rc::new(FakeAgentConnection::new());
+        let thread = cx
+            .update(|cx| {
+                connection.new_session(project, PathList::new(&[Path::new(path!("/test"))]), cx)
+            })
+            .await
+            .unwrap();
+
+        let tool_call_id = acp::ToolCallId::new("tool-1");
+
+        thread.update(cx, |thread, cx| {
+            thread
+                .handle_session_update(
+                    acp::SessionUpdate::ToolCall(
+                        acp::ToolCall::new("tool-1", "write")
+                            .kind(acp::ToolKind::Edit)
+                            .status(acp::ToolCallStatus::Pending),
+                    ),
+                    cx,
+                )
+                .unwrap();
+        });
+
+        let authorization_task = thread.update(cx, |thread, cx| {
+            let update =
+                acp::ToolCallUpdate::new(tool_call_id.clone(), acp::ToolCallUpdateFields::new());
+            let options = PermissionOptions::Flat(vec![acp::PermissionOption::new(
+                acp::PermissionOptionId::new("allow"),
+                "Allow",
+                acp::PermissionOptionKind::AllowOnce,
+            )]);
+            thread
+                .request_tool_call_authorization(update, options, cx)
+                .unwrap()
+        });
+
+        thread.update(cx, |thread, cx| {
+            thread
+                .handle_session_update(
+                    acp::SessionUpdate::ToolCallUpdate(acp::ToolCallUpdate::new(
+                        tool_call_id.clone(),
+                        acp::ToolCallUpdateFields::new().status(acp::ToolCallStatus::InProgress),
+                    )),
+                    cx,
+                )
+                .unwrap();
+        });
+
+        thread.read_with(cx, |thread, _cx| {
+            let entry = &thread.entries[0];
+            if let AgentThreadEntry::ToolCall(call) = entry {
+                assert!(
+                    matches!(call.status, ToolCallStatus::WaitingForConfirmation { .. }),
+                    "expected WaitingForConfirmation, got {:?}",
+                    call.status
+                );
+            } else {
+                panic!("expected ToolCall entry");
+            }
+        });
+
+        thread.update(cx, |thread, cx| {
+            thread.authorize_tool_call(
+                tool_call_id.clone(),
+                SelectedPermissionOutcome::new(
+                    acp::PermissionOptionId::new("allow"),
+                    acp::PermissionOptionKind::AllowOnce,
+                ),
+                cx,
+            );
+        });
+
+        let outcome = authorization_task.await;
+        assert!(
+            matches!(outcome, RequestPermissionOutcome::Selected(_)),
+            "expected Selected outcome, got {:?}",
+            outcome
+        );
     }
 
     /// Tests that restoring a checkpoint properly cleans up terminals that were
