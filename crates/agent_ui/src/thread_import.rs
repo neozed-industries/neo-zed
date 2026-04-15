@@ -4,6 +4,7 @@ use agent_client_protocol as acp;
 use chrono::Utc;
 use collections::HashSet;
 use db::kvp::Dismissable;
+use db::sqlez;
 use fs::Fs;
 use futures::FutureExt as _;
 use gpui::{
@@ -12,6 +13,7 @@ use gpui::{
 };
 use notifications::status_toast::{StatusToast, ToastIcon};
 use project::{AgentId, AgentRegistryStore, AgentServerStore};
+use release_channel::ReleaseChannel;
 use remote::RemoteConnectionOptions;
 use ui::{
     Checkbox, KeyBinding, ListItem, ListItemSpacing, Modal, ModalFooter, ModalHeader, Section,
@@ -534,6 +536,94 @@ fn collect_importable_threads(
         }
     }
     to_insert
+}
+
+pub fn import_threads_from_other_channels(_workspace: &mut Workspace, cx: &mut Context<Workspace>) {
+    let current_channel = ReleaseChannel::global(cx);
+
+    let existing_thread_ids: HashSet<ThreadId> = ThreadMetadataStore::global(cx)
+        .read(cx)
+        .entries()
+        .map(|metadata| metadata.thread_id)
+        .collect();
+
+    let workspace_handle = cx.weak_entity();
+    cx.spawn(async move |_this, cx| {
+        let mut imported_threads = Vec::new();
+
+        for channel in &ReleaseChannel::ALL {
+            if *channel == current_channel || *channel == ReleaseChannel::Dev {
+                continue;
+            }
+
+            match read_threads_from_channel(paths::database_dir(), *channel) {
+                Ok(threads) => {
+                    let new_threads = threads
+                        .into_iter()
+                        .filter(|thread| !existing_thread_ids.contains(&thread.thread_id));
+                    imported_threads.extend(new_threads);
+                }
+                Err(error) => {
+                    log::warn!(
+                        "Failed to read threads from {} channel database: {}",
+                        channel.dev_name(),
+                        error
+                    );
+                }
+            }
+        }
+
+        let imported_count = imported_threads.len();
+
+        cx.update(|cx| {
+            ThreadMetadataStore::global(cx)
+                .update(cx, |store, cx| store.save_all(imported_threads, cx));
+
+            show_cross_channel_import_toast(&workspace_handle, imported_count, cx);
+        })
+    })
+    .detach();
+}
+
+fn read_threads_from_channel(
+    database_dir: &std::path::Path,
+    channel: ReleaseChannel,
+) -> anyhow::Result<Vec<ThreadMetadata>> {
+    let db_path = db::db_path(database_dir, channel);
+    if !db_path.exists() {
+        return Ok(Vec::new());
+    }
+    let connection = sqlez::connection::Connection::open_file(&db_path.to_string_lossy());
+    crate::thread_metadata_store::list_thread_metadata_from_connection(&connection)
+}
+
+fn show_cross_channel_import_toast(
+    workspace: &WeakEntity<Workspace>,
+    imported_count: usize,
+    cx: &mut App,
+) {
+    let status_toast = if imported_count == 0 {
+        StatusToast::new("No new threads found to import.", cx, |this, _cx| {
+            this.icon(ToastIcon::new(IconName::Info).color(Color::Muted))
+                .dismiss_button(true)
+        })
+    } else {
+        let message = if imported_count == 1 {
+            "Imported 1 thread from other channels.".to_string()
+        } else {
+            format!("Imported {imported_count} threads from other channels.")
+        };
+        StatusToast::new(message, cx, |this, _cx| {
+            this.icon(ToastIcon::new(IconName::Check).color(Color::Success))
+                .dismiss_button(true)
+        })
+    };
+
+    workspace
+        .update(cx, |workspace, cx| {
+            workspace.toggle_status_toast(status_toast, cx);
+        })
+        .log_err();
 }
 
 #[cfg(test)]

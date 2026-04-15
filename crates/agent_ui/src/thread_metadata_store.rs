@@ -55,6 +55,16 @@ impl Column for ThreadId {
 const THREAD_REMOTE_CONNECTION_MIGRATION_KEY: &str = "thread-metadata-remote-connection-backfill";
 const THREAD_ID_MIGRATION_KEY: &str = "thread-metadata-thread-id-backfill";
 
+/// List all sidebar thread metadata from an arbitrary SQLite connection.
+///
+/// This is used to read thread metadata from another release channel's
+/// database without opening a full `ThreadSafeConnection`.
+pub(crate) fn list_thread_metadata_from_connection(
+    connection: &db::sqlez::connection::Connection,
+) -> anyhow::Result<Vec<ThreadMetadata>> {
+    connection.select::<ThreadMetadata>(ThreadMetadataDb::LIST_QUERY)?()
+}
+
 pub fn init(cx: &mut App) {
     ThreadMetadataStore::init_global(cx);
     let migration_task = migrate_thread_metadata(cx);
@@ -1268,13 +1278,15 @@ impl ThreadMetadataDb {
         )?()
     }
 
+    const LIST_QUERY: &str = "SELECT thread_id, session_id, agent_id, title, updated_at, \
+        created_at, folder_paths, folder_paths_order, archived, main_worktree_paths, \
+        main_worktree_paths_order, remote_connection \
+        FROM sidebar_threads \
+        ORDER BY updated_at DESC";
+
     /// List all sidebar thread metadata, ordered by updated_at descending.
     pub fn list(&self) -> anyhow::Result<Vec<ThreadMetadata>> {
-        self.select::<ThreadMetadata>(
-            "SELECT thread_id, session_id, agent_id, title, updated_at, created_at, folder_paths, folder_paths_order, archived, main_worktree_paths, main_worktree_paths_order, remote_connection \
-             FROM sidebar_threads \
-             ORDER BY updated_at DESC"
-        )?()
+        self.select::<ThreadMetadata>(Self::LIST_QUERY)?()
     }
 
     /// Upsert metadata for a thread.
