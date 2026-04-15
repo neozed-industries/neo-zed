@@ -57,6 +57,14 @@ fn plan_version_bump(bump_type: &WorkflowInput, patch_channel: &WorkflowInput) -
 }
 
 fn execute_version_bump(plan: &NamedJob) -> NamedJob {
+    fn install_cargo_edit() -> Step<Use> {
+        named::uses(
+            "taiki-e",
+            "install-action",
+            "02cc5f8ca9f2301050c0c099055816a41ee05507",
+        )
+        .add_with(("tool", "cargo-edit"))
+    }
     fn run_version_bump(token: &StepOutput) -> Step<Run> {
         named::bash(indoc::indoc! {r#"
             # Only preview requires a new branch
@@ -134,6 +142,7 @@ fn execute_version_bump(plan: &NamedJob) -> NamedJob {
                     .with_token(&token)
                     .with_ref("${{ matrix.checkout_ref }}"),
             )
+            .add_step(install_cargo_edit())
             .add_step(run_version_bump(&token)),
     )
 }

@@ -63,6 +63,10 @@ jobs:
         clean: false
         ref: ${{ matrix.checkout_ref }}
         token: ${{ steps.generate-token.outputs.token }}
+    - name: bump_zed_version::execute_version_bump::install_cargo_edit
+      uses: taiki-e/install-action@02cc5f8ca9f2301050c0c099055816a41ee05507
+      with:
+        tool: cargo-edit
     - name: bump_zed_version::execute_version_bump::run_version_bump
       run: |
         # Only preview requires a new branch
