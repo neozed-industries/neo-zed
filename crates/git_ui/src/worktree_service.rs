@@ -787,19 +787,23 @@ async fn open_worktree_workspace(
     window_handle.update(cx, |multi_workspace, window, cx| {
         multi_workspace.activate(new_workspace.clone(), source_for_transfer, window, cx);
 
-        if is_creating_new_worktree {
-            new_workspace.update(cx, |workspace, cx| {
-                workspace.run_create_worktree_tasks(window, cx);
+        new_workspace.update(cx, |workspace, cx| {
+            workspace.run_create_worktree_tasks(window, cx);
+        });
+    })?;
 
-                if let Some(dock_position) = focused_dock {
+    if is_creating_new_worktree {
+        if let Some(dock_position) = focused_dock {
+            window_handle.update(cx, |_multi_workspace, window, cx| {
+                new_workspace.update(cx, |workspace, cx| {
                     let dock = workspace.dock_at_position(dock_position);
                     if let Some(panel) = dock.read(cx).active_panel() {
                         panel.panel_focus_handle(cx).focus(window, cx);
                     }
-                }
-            });
+                });
+            })?;
         }
-    })?;
+    }
 
     anyhow::Ok(())
 }

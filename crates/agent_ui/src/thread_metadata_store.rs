@@ -794,8 +794,6 @@ impl ThreadMetadataStore {
         if let Some(job) = archive_job {
             self.in_flight_archives.insert(thread_id, job);
         }
-
-        cx.emit(ThreadMetadataStoreEvent::ThreadArchived(thread_id));
     }
 
     pub fn unarchive(&mut self, thread_id: ThreadId, cx: &mut Context<Self>) {
@@ -1238,13 +1236,6 @@ impl ThreadMetadataStore {
 }
 
 impl Global for ThreadMetadataStore {}
-
-#[derive(Clone, Debug)]
-pub enum ThreadMetadataStoreEvent {
-    ThreadArchived(ThreadId),
-}
-
-impl gpui::EventEmitter<ThreadMetadataStoreEvent> for ThreadMetadataStore {}
 
 struct ThreadMetadataDb(ThreadSafeConnection);
 
