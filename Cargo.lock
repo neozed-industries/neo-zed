@@ -21924,6 +21924,8 @@ dependencies = [
  "postage",
  "pretty_assertions",
  "project",
+ "proptest",
+ "proptest-derive",
  "remote",
  "schemars 1.0.4",
  "serde",
