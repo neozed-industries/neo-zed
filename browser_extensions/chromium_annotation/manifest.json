@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "Zed Browser Annotations",
+  "description": "Select page content and send browser annotations to Zed.",
+  "version": "0.1.0",
+  "action": {
+    "default_title": "Annotate in Zed",
+    "default_popup": "src/popup.html"
+  },
+  "background": {
+    "service_worker": "src/background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["src/shared_core.js", "src/content_script.js"],
+      "css": ["src/content_script.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "host_permissions": ["http://*/*", "https://*/*"],
+  "permissions": ["activeTab", "nativeMessaging", "scripting", "storage", "tabs"]
+}

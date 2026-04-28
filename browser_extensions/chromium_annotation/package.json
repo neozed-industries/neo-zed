@@ -1,0 +1,12 @@
+{
+  "name": "chromium-annotation-extension",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Chromium extension scaffold for sending browser annotations to Zed.",
+  "scripts": {
+    "test": "node test/shared_core.test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

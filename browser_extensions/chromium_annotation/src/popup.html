@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Zed Browser Annotation</title>
+    <link rel="stylesheet" href="popup.css">
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>Zed Annotation</h1>
+        <button id="ping" type="button">Check Host</button>
+      </header>
+
+      <dl>
+        <div>
+          <dt>Page</dt>
+          <dd id="page-title">Current tab</dd>
+        </div>
+        <div>
+          <dt>Selector</dt>
+          <dd id="selector">None selected</dd>
+        </div>
+      </dl>
+
+      <label for="selected-text">Selected text</label>
+      <textarea id="selected-text" rows="5" placeholder="Optional page text"></textarea>
+
+      <label for="comment">Comment</label>
+      <textarea id="comment" rows="4" placeholder="What should Zed review?"></textarea>
+
+      <section class="actions">
+        <button id="pick" type="button">Pick Element</button>
+        <button id="send" type="button">Send to Zed</button>
+      </section>
+
+      <p id="status" role="status" aria-live="polite"></p>
+    </main>
+
+    <script src="shared_core.js"></script>
+    <script src="popup.js"></script>
+  </body>
+</html>
