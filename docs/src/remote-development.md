@@ -264,6 +264,9 @@ Note that we deliberately disallow some options (for example `-t` or `-T`) that 
   debugger sessions while you work remotely.
 - [Configuring Neo Zed](./configuring-zed.md): Manage shared and project settings,
   including `.neozed/settings.json`.
+- [Git Worktrees](./git.md#git-worktrees): Create and switch between linked
+  Git worktrees. Zed supports the worktree picker in remote projects when the
+  remote connection is active.
 - [Agent Panel](./ai/agent-panel.md): Use AI workflows in remote projects.
 - [Remote Development on zed.dev](https://zed.dev/remote-development): Product
   overview and release updates.
