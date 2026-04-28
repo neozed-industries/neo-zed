@@ -43,7 +43,7 @@ use crate::{
     ui::EndTrialUpsell,
 };
 use crate::{
-    Agent, AgentInitialContent, ExternalSourcePrompt, NewExternalAgentThread,
+    Agent, AgentInitialContent, BrowserAnnotation, ExternalSourcePrompt, NewExternalAgentThread,
     NewNativeAgentThreadFromSummary,
 };
 use crate::{ExpandMessageEditor, ThreadHistoryView};
@@ -773,6 +773,28 @@ pub struct AgentPanel {
     _draft_editor_observation: Option<Subscription>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BrowserAnnotationTargetInfo {
+    pub id: String,
+    pub label: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AmbiguousBrowserAnnotationTargets {
+    pub targets: Vec<BrowserAnnotationTargetInfo>,
+}
+
+pub struct BrowserAnnotationTarget {
+    pub panel: Entity<AgentPanel>,
+    pub info: BrowserAnnotationTargetInfo,
+}
+
+pub enum BrowserAnnotationTargetResolution {
+    Unavailable,
+    Target(BrowserAnnotationTarget),
+    Ambiguous(AmbiguousBrowserAnnotationTargets),
+}
+
 impl AgentPanel {
     fn serialize(&mut self, cx: &mut App) {
         let Some(workspace_id) = self.workspace_id else {
@@ -1477,6 +1499,79 @@ impl AgentPanel {
         editor.update(cx, |editor, cx| {
             editor.clear(window, cx);
         });
+    }
+
+    pub fn append_browser_annotation_to_active_thread(
+        &mut self,
+        annotation: BrowserAnnotation,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Result<()> {
+        let external_source_prompt = annotation
+            .to_external_source_prompt()
+            .context("browser annotation did not contain usable text")?;
+        let Some(active_thread) = self.active_thread_view(cx) else {
+            self.new_agent_thread_with_external_source_prompt(
+                Some(external_source_prompt),
+                window,
+                cx,
+            );
+            return Ok(());
+        };
+        let prompt = external_source_prompt.into_string();
+        let message_editor = active_thread.read(cx).message_editor.clone();
+
+        message_editor.update(cx, |editor, cx| {
+            editor.append_message(
+                vec![acp::ContentBlock::Text(acp::TextContent::new(prompt))],
+                Some("\n\n"),
+                window,
+                cx,
+            );
+        });
+        active_thread.update(cx, |thread_view, cx| {
+            thread_view.show_external_source_prompt_warning = true;
+            cx.notify();
+        });
+
+        Ok(())
+    }
+
+    pub fn resolve_browser_annotation_target(
+        panels: impl IntoIterator<Item = Entity<AgentPanel>>,
+        cx: &App,
+    ) -> BrowserAnnotationTargetResolution {
+        let mut targets = panels
+            .into_iter()
+            .filter_map(|panel| {
+                if !panel.read(cx).is_browser_annotation_target(cx) {
+                    return None;
+                }
+                let info = BrowserAnnotationTargetInfo {
+                    id: format!("agent-panel-{}", panel.entity_id().as_u64()),
+                    label: "Agent Panel".to_string(),
+                };
+                Some(BrowserAnnotationTarget { panel, info })
+            })
+            .collect::<Vec<_>>()
+            .into_iter();
+
+        let Some(first_target) = targets.next() else {
+            return BrowserAnnotationTargetResolution::Unavailable;
+        };
+        let Some(second_target) = targets.next() else {
+            return BrowserAnnotationTargetResolution::Target(first_target);
+        };
+
+        let mut ambiguous_targets = vec![first_target.info, second_target.info];
+        ambiguous_targets.extend(targets.map(|target| target.info));
+        BrowserAnnotationTargetResolution::Ambiguous(AmbiguousBrowserAnnotationTargets {
+            targets: ambiguous_targets,
+        })
+    }
+
+    pub fn is_browser_annotation_target(&self, cx: &App) -> bool {
+        self.project.read(cx).visible_worktrees(cx).next().is_none()
     }
 
     fn take_active_initial_content(
@@ -6066,6 +6161,245 @@ mod tests {
         });
 
         (panel, cx)
+    }
+
+    async fn setup_project_panel(
+        cx: &mut TestAppContext,
+    ) -> (Entity<AgentPanel>, VisualTestContext) {
+        init_test(cx);
+        cx.update(|cx| {
+            agent::ThreadStore::init_global(cx);
+            language_model::LanguageModelRegistry::test(cx);
+        });
+
+        let fs = FakeFs::new(cx.executor());
+        fs.insert_tree(
+            "/project",
+            json!({
+                ".git": {},
+                "src": {
+                    "main.rs": "fn main() {}"
+                }
+            }),
+        )
+        .await;
+        let project = Project::test(fs.clone(), [Path::new("/project")], cx).await;
+
+        let multi_workspace =
+            cx.add_window(|window, cx| MultiWorkspace::test_new(project.clone(), window, cx));
+
+        let workspace = multi_workspace
+            .read_with(cx, |mw, _cx| mw.workspace().clone())
+            .unwrap();
+
+        let mut cx = VisualTestContext::from_window(multi_workspace.into(), cx);
+
+        let panel = workspace.update_in(&mut cx, |workspace, window, cx| {
+            cx.new(|cx| AgentPanel::new(workspace, None, window, cx))
+        });
+
+        (panel, cx)
+    }
+
+    fn browser_annotation() -> BrowserAnnotation {
+        BrowserAnnotation {
+            url: "https://example.com/article".into(),
+            title: Some("Example article".into()),
+            selected_text: Some("Selected page text".into()),
+            selector: Some("main article p:nth-child(2)".into()),
+            comment: Some("Please review this claim.".into()),
+        }
+    }
+
+    #[gpui::test]
+    async fn test_browser_annotation_target_resolution_uses_single_floating_panel(
+        cx: &mut TestAppContext,
+    ) {
+        let (panel, mut cx) = setup_panel(cx).await;
+
+        let resolution =
+            cx.update(|_, cx| AgentPanel::resolve_browser_annotation_target([panel.clone()], cx));
+
+        match resolution {
+            BrowserAnnotationTargetResolution::Target(target) => {
+                assert_eq!(target.panel.entity_id(), panel.entity_id());
+                assert_eq!(
+                    target.info,
+                    BrowserAnnotationTargetInfo {
+                        id: format!("agent-panel-{}", panel.entity_id().as_u64()),
+                        label: "Agent Panel".to_string(),
+                    }
+                );
+            }
+            BrowserAnnotationTargetResolution::Unavailable => {
+                panic!("single floating panel should be selected")
+            }
+            BrowserAnnotationTargetResolution::Ambiguous(_) => {
+                panic!("single floating panel should not be ambiguous")
+            }
+        }
+    }
+
+    #[gpui::test]
+    async fn test_browser_annotation_target_resolution_ignores_project_panel(
+        cx: &mut TestAppContext,
+    ) {
+        let (panel, mut cx) = setup_project_panel(cx).await;
+
+        let resolution =
+            cx.update(|_, cx| AgentPanel::resolve_browser_annotation_target([panel], cx));
+
+        assert!(matches!(
+            resolution,
+            BrowserAnnotationTargetResolution::Unavailable
+        ));
+    }
+
+    #[gpui::test]
+    async fn test_browser_annotation_target_resolution_reports_ambiguous_floating_panels(
+        cx: &mut TestAppContext,
+    ) {
+        init_test(cx);
+        cx.update(|cx| {
+            agent::ThreadStore::init_global(cx);
+            language_model::LanguageModelRegistry::test(cx);
+        });
+
+        let fs = FakeFs::new(cx.executor());
+        let project_a = Project::test(fs.clone(), [], cx).await;
+        let project_b = Project::test(fs.clone(), [], cx).await;
+
+        let multi_workspace =
+            cx.add_window(|window, cx| MultiWorkspace::test_new(project_a.clone(), window, cx));
+        let workspace_a = multi_workspace
+            .read_with(cx, |multi_workspace, _cx| {
+                multi_workspace.workspace().clone()
+            })
+            .unwrap();
+        let workspace_b = multi_workspace
+            .update(cx, |multi_workspace, window, cx| {
+                multi_workspace.test_add_workspace(project_b.clone(), window, cx)
+            })
+            .unwrap();
+
+        let mut cx = VisualTestContext::from_window(multi_workspace.into(), cx);
+        let panel_a = workspace_a.update_in(&mut cx, |workspace, window, cx| {
+            cx.new(|cx| AgentPanel::new(workspace, None, window, cx))
+        });
+        let panel_b = workspace_b.update_in(&mut cx, |workspace, window, cx| {
+            cx.new(|cx| AgentPanel::new(workspace, None, window, cx))
+        });
+
+        let resolution = cx.update(|_, cx| {
+            AgentPanel::resolve_browser_annotation_target([panel_a.clone(), panel_b.clone()], cx)
+        });
+
+        match resolution {
+            BrowserAnnotationTargetResolution::Ambiguous(ambiguous) => {
+                assert_eq!(
+                    ambiguous.targets,
+                    vec![
+                        BrowserAnnotationTargetInfo {
+                            id: format!("agent-panel-{}", panel_a.entity_id().as_u64()),
+                            label: "Agent Panel".to_string(),
+                        },
+                        BrowserAnnotationTargetInfo {
+                            id: format!("agent-panel-{}", panel_b.entity_id().as_u64()),
+                            label: "Agent Panel".to_string(),
+                        }
+                    ]
+                );
+            }
+            BrowserAnnotationTargetResolution::Unavailable => {
+                panic!("multiple floating panels should be ambiguous")
+            }
+            BrowserAnnotationTargetResolution::Target(_) => {
+                panic!("multiple floating panels should not select a default target")
+            }
+        }
+    }
+
+    #[gpui::test]
+    async fn test_browser_annotation_creates_draft_thread(cx: &mut TestAppContext) {
+        let (panel, mut cx) = setup_panel(cx).await;
+
+        crate::test_support::set_stub_agent_connection(StubAgentConnection::new());
+        panel.update(&mut cx, |panel, _cx| {
+            panel.selected_agent = Agent::Stub;
+        });
+
+        panel.read_with(&cx, |panel, cx| {
+            assert_eq!(panel.active_thread_id(cx), None);
+        });
+
+        panel.update_in(&mut cx, |panel, window, cx| {
+            panel
+                .append_browser_annotation_to_active_thread(browser_annotation(), window, cx)
+                .expect("annotation should be inserted into a new draft thread");
+        });
+        cx.run_until_parked();
+
+        panel.read_with(&cx, |panel, cx| {
+            let thread_id = panel
+                .active_thread_id(cx)
+                .expect("annotation should create an active draft thread");
+            assert_eq!(
+                panel.editor_text(thread_id, cx).as_deref(),
+                Some(
+                    "Browser annotation\nURL: https://example.com/article\nTitle: Example article\nSelected text: Selected page text\nSelector: main article p:nth-child(2)\nComment: Please review this claim."
+                )
+            );
+            let thread_view = panel
+                .active_thread_view(cx)
+                .expect("active draft should have a thread view");
+            assert!(
+                thread_view.read(cx).show_external_source_prompt_warning,
+                "browser annotations should require manual review before sending"
+            );
+        });
+    }
+
+    #[gpui::test]
+    async fn test_browser_annotation_appends_to_existing_draft(cx: &mut TestAppContext) {
+        let (panel, mut cx) = setup_panel(cx).await;
+
+        crate::test_support::set_stub_agent_connection(StubAgentConnection::new());
+        panel.update(&mut cx, |panel, _cx| {
+            panel.selected_agent = Agent::Stub;
+        });
+
+        panel.update_in(&mut cx, |panel, window, cx| {
+            panel.activate_draft(true, window, cx);
+        });
+        cx.run_until_parked();
+
+        panel.update_in(&mut cx, |panel, window, cx| {
+            let thread_view = panel
+                .active_thread_view(cx)
+                .expect("draft should have an active thread view");
+            let message_editor = thread_view.read(cx).message_editor.clone();
+            message_editor.update(cx, |editor, cx| {
+                editor.set_text("Existing draft", window, cx);
+            });
+        });
+
+        panel.update_in(&mut cx, |panel, window, cx| {
+            panel
+                .append_browser_annotation_to_active_thread(browser_annotation(), window, cx)
+                .expect("annotation should append to the active draft");
+        });
+
+        panel.read_with(&cx, |panel, cx| {
+            let thread_id = panel
+                .active_thread_id(cx)
+                .expect("draft should remain active");
+            assert_eq!(
+                panel.editor_text(thread_id, cx).as_deref(),
+                Some(
+                    "Existing draft\n\nBrowser annotation\nURL: https://example.com/article\nTitle: Example article\nSelected text: Selected page text\nSelector: main article p:nth-child(2)\nComment: Please review this claim."
+                )
+            );
+        });
     }
 
     #[gpui::test]

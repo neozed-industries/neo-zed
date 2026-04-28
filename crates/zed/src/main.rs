@@ -611,6 +611,7 @@ fn main() {
             session: app_session,
         });
         AppState::set_global(app_state.clone(), cx);
+        crate::zed::browser_annotation_ipc::init(app_state.clone(), cx);
 
         auto_update::init(client.clone(), cx);
         dap_adapters::init(cx);
@@ -932,6 +933,17 @@ fn handle_open_request(request: OpenRequest, app_state: Arc<AppState>, cx: &mut 
                     })
                 })
                 .detach_and_log_err(cx);
+            }
+            OpenRequestKind::BrowserAnnotationPairing { token } => {
+                cx.activate(true);
+                if let Err(error) = crate::zed::browser_annotation_ipc::handle_pairing_deep_link(
+                    token.as_deref(),
+                    cx,
+                ) {
+                    log::warn!("failed to handle browser annotation pairing link: {error:#}");
+                }
+                cx.spawn(async move |cx| restore_or_create_workspace(app_state, cx).await)
+                    .detach_and_log_err(cx);
             }
             OpenRequestKind::SharedAgentThread { session_id } => {
                 cx.spawn(async move |cx| {

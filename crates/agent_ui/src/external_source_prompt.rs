@@ -1,6 +1,38 @@
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ExternalSourcePrompt(String);
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BrowserAnnotation {
+    pub url: String,
+    pub title: Option<String>,
+    pub selected_text: Option<String>,
+    pub selector: Option<String>,
+    pub comment: Option<String>,
+}
+
+impl BrowserAnnotation {
+    pub fn to_external_source_prompt(&self) -> Option<ExternalSourcePrompt> {
+        if self.url.trim().is_empty() {
+            return None;
+        }
+
+        ExternalSourcePrompt::new(&self.to_prompt_text())
+    }
+
+    fn to_prompt_text(&self) -> String {
+        let mut prompt = String::new();
+
+        prompt.push_str("Browser annotation");
+        push_field(&mut prompt, "URL", Some(&self.url));
+        push_field(&mut prompt, "Title", self.title.as_deref());
+        push_field(&mut prompt, "Selected text", self.selected_text.as_deref());
+        push_field(&mut prompt, "Selector", self.selector.as_deref());
+        push_field(&mut prompt, "Comment", self.comment.as_deref());
+
+        prompt
+    }
+}
+
 impl ExternalSourcePrompt {
     pub fn new(prompt: &str) -> Option<Self> {
         sanitize(prompt).map(Self)
@@ -13,6 +45,20 @@ impl ExternalSourcePrompt {
     pub fn into_string(self) -> String {
         self.0
     }
+}
+
+fn push_field(prompt: &mut String, label: &str, value: Option<&str>) {
+    let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) else {
+        return;
+    };
+
+    if !prompt.is_empty() {
+        prompt.push('\n');
+    }
+
+    prompt.push_str(label);
+    prompt.push_str(": ");
+    prompt.push_str(value);
 }
 
 fn sanitize(prompt: &str) -> Option<String> {
@@ -70,7 +116,7 @@ fn is_bidi_control_character(character: char) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::ExternalSourcePrompt;
+    use super::{BrowserAnnotation, ExternalSourcePrompt};
 
     #[test]
     fn keeps_normal_prompt_text() {
@@ -158,5 +204,56 @@ mod tests {
             ExternalSourcePrompt::new("\u{202E}\u{202C}\u{0000}\u{001B}"),
             None
         );
+    }
+
+    #[test]
+    fn formats_browser_annotation_as_external_prompt() {
+        let annotation = BrowserAnnotation {
+            url: "https://example.com/article".into(),
+            title: Some("Example article".into()),
+            selected_text: Some("Selected page text".into()),
+            selector: Some("main article p:nth-child(2)".into()),
+            comment: Some("Please review this claim.".into()),
+        };
+
+        let prompt = annotation.to_external_source_prompt();
+
+        assert_eq!(
+            prompt.as_ref().map(ExternalSourcePrompt::as_str),
+            Some(
+                "Browser annotation\nURL: https://example.com/article\nTitle: Example article\nSelected text: Selected page text\nSelector: main article p:nth-child(2)\nComment: Please review this claim."
+            )
+        );
+    }
+
+    #[test]
+    fn browser_annotation_omits_empty_optional_fields() {
+        let annotation = BrowserAnnotation {
+            url: "https://example.com".into(),
+            title: Some(" ".into()),
+            selected_text: None,
+            selector: None,
+            comment: Some("\t".into()),
+        };
+
+        let prompt = annotation.to_external_source_prompt();
+
+        assert_eq!(
+            prompt.as_ref().map(ExternalSourcePrompt::as_str),
+            Some("Browser annotation\nURL: https://example.com")
+        );
+    }
+
+    #[test]
+    fn browser_annotation_requires_url() {
+        let annotation = BrowserAnnotation {
+            url: " ".into(),
+            title: Some("Example".into()),
+            selected_text: Some("Selected text".into()),
+            selector: Some("main".into()),
+            comment: Some("Comment".into()),
+        };
+
+        assert_eq!(annotation.to_external_source_prompt(), None);
     }
 }

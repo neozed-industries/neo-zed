@@ -66,14 +66,16 @@ use workspace::Workspace;
 
 use crate::agent_configuration::{ConfigureContextServerModal, ManageProfilesModal};
 pub use crate::agent_panel::{
-    AgentPanel, AgentPanelEvent, MaxIdleRetainedThreads, WorktreeCreationStatus,
+    AgentPanel, AgentPanelEvent, AmbiguousBrowserAnnotationTargets, BrowserAnnotationTarget,
+    BrowserAnnotationTargetInfo, BrowserAnnotationTargetResolution, MaxIdleRetainedThreads,
+    WorktreeCreationStatus,
 };
 use crate::agent_registry_ui::AgentRegistryPage;
 pub use crate::inline_assistant::InlineAssistant;
 pub use crate::thread_metadata_store::ThreadId;
 pub use agent_diff::{AgentDiffPane, AgentDiffToolbar};
 pub use conversation_view::ConversationView;
-pub use external_source_prompt::ExternalSourcePrompt;
+pub use external_source_prompt::{BrowserAnnotation, ExternalSourcePrompt};
 pub(crate) use mode_selector::ModeSelector;
 pub(crate) use model_selector::ModelSelector;
 pub(crate) use model_selector_popover::ModelSelectorPopover;

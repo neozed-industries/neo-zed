@@ -2147,6 +2147,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "browser_annotation_host"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "browser_annotation_protocol",
+ "dirs",
+ "net",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "browser_annotation_protocol"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "brush-parser"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -22151,6 +22172,7 @@ dependencies = [
  "auto_update",
  "auto_update_ui",
  "breadcrumbs",
+ "browser_annotation_protocol",
  "call",
  "channel",
  "chrono",

@@ -20,6 +20,8 @@ members = [
     "crates/aws_http_client",
     "crates/bedrock",
     "crates/breadcrumbs",
+    "crates/browser_annotation_host",
+    "crates/browser_annotation_protocol",
     "crates/buffer_diff",
     "crates/call",
     "crates/channel",
@@ -279,6 +281,8 @@ auto_update_ui = { path = "crates/auto_update_ui" }
 aws_http_client = { path = "crates/aws_http_client" }
 bedrock = { path = "crates/bedrock" }
 breadcrumbs = { path = "crates/breadcrumbs" }
+browser_annotation_host = { path = "crates/browser_annotation_host" }
+browser_annotation_protocol = { path = "crates/browser_annotation_protocol" }
 buffer_diff = { path = "crates/buffer_diff" }
 call = { path = "crates/call" }
 channel = { path = "crates/channel" }
