@@ -386,6 +386,8 @@ impl Model {
 
             Self::Gemini3_1Pro | Self::Gemini3Flash => ApiProtocol::Google,
 
+            Self::DeepSeekV4Pro | Self::DeepSeekV4Flash => ApiProtocol::Anthropic,
+
             Self::MiniMaxM2_5Free
             | Self::Glm5
             | Self::Glm5_1
@@ -508,6 +510,9 @@ impl Model {
 
             // Google models
             Self::Gemini3_1Pro | Self::Gemini3Flash => Some(65_536),
+
+            // Anthropic-compatible models
+            Self::DeepSeekV4Pro | Self::DeepSeekV4Flash => Some(384_000),
 
             // OpenAI-compatible models
             Self::MiniMaxM2_7 => Some(131_072),
