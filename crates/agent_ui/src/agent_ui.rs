@@ -387,6 +387,7 @@ pub enum AgentInitialContent {
     },
     FromExternalSource(ExternalSourcePrompt),
     BrowserAnnotation(BrowserAnnotation),
+    BrowserAnnotations(Vec<BrowserAnnotation>),
 }
 
 impl From<ExternalSourcePrompt> for AgentInitialContent {

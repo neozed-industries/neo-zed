@@ -4,6 +4,10 @@ const NATIVE_HOST_NAME = "browser_annotation_host";
 const STATE_KEY = "annotationSession";
 
 let nextRequestId = 1;
+let pendingDraftSyncTimerId;
+let pendingDraftSyncSession;
+let draftSyncQueue = Promise.resolve();
+const DRAFT_SYNC_DEBOUNCE_MS = 500;
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || typeof message.type !== "string") {
@@ -144,7 +148,7 @@ async function addComment(annotation, tab) {
   );
 
   await saveSession(nextSession);
-  await syncZedDraft(nextSession, false);
+  await syncZedDraftNow(nextSession, false);
   return nextSession;
 }
 
@@ -168,7 +172,7 @@ async function updateComment(commentId, annotation) {
   };
 
   await saveSession(nextSession);
-  await syncZedDraft(nextSession, false);
+  scheduleDraftSync(nextSession);
   return nextSession;
 }
 
@@ -184,7 +188,7 @@ async function removeComment(commentId) {
     type: "REMOVE_COMMENT_MARKER",
     comment_id: commentId,
   });
-  await syncZedDraft(nextSession, false);
+  await syncZedDraftNow(nextSession, false);
   return nextSession;
 }
 
@@ -193,7 +197,7 @@ async function clearComments() {
   const nextSession = { ...session, comments: [] };
   await saveSession(nextSession);
   await sendToSessionTab(session, { type: "CLEAR_COMMENT_MARKERS" });
-  await syncZedDraft(nextSession, false);
+  await syncZedDraftNow(nextSession, false);
   return nextSession;
 }
 
@@ -204,7 +208,7 @@ async function sendComments() {
     throw new Error("No comments to send.");
   }
 
-  await syncZedDraft({ ...session, comments }, false);
+  await syncZedDraftNow({ ...session, comments }, false);
 
   const nextSession = { ...session, comments: [] };
   await saveSession(nextSession);
@@ -228,6 +232,57 @@ async function syncZedDraft(session, submit) {
   }
 
   return response.result || { ok: true };
+}
+
+function scheduleDraftSync(session) {
+  pendingDraftSyncSession = session;
+
+  if (pendingDraftSyncTimerId) {
+    clearTimeout(pendingDraftSyncTimerId);
+  }
+
+  pendingDraftSyncTimerId = setTimeout(flushScheduledDraftSync, DRAFT_SYNC_DEBOUNCE_MS);
+}
+
+async function syncZedDraftNow(session, submit) {
+  clearScheduledDraftSync();
+  return enqueueDraftSync(session, submit);
+}
+
+function clearScheduledDraftSync() {
+  if (pendingDraftSyncTimerId) {
+    clearTimeout(pendingDraftSyncTimerId);
+    pendingDraftSyncTimerId = undefined;
+  }
+
+  pendingDraftSyncSession = undefined;
+}
+
+function flushScheduledDraftSync() {
+  pendingDraftSyncTimerId = undefined;
+
+  const session = pendingDraftSyncSession;
+  pendingDraftSyncSession = undefined;
+
+  if (!session) {
+    return;
+  }
+
+  enqueueDraftSync(session, false)
+    .catch((_error) => {
+    })
+    .then(() => {
+      if (pendingDraftSyncSession) {
+        pendingDraftSyncTimerId = setTimeout(flushScheduledDraftSync, DRAFT_SYNC_DEBOUNCE_MS);
+      }
+    });
+}
+
+function enqueueDraftSync(session, submit) {
+  const sync = draftSyncQueue.then(() => syncZedDraft(session, submit));
+  draftSyncQueue = sync.catch((_error) => {
+  });
+  return sync;
 }
 
 async function getZedTheme() {

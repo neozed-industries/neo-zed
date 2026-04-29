@@ -1549,17 +1549,13 @@ impl AgentPanel {
                     None,
                     None,
                     None,
-                    Some(AgentInitialContent::BrowserAnnotation(
-                        annotations[0].clone(),
-                    )),
+                    Some(AgentInitialContent::BrowserAnnotations(annotations.clone())),
                     true,
                     "agent_panel",
                     window,
                     cx,
                 );
-                self.active_thread_view(cx).context(
-                    "browser annotation target disappeared before annotations could be synced",
-                )?
+                return Ok(());
             }
         };
         let message_editor = active_thread.read(cx).message_editor.clone();
@@ -6254,6 +6250,42 @@ mod tests {
             content,
             "Browser annotation\nURL: https://example.com/article\nTitle: Example article\nSelected text: Selected page text\nSelector: main article p:nth-child(2)\nComment: Please review this claim."
         );
+    }
+
+    #[gpui::test]
+    async fn test_browser_annotation_sync_creates_draft_thread_with_all_annotations(
+        cx: &mut TestAppContext,
+    ) {
+        let (panel, mut cx) = setup_panel(cx).await;
+
+        crate::test_support::set_stub_agent_connection(StubAgentConnection::new());
+        panel.update(&mut cx, |panel, _cx| {
+            panel.selected_agent = Agent::Stub;
+        });
+
+        panel.update_in(&mut cx, |panel, window, cx| {
+            panel
+                .sync_browser_annotations_to_active_thread(
+                    vec![
+                        browser_annotation_with_url("https://example.com/one"),
+                        browser_annotation_with_url("https://example.com/two"),
+                    ],
+                    window,
+                    cx,
+                )
+                .expect("annotations should be synced into a new draft thread");
+        });
+        cx.run_until_parked();
+
+        panel.read_with(&cx, |panel, cx| {
+            let thread_id = panel
+                .active_thread_id(cx)
+                .expect("annotations should create an active draft thread");
+            assert_eq!(
+                panel.editor_text(thread_id, cx).as_deref(),
+                Some("[@https://example.com/one](https://example.com/one) [@https://example.com/two](https://example.com/two)")
+            );
+        });
     }
 
     #[gpui::test]

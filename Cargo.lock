@@ -2152,8 +2152,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "browser_annotation_protocol",
- "dirs",
  "net",
+ "paths",
  "serde",
  "serde_json",
 ]

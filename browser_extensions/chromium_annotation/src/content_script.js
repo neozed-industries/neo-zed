@@ -6,6 +6,7 @@
   let toastElement;
   let focusPollIntervalId;
   let focusPollInFlight = false;
+  let positioningListenersRegistered = false;
   let theme;
   const markers = new Map();
 
@@ -174,11 +175,14 @@
   }
 
   function renderExistingComments(comments) {
+    const existingCommentIds = new Set();
+
     for (const comment of comments || []) {
       if (!comment || !comment.id) {
         continue;
       }
 
+      existingCommentIds.add(comment.id);
       const marker = markers.get(comment.id);
       if (marker) {
         marker.comment = comment;
@@ -192,6 +196,14 @@
         showCommentMarker(comment, element, false);
       }
     }
+
+    for (const commentId of Array.from(markers.keys())) {
+      if (!existingCommentIds.has(commentId)) {
+        removeCommentMarker(commentId);
+      }
+    }
+
+    updateMarkerLifecycle();
   }
 
   function showCommentMarker(comment, element, focusComment) {
@@ -227,9 +239,7 @@
 
     renderCommentBadge(marker, focusComment);
     positionCommentBadgeOnNextFrame(marker);
-    startFocusPolling();
-    window.addEventListener("scroll", positionAllBadges, true);
-    window.addEventListener("resize", positionAllBadges, true);
+    updateMarkerLifecycle();
   }
 
   function renderCommentBadge(marker, focusComment) {
@@ -367,9 +377,7 @@
     }
 
     if (markers.size === 0) {
-      stopFocusPolling();
-      window.removeEventListener("scroll", positionAllBadges, true);
-      window.removeEventListener("resize", positionAllBadges, true);
+      updateMarkerLifecycle();
     }
   }
 
@@ -406,6 +414,37 @@
     window.clearInterval(focusPollIntervalId);
     focusPollIntervalId = undefined;
     focusPollInFlight = false;
+  }
+
+  function updateMarkerLifecycle() {
+    if (markers.size === 0) {
+      stopFocusPolling();
+      unregisterPositioningListeners();
+      return;
+    }
+
+    startFocusPolling();
+    registerPositioningListeners();
+  }
+
+  function registerPositioningListeners() {
+    if (positioningListenersRegistered) {
+      return;
+    }
+
+    window.addEventListener("scroll", positionAllBadges, true);
+    window.addEventListener("resize", positionAllBadges, true);
+    positioningListenersRegistered = true;
+  }
+
+  function unregisterPositioningListeners() {
+    if (!positioningListenersRegistered) {
+      return;
+    }
+
+    window.removeEventListener("scroll", positionAllBadges, true);
+    window.removeEventListener("resize", positionAllBadges, true);
+    positioningListenersRegistered = false;
   }
 
   function pollFocusRequest() {

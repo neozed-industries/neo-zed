@@ -19,7 +19,7 @@ path = "src/main.rs"
 [dependencies]
 anyhow.workspace = true
 browser_annotation_protocol.workspace = true
-dirs.workspace = true
 net.workspace = true
+paths.workspace = true
 serde.workspace = true
 serde_json.workspace = true

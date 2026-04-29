@@ -17,7 +17,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
         mpsc as std_mpsc,
     },
     thread,
@@ -43,6 +43,7 @@ const FOREGROUND_RESPONSE_TIMEOUT: Duration = Duration::from_secs(10);
 const IPC_CONNECTION_TIMEOUT: Duration = Duration::from_secs(10);
 const FOCUS_FALLBACK_DELAY: Duration = Duration::from_secs(2);
 const FOCUS_REQUEST_TTL: Duration = Duration::from_secs(30);
+const MAX_ACTIVE_IPC_CONNECTIONS: usize = 32;
 
 #[derive(Clone)]
 struct ForegroundBrowserAnnotationTarget {
@@ -476,6 +477,32 @@ fn configure_connection_timeouts(stream: &UnixStream) -> Result<()> {
     Ok(())
 }
 
+struct ActiveIpcConnection {
+    active_connections: Arc<AtomicUsize>,
+}
+
+impl ActiveIpcConnection {
+    fn acquire(active_connections: &Arc<AtomicUsize>, limit: usize) -> Option<Self> {
+        active_connections
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
+                (current < limit).then_some(current + 1)
+            })
+            .ok()?;
+
+        Some(Self {
+            active_connections: active_connections.clone(),
+        })
+    }
+}
+
+impl Drop for ActiveIpcConnection {
+    fn drop(&mut self) {
+        if self.active_connections.fetch_sub(1, Ordering::AcqRel) == 0 {
+            log::warn!("browser annotation IPC active connection count underflowed");
+        }
+    }
+}
+
 #[cfg(unix)]
 fn run_server(
     listener: UnixListener,
@@ -484,6 +511,7 @@ fn run_server(
     focus_requests: Arc<Mutex<VecDeque<QueuedBrowserAnnotationFocus>>>,
     shutdown: Arc<AtomicBool>,
 ) {
+    let active_connections = Arc::new(AtomicUsize::new(0));
     while !shutdown.load(Ordering::SeqCst) {
         match listener.accept() {
             Ok((stream, _)) => {
@@ -495,12 +523,23 @@ fn run_server(
                     log::warn!("failed to configure browser annotation IPC connection: {error:#}");
                 }
 
+                let Some(active_connection) =
+                    ActiveIpcConnection::acquire(&active_connections, MAX_ACTIVE_IPC_CONNECTIONS)
+                else {
+                    log::warn!(
+                        "browser annotation IPC connection limit reached; dropping connection"
+                    );
+                    drop(stream);
+                    continue;
+                };
+
                 let token = metadata.token.clone();
                 let target = target.clone();
                 let focus_requests = focus_requests.clone();
                 if let Err(error) = thread::Builder::new()
                     .name("browser-annotation-ipc-connection".to_string())
                     .spawn(move || {
+                        let _active_connection = active_connection;
                         let mut stream = stream;
                         if let Err(error) = serve_connection(
                             &mut stream,
@@ -868,7 +907,11 @@ mod tests {
     use serde_json::json;
     use std::{
         io::Cursor,
-        sync::{Mutex, mpsc as std_mpsc},
+        sync::{
+            Mutex,
+            atomic::{AtomicUsize, Ordering},
+            mpsc as std_mpsc,
+        },
         thread,
         time::{Duration, SystemTime, UNIX_EPOCH},
     };
@@ -1431,5 +1474,26 @@ mod tests {
 
         drop(stalled_stream);
         drop(server);
+    }
+
+    #[test]
+    fn active_ipc_connection_limit_releases_capacity_on_drop() {
+        let active_connections = Arc::new(AtomicUsize::new(0));
+        let first_connection =
+            ActiveIpcConnection::acquire(&active_connections, 2).expect("first connection");
+        let second_connection =
+            ActiveIpcConnection::acquire(&active_connections, 2).expect("second connection");
+
+        assert!(ActiveIpcConnection::acquire(&active_connections, 2).is_none());
+
+        drop(first_connection);
+        let replacement_connection =
+            ActiveIpcConnection::acquire(&active_connections, 2).expect("replacement connection");
+
+        assert!(ActiveIpcConnection::acquire(&active_connections, 2).is_none());
+
+        drop(second_connection);
+        drop(replacement_connection);
+        assert_eq!(active_connections.load(Ordering::Acquire), 0);
     }
 }

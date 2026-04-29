@@ -176,32 +176,7 @@ fn pairing_state_file() -> PathBuf {
 }
 
 fn default_pairing_state_file() -> PathBuf {
-    state_dir().join(PAIRING_STATE_FILE_NAME)
-}
-
-// This mirrors paths::state_dir() in the Zed workspace. If the state directory logic
-// changes there, it must be updated here too, or the host binary will read a pairing
-// file from a different location than the IPC server wrote it.
-fn state_dir() -> PathBuf {
-    if cfg!(target_os = "macos") {
-        return dirs::home_dir()
-            .unwrap_or_else(std::env::temp_dir)
-            .join(".local")
-            .join("state")
-            .join("Zed");
-    }
-
-    if cfg!(any(target_os = "linux", target_os = "freebsd")) {
-        return std::env::var_os("FLATPAK_XDG_STATE_HOME")
-            .map(PathBuf::from)
-            .or_else(dirs::state_dir)
-            .unwrap_or_else(std::env::temp_dir)
-            .join("zed");
-    }
-
-    dirs::data_local_dir()
-        .unwrap_or_else(std::env::temp_dir)
-        .join("Zed")
+    paths::state_dir().join(PAIRING_STATE_FILE_NAME)
 }
 
 fn zed_ipc_connection_from_env() -> Result<Option<ZedIpcConnection>> {
