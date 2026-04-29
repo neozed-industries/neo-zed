@@ -18,7 +18,7 @@ This is a production-oriented Manifest V3 Chromium extension scaffold for sendin
    /tmp/zed_browser_annotation_extension
    ```
 
-5. Open an `http` or `https` page, click the extension action, select page text or use **Pick Element**, add a comment, and click **Send to Zed**.
+5. Open an `http` or `https` page, click the extension action, select page text or use **Pick Element**, add a comment, and click **Send to Zed**. Zed opens the draft for review before the agent receives it.
 
 Do not load a `.crx`, `.pem`, or the parent `browser_extensions` directory during local development. The prepare step copies only the manifest and runtime `src/` files into `/tmp/zed_browser_annotation_extension`, validates manifest references, and clears macOS quarantine/removable extended attributes from that prepared directory. To prepare a different directory, run `npm run prepare:unpacked -- --output /path/to/directory`.
 

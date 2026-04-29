@@ -83,7 +83,7 @@
 
     session = { ...session, comments: [] };
     renderSession();
-    setStatus(`Sent ${response.result.sent} comments to Zed.`, "success");
+    setStatus(`Sent ${response.result.sent} comments to Zed for review.`, "success");
   }
 
   function renderSession() {

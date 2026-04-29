@@ -21,24 +21,28 @@ use std::{
         mpsc as std_mpsc,
     },
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 use uuid::Uuid;
 use workspace::AppState;
 
 #[cfg(unix)]
-use std::os::unix::net::UnixListener;
+use std::os::unix::{
+    fs::{OpenOptionsExt as _, PermissionsExt as _},
+    net::{UnixListener, UnixStream},
+};
 use theme::ActiveTheme as _;
 
 trait BrowserAnnotationIpcTarget: Send + Sync {
     fn insert_annotation(&self, annotation: agent_ui::BrowserAnnotation) -> Result<()>;
-    fn sync_annotations(
-        &self,
-        annotations: Vec<agent_ui::BrowserAnnotation>,
-        submit: bool,
-    ) -> Result<()>;
+    fn sync_annotations(&self, annotations: Vec<agent_ui::BrowserAnnotation>) -> Result<()>;
     fn theme(&self) -> Result<serde_json::Value>;
 }
+
+const FOREGROUND_RESPONSE_TIMEOUT: Duration = Duration::from_secs(10);
+const IPC_CONNECTION_TIMEOUT: Duration = Duration::from_secs(10);
+const FOCUS_FALLBACK_DELAY: Duration = Duration::from_secs(2);
+const FOCUS_REQUEST_TTL: Duration = Duration::from_secs(30);
 
 #[derive(Clone)]
 struct ForegroundBrowserAnnotationTarget {
@@ -48,7 +52,6 @@ struct ForegroundBrowserAnnotationTarget {
 enum ForegroundBrowserAnnotationRequest {
     Sync {
         annotations: Vec<agent_ui::BrowserAnnotation>,
-        submit: bool,
         response_tx: std_mpsc::Sender<Result<()>>,
     },
     Theme {
@@ -62,31 +65,25 @@ impl BrowserAnnotationIpcTarget for ForegroundBrowserAnnotationTarget {
         self.tx
             .unbounded_send(ForegroundBrowserAnnotationRequest::Sync {
                 annotations: vec![annotation],
-                submit: false,
                 response_tx,
             })
             .context("browser annotation foreground target is not running")?;
         response_rx
-            .recv()
-            .context("browser annotation foreground target stopped")?
+            .recv_timeout(FOREGROUND_RESPONSE_TIMEOUT)
+            .context("browser annotation foreground target stopped or timed out")?
     }
 
-    fn sync_annotations(
-        &self,
-        annotations: Vec<agent_ui::BrowserAnnotation>,
-        submit: bool,
-    ) -> Result<()> {
+    fn sync_annotations(&self, annotations: Vec<agent_ui::BrowserAnnotation>) -> Result<()> {
         let (response_tx, response_rx) = std_mpsc::channel();
         self.tx
             .unbounded_send(ForegroundBrowserAnnotationRequest::Sync {
                 annotations,
-                submit,
                 response_tx,
             })
             .context("browser annotation foreground target is not running")?;
         response_rx
-            .recv()
-            .context("browser annotation foreground target stopped")?
+            .recv_timeout(FOREGROUND_RESPONSE_TIMEOUT)
+            .context("browser annotation foreground target stopped or timed out")?
     }
 
     fn theme(&self) -> Result<serde_json::Value> {
@@ -95,8 +92,8 @@ impl BrowserAnnotationIpcTarget for ForegroundBrowserAnnotationTarget {
             .unbounded_send(ForegroundBrowserAnnotationRequest::Theme { response_tx })
             .context("browser annotation foreground target is not running")?;
         response_rx
-            .recv()
-            .context("browser annotation foreground target stopped")?
+            .recv_timeout(FOREGROUND_RESPONSE_TIMEOUT)
+            .context("browser annotation foreground target stopped or timed out")?
     }
 }
 
@@ -119,11 +116,9 @@ pub fn init(app_state: Arc<AppState>, cx: &mut App) {
             match request {
                 ForegroundBrowserAnnotationRequest::Sync {
                     annotations,
-                    submit,
                     response_tx,
                 } => {
-                    let result =
-                        sync_browser_annotations(annotations, submit, app_state.clone(), cx).await;
+                    let result = sync_browser_annotations(annotations, app_state.clone(), cx).await;
                     if response_tx.send(result).is_err() {
                         log::warn!(
                             "browser annotation IPC client dropped before receiving response"
@@ -152,7 +147,19 @@ pub fn init(app_state: Arc<AppState>, cx: &mut App) {
             cx.set_global(BrowserAnnotationIpcServerGlobal(server));
             agent_ui::set_browser_annotation_focus_handler(cx, |focus, cx| {
                 if let Some(server) = cx.try_global::<BrowserAnnotationIpcServerGlobal>() {
+                    let focus_id = focus.id.clone();
+                    let fallback_url = focus.fallback_url.clone();
+                    let focus_requests = server.0.focus_requests.clone();
                     server.0.enqueue_focus_request(focus);
+                    if let Some(fallback_url) = fallback_url {
+                        cx.spawn(async move |cx| {
+                            cx.background_executor().timer(FOCUS_FALLBACK_DELAY).await;
+                            if is_focus_request_pending(&focus_requests, &focus_id) {
+                                cx.update(|cx| cx.open_url(&fallback_url));
+                            }
+                        })
+                        .detach();
+                    }
                 }
             });
         }
@@ -178,7 +185,6 @@ pub fn handle_pairing_deep_link(token: Option<&str>, cx: &App) -> Result<()> {
 
 async fn sync_browser_annotations(
     annotations: Vec<agent_ui::BrowserAnnotation>,
-    submit: bool,
     app_state: Arc<AppState>,
     cx: &mut AsyncApp,
 ) -> Result<()> {
@@ -189,7 +195,7 @@ async fn sync_browser_annotations(
             .panel::<AgentPanel>(cx)
             .context("No active detached agent panel is available")?;
         panel.update(cx, |panel, cx| {
-            panel.sync_browser_annotations_to_active_thread(annotations, submit, window, cx)
+            panel.sync_browser_annotations_to_active_thread(annotations, window, cx)
         })
     })?
 }
@@ -248,9 +254,15 @@ impl Global for BrowserAnnotationIpcServerGlobal {}
 struct BrowserAnnotationIpcServer {
     metadata: BrowserAnnotationPairingMetadata,
     metadata_path: PathBuf,
-    focus_requests: Arc<Mutex<VecDeque<BrowserAnnotationFocus>>>,
+    focus_requests: Arc<Mutex<VecDeque<QueuedBrowserAnnotationFocus>>>,
     shutdown: Arc<AtomicBool>,
     thread: Option<thread::JoinHandle<()>>,
+}
+
+#[derive(Clone, Debug)]
+struct QueuedBrowserAnnotationFocus {
+    focus: BrowserAnnotationFocus,
+    queued_at: Instant,
 }
 
 impl BrowserAnnotationIpcServer {
@@ -269,8 +281,12 @@ impl BrowserAnnotationIpcServer {
 
     fn enqueue_focus_request(&self, focus: BrowserAnnotationFocus) {
         let mut focus_requests = lock_focus_requests(&self.focus_requests);
-        focus_requests.retain(|request| request.id != focus.id);
-        focus_requests.push_back(focus);
+        prune_expired_focus_requests(&mut focus_requests);
+        focus_requests.retain(|request| request.focus.id != focus.id);
+        focus_requests.push_back(QueuedBrowserAnnotationFocus {
+            focus,
+            queued_at: Instant::now(),
+        });
         while focus_requests.len() > 32 {
             focus_requests.pop_front();
         }
@@ -352,12 +368,15 @@ impl Drop for BrowserAnnotationIpcServer {
                 self.metadata.socket_path.display()
             );
         }
+
+        #[cfg(unix)]
+        remove_socket_directory(&self.metadata.socket_path);
     }
 }
 
 fn lock_focus_requests(
-    focus_requests: &Arc<Mutex<VecDeque<BrowserAnnotationFocus>>>,
-) -> std::sync::MutexGuard<'_, VecDeque<BrowserAnnotationFocus>> {
+    focus_requests: &Arc<Mutex<VecDeque<QueuedBrowserAnnotationFocus>>>,
+) -> std::sync::MutexGuard<'_, VecDeque<QueuedBrowserAnnotationFocus>> {
     match focus_requests.lock() {
         Ok(focus_requests) => focus_requests,
         Err(error) => {
@@ -367,8 +386,30 @@ fn lock_focus_requests(
     }
 }
 
+fn prune_expired_focus_requests(focus_requests: &mut VecDeque<QueuedBrowserAnnotationFocus>) {
+    let now = Instant::now();
+    focus_requests.retain(|request| now.duration_since(request.queued_at) <= FOCUS_REQUEST_TTL);
+}
+
+fn is_focus_request_pending(
+    focus_requests: &Arc<Mutex<VecDeque<QueuedBrowserAnnotationFocus>>>,
+    focus_id: &str,
+) -> bool {
+    let mut focus_requests = lock_focus_requests(focus_requests);
+    prune_expired_focus_requests(&mut focus_requests);
+    focus_requests
+        .iter()
+        .any(|request| request.focus.id == focus_id)
+}
+
 #[cfg(unix)]
 fn bind_listener(socket_path: &Path) -> Result<UnixListener> {
+    if let Some(parent) = socket_path.parent()
+        && is_generated_socket_directory(parent)
+    {
+        create_private_directory(parent)?;
+    }
+
     if socket_path.exists() {
         fs::remove_file(socket_path).with_context(|| {
             format!(
@@ -378,12 +419,61 @@ fn bind_listener(socket_path: &Path) -> Result<UnixListener> {
         })?;
     }
 
-    UnixListener::bind(socket_path).with_context(|| {
+    let listener = UnixListener::bind(socket_path).with_context(|| {
         format!(
             "binding browser annotation IPC socket {}",
             socket_path.display()
         )
-    })
+    })?;
+
+    fs::set_permissions(socket_path, fs::Permissions::from_mode(0o600)).with_context(|| {
+        format!(
+            "setting browser annotation IPC socket permissions on {}",
+            socket_path.display()
+        )
+    })?;
+
+    Ok(listener)
+}
+
+#[cfg(unix)]
+fn create_private_directory(path: &Path) -> Result<()> {
+    fs::create_dir_all(path).with_context(|| {
+        format!(
+            "creating browser annotation IPC directory {}",
+            path.display()
+        )
+    })?;
+
+    let metadata = fs::symlink_metadata(path).with_context(|| {
+        format!(
+            "reading browser annotation IPC directory metadata {}",
+            path.display()
+        )
+    })?;
+    anyhow::ensure!(
+        metadata.file_type().is_dir(),
+        "browser annotation IPC path is not a directory: {}",
+        path.display()
+    );
+    fs::set_permissions(path, fs::Permissions::from_mode(0o700)).with_context(|| {
+        format!(
+            "setting browser annotation IPC directory permissions on {}",
+            path.display()
+        )
+    })?;
+    Ok(())
+}
+
+#[cfg(unix)]
+fn configure_connection_timeouts(stream: &UnixStream) -> Result<()> {
+    stream
+        .set_read_timeout(Some(IPC_CONNECTION_TIMEOUT))
+        .context("setting browser annotation IPC read timeout")?;
+    stream
+        .set_write_timeout(Some(IPC_CONNECTION_TIMEOUT))
+        .context("setting browser annotation IPC write timeout")?;
+    Ok(())
 }
 
 #[cfg(unix)]
@@ -391,23 +481,38 @@ fn run_server(
     listener: UnixListener,
     metadata: BrowserAnnotationPairingMetadata,
     target: ForegroundBrowserAnnotationTarget,
-    focus_requests: Arc<Mutex<VecDeque<BrowserAnnotationFocus>>>,
+    focus_requests: Arc<Mutex<VecDeque<QueuedBrowserAnnotationFocus>>>,
     shutdown: Arc<AtomicBool>,
 ) {
     while !shutdown.load(Ordering::SeqCst) {
         match listener.accept() {
-            Ok((mut stream, _)) => {
+            Ok((stream, _)) => {
                 if shutdown.load(Ordering::SeqCst) {
                     break;
                 }
 
-                if let Err(error) = serve_connection(
-                    &mut stream,
-                    &metadata.token,
-                    Some(&target),
-                    Some(&focus_requests),
-                ) {
-                    log::warn!("browser annotation IPC connection failed: {error:#}");
+                if let Err(error) = configure_connection_timeouts(&stream) {
+                    log::warn!("failed to configure browser annotation IPC connection: {error:#}");
+                }
+
+                let token = metadata.token.clone();
+                let target = target.clone();
+                let focus_requests = focus_requests.clone();
+                if let Err(error) = thread::Builder::new()
+                    .name("browser-annotation-ipc-connection".to_string())
+                    .spawn(move || {
+                        let mut stream = stream;
+                        if let Err(error) = serve_connection(
+                            &mut stream,
+                            &token,
+                            Some(&target),
+                            Some(&focus_requests),
+                        ) {
+                            log::warn!("browser annotation IPC connection failed: {error:#}");
+                        }
+                    })
+                {
+                    log::warn!("failed to spawn browser annotation IPC connection thread: {error}");
                 }
             }
             Err(error) => {
@@ -423,11 +528,32 @@ fn run_server(
 
 fn short_socket_path() -> PathBuf {
     let suffix = Uuid::new_v4().simple().to_string();
-    PathBuf::from("/tmp").join(format!(
-        "zed-ba-{}-{}.sock",
-        std::process::id(),
-        &suffix[..8]
-    ))
+    std::env::temp_dir()
+        .join(format!("zed-ba-{}-{}", std::process::id(), &suffix[..8]))
+        .join("ipc.sock")
+}
+
+#[cfg(unix)]
+fn remove_socket_directory(socket_path: &Path) {
+    let Some(parent) = socket_path.parent() else {
+        return;
+    };
+    if !is_generated_socket_directory(parent) {
+        return;
+    }
+    if let Err(error) = fs::remove_dir(parent) {
+        log::debug!(
+            "failed to remove browser annotation IPC directory {}: {error}",
+            parent.display()
+        );
+    }
+}
+
+#[cfg(unix)]
+fn is_generated_socket_directory(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.starts_with("zed-ba-"))
 }
 
 fn pairing_metadata_path() -> PathBuf {
@@ -447,12 +573,62 @@ fn write_pairing_metadata(
         })?;
     }
 
-    fs::write(metadata_path, serde_json::to_vec(metadata)?).with_context(|| {
+    if fs::symlink_metadata(metadata_path)
+        .map(|metadata| metadata.file_type().is_symlink())
+        .unwrap_or(false)
+    {
+        anyhow::bail!(
+            "refusing to write browser annotation pairing metadata through symlink {}",
+            metadata_path.display()
+        );
+    }
+
+    let mut file = metadata_file_options()
+        .open(metadata_path)
+        .with_context(|| {
+            format!(
+                "opening browser annotation pairing metadata {}",
+                metadata_path.display()
+            )
+        })?;
+    file.write_all(&serde_json::to_vec(metadata)?)
+        .with_context(|| {
+            format!(
+                "writing browser annotation pairing metadata {}",
+                metadata_path.display()
+            )
+        })?;
+    file.flush().with_context(|| {
         format!(
-            "writing browser annotation pairing metadata {}",
+            "flushing browser annotation pairing metadata {}",
             metadata_path.display()
         )
     })?;
+    set_metadata_file_permissions(metadata_path)?;
+    Ok(())
+}
+
+fn metadata_file_options() -> fs::OpenOptions {
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    options.mode(0o600);
+    options
+}
+
+#[cfg(unix)]
+fn set_metadata_file_permissions(metadata_path: &Path) -> Result<()> {
+    fs::set_permissions(metadata_path, fs::Permissions::from_mode(0o600)).with_context(|| {
+        format!(
+            "setting browser annotation pairing metadata permissions on {}",
+            metadata_path.display()
+        )
+    })?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn set_metadata_file_permissions(_metadata_path: &Path) -> Result<()> {
     Ok(())
 }
 
@@ -474,7 +650,7 @@ fn serve_connection(
     stream: &mut (impl Read + Write),
     token: &str,
     target: Option<&dyn BrowserAnnotationIpcTarget>,
-    focus_requests: Option<&Arc<Mutex<VecDeque<BrowserAnnotationFocus>>>>,
+    focus_requests: Option<&Arc<Mutex<VecDeque<QueuedBrowserAnnotationFocus>>>>,
 ) -> Result<()> {
     while let Some(message) = read_framed_message(stream)? {
         let response = handle_message_with_target(&message, token, target, focus_requests);
@@ -493,7 +669,7 @@ fn handle_message_with_target(
     message: &[u8],
     token: &str,
     target: Option<&dyn BrowserAnnotationIpcTarget>,
-    focus_requests: Option<&Arc<Mutex<VecDeque<BrowserAnnotationFocus>>>>,
+    focus_requests: Option<&Arc<Mutex<VecDeque<QueuedBrowserAnnotationFocus>>>>,
 ) -> JsonRpcResponse {
     match parse_authenticated_request(message) {
         Ok((request, request_token)) => {
@@ -508,7 +684,7 @@ fn handle_request(
     request_token: Option<String>,
     token: &str,
     target: Option<&dyn BrowserAnnotationIpcTarget>,
-    focus_requests: Option<&Arc<Mutex<VecDeque<BrowserAnnotationFocus>>>>,
+    focus_requests: Option<&Arc<Mutex<VecDeque<QueuedBrowserAnnotationFocus>>>>,
 ) -> JsonRpcResponse {
     if request.jsonrpc != "2.0" {
         return JsonRpcResponse::error(request.id, INVALID_REQUEST, "Invalid JSON-RPC version");
@@ -558,10 +734,21 @@ fn handle_theme_request(
 
 fn handle_poll_focus_request(
     request: JsonRpcRequest,
-    focus_requests: Option<&Arc<Mutex<VecDeque<BrowserAnnotationFocus>>>>,
+    focus_requests: Option<&Arc<Mutex<VecDeque<QueuedBrowserAnnotationFocus>>>>,
 ) -> JsonRpcResponse {
-    let focus_request = focus_requests
-        .and_then(|focus_requests| lock_focus_requests(focus_requests).front().cloned());
+    let page_url = request.params.get("url").and_then(|url| url.as_str());
+    let focus_request = focus_requests.and_then(|focus_requests| {
+        let mut focus_requests = lock_focus_requests(focus_requests);
+        prune_expired_focus_requests(&mut focus_requests);
+        focus_requests
+            .iter()
+            .find(|request| {
+                page_url
+                    .map(|page_url| browser_annotation_urls_match(&request.focus.url, page_url))
+                    .unwrap_or(true)
+            })
+            .map(|request| request.focus.clone())
+    });
 
     JsonRpcResponse::success(
         request.id,
@@ -578,7 +765,7 @@ fn handle_poll_focus_request(
 
 fn handle_ack_focus_request(
     request: JsonRpcRequest,
-    focus_requests: Option<&Arc<Mutex<VecDeque<BrowserAnnotationFocus>>>>,
+    focus_requests: Option<&Arc<Mutex<VecDeque<QueuedBrowserAnnotationFocus>>>>,
 ) -> JsonRpcResponse {
     let id = request.id;
     let Some(focus_id) = request.params.get("id").and_then(|id| id.as_str()) else {
@@ -587,10 +774,23 @@ fn handle_ack_focus_request(
 
     if let Some(focus_requests) = focus_requests {
         let mut focus_requests = lock_focus_requests(focus_requests);
-        focus_requests.retain(|request| request.id != focus_id);
+        focus_requests.retain(|request| request.focus.id != focus_id);
     }
 
     JsonRpcResponse::success(id, json!({ "ok": true }))
+}
+
+fn browser_annotation_urls_match(annotation_url: &str, page_url: &str) -> bool {
+    annotation_url == page_url
+        || strip_url_fragment(annotation_url)
+            .zip(strip_url_fragment(page_url))
+            .is_some_and(|(annotation_url, page_url)| annotation_url == page_url)
+}
+
+fn strip_url_fragment(value: &str) -> Option<String> {
+    let mut url = url::Url::parse(value).ok()?;
+    url.set_fragment(None);
+    Some(url.to_string())
 }
 
 fn handle_sync_annotations(
@@ -622,7 +822,12 @@ fn handle_sync_annotations(
         .into_iter()
         .map(to_agent_ui_browser_annotation)
         .collect();
-    match target.sync_annotations(annotations, sync.submit) {
+    if sync.submit {
+        log::warn!(
+            "browser annotation IPC submit flag ignored; annotations require Zed-side review"
+        );
+    }
+    match target.sync_annotations(annotations) {
         Ok(()) => JsonRpcResponse::success(id, json!({ "ok": true })),
         Err(error) => JsonRpcResponse::error(id, ZED_AGENT_PANEL_UNAVAILABLE, error.to_string()),
     }
@@ -671,7 +876,6 @@ mod tests {
     #[derive(Default)]
     struct FakeBrowserAnnotationTarget {
         annotations: Mutex<Vec<agent_ui::BrowserAnnotation>>,
-        submitted: Mutex<bool>,
     }
 
     impl BrowserAnnotationIpcTarget for FakeBrowserAnnotationTarget {
@@ -683,13 +887,8 @@ mod tests {
             Ok(())
         }
 
-        fn sync_annotations(
-            &self,
-            annotations: Vec<agent_ui::BrowserAnnotation>,
-            submit: bool,
-        ) -> Result<()> {
+        fn sync_annotations(&self, annotations: Vec<agent_ui::BrowserAnnotation>) -> Result<()> {
             *self.annotations.lock().expect("annotations lock") = annotations;
-            *self.submitted.lock().expect("submitted lock") = submit;
             Ok(())
         }
 
@@ -856,7 +1055,7 @@ mod tests {
     }
 
     #[test]
-    fn sync_annotations_uses_target_and_submit_flag() {
+    fn sync_annotations_uses_target_and_ignores_submit_flag() {
         let target = FakeBrowserAnnotationTarget::default();
         let response = handle_message_with_target(
             &authenticated_request(
@@ -882,7 +1081,84 @@ mod tests {
         let annotations = target.annotations.lock().expect("annotations lock");
         assert_eq!(annotations.len(), 1);
         assert_eq!(annotations[0].id.as_deref(), Some("comment-1"));
-        assert!(*target.submitted.lock().expect("submitted lock"));
+    }
+
+    #[test]
+    fn poll_focus_returns_matching_page_request_and_ack_removes_it() {
+        let focus_requests = Arc::new(Mutex::new(VecDeque::from([QueuedBrowserAnnotationFocus {
+            focus: BrowserAnnotationFocus {
+                id: "comment-1".to_string(),
+                url: "https://example.com/article#section".to_string(),
+                fallback_url: Some(
+                    "chrome-extension://extension/src/focus.html?tabId=1".to_string(),
+                ),
+            },
+            queued_at: Instant::now(),
+        }])));
+
+        let response = handle_message_with_target(
+            &authenticated_request(
+                "browserAnnotation.pollFocus",
+                json!({ "url": "https://example.com/article" }),
+            ),
+            "secret",
+            None,
+            Some(&focus_requests),
+        );
+
+        assert_eq!(
+            response,
+            JsonRpcResponse::success(
+                Some(json!(1)),
+                json!({
+                    "request": {
+                        "id": "comment-1",
+                        "url": "https://example.com/article#section",
+                    }
+                })
+            )
+        );
+
+        let response = handle_message_with_target(
+            &authenticated_request("browserAnnotation.ackFocus", json!({ "id": "comment-1" })),
+            "secret",
+            None,
+            Some(&focus_requests),
+        );
+
+        assert_eq!(
+            response,
+            JsonRpcResponse::success(Some(json!(1)), json!({ "ok": true }))
+        );
+        assert!(focus_requests.lock().expect("focus requests").is_empty());
+    }
+
+    #[test]
+    fn poll_focus_ignores_non_matching_page_request() {
+        let focus_requests = Arc::new(Mutex::new(VecDeque::from([QueuedBrowserAnnotationFocus {
+            focus: BrowserAnnotationFocus {
+                id: "comment-1".to_string(),
+                url: "https://example.com/article".to_string(),
+                fallback_url: None,
+            },
+            queued_at: Instant::now(),
+        }])));
+
+        let response = handle_message_with_target(
+            &authenticated_request(
+                "browserAnnotation.pollFocus",
+                json!({ "url": "https://example.test/other" }),
+            ),
+            "secret",
+            None,
+            Some(&focus_requests),
+        );
+
+        assert_eq!(
+            response,
+            JsonRpcResponse::success(Some(json!(1)), json!({ "request": null }))
+        );
+        assert_eq!(focus_requests.lock().expect("focus requests").len(), 1);
     }
 
     #[test]
@@ -957,7 +1233,66 @@ mod tests {
             "socket path was too long: {}",
             socket_path.display()
         );
-        assert!(socket_path.starts_with("/tmp"));
+        assert!(socket_path.starts_with(std::env::temp_dir()));
+        assert_eq!(
+            socket_path.file_name().and_then(|name| name.to_str()),
+            Some("ipc.sock")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn generated_socket_and_metadata_use_private_permissions() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let socket_path = short_socket_path();
+        let socket_parent = socket_path.parent().expect("socket parent").to_path_buf();
+        let socket_id = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos();
+        let metadata_path = PathBuf::from("/tmp").join(format!(
+            "zed-ba-permissions-{}-{socket_id}.json",
+            std::process::id(),
+        ));
+        let (foreground_tx, _foreground_rx) = mpsc::unbounded();
+        let server = BrowserAnnotationIpcServer::start_with_paths(
+            socket_path.clone(),
+            metadata_path.clone(),
+            "secret".to_string(),
+            ForegroundBrowserAnnotationTarget { tx: foreground_tx },
+        )
+        .expect("start server");
+
+        assert_eq!(
+            fs::metadata(&socket_parent)
+                .expect("socket directory metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
+        assert_eq!(
+            fs::metadata(&socket_path)
+                .expect("socket metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+        assert_eq!(
+            fs::metadata(&metadata_path)
+                .expect("pairing metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+
+        drop(server);
+        assert!(!metadata_path.exists());
+        assert!(!socket_path.exists());
+        assert!(!socket_parent.exists());
     }
 
     #[cfg(unix)]
@@ -1044,6 +1379,57 @@ mod tests {
             response,
             JsonRpcResponse::success(Some(json!(1)), json!({ "ok": true }))
         );
+        drop(server);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stalled_unix_socket_client_does_not_block_other_clients() {
+        let socket_id = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos();
+        let socket_path = PathBuf::from("/tmp").join(format!(
+            "zed-ba-concurrent-{}-{socket_id}.sock",
+            std::process::id(),
+        ));
+        let metadata_path = PathBuf::from("/tmp").join(format!(
+            "zed-ba-concurrent-{}-{socket_id}.json",
+            std::process::id(),
+        ));
+        let (foreground_tx, _foreground_rx) = mpsc::unbounded();
+        let server = BrowserAnnotationIpcServer::start_with_paths(
+            socket_path.clone(),
+            metadata_path,
+            "secret".to_string(),
+            ForegroundBrowserAnnotationTarget { tx: foreground_tx },
+        )
+        .expect("start server");
+
+        let stalled_stream =
+            std::os::unix::net::UnixStream::connect(&socket_path).expect("connect stalled client");
+        let mut responsive_stream = std::os::unix::net::UnixStream::connect(&socket_path)
+            .expect("connect responsive client");
+        responsive_stream
+            .set_read_timeout(Some(Duration::from_secs(1)))
+            .expect("set client timeout");
+
+        write_framed_message(
+            &mut responsive_stream,
+            &authenticated_request("browserAnnotation.ping", json!({})),
+        )
+        .expect("write request");
+        let response = read_framed_message(&mut responsive_stream)
+            .expect("read response")
+            .expect("response");
+        let response: JsonRpcResponse = serde_json::from_slice(&response).expect("parse response");
+
+        assert_eq!(
+            response,
+            JsonRpcResponse::success(Some(json!(1)), json!({ "ok": true }))
+        );
+
+        drop(stalled_stream);
         drop(server);
     }
 }

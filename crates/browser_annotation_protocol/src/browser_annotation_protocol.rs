@@ -1,4 +1,4 @@
-use anyhow::{Context as _, Result, anyhow};
+use anyhow::{Context as _, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
@@ -125,27 +125,21 @@ pub fn parse_pairing_metadata(message: &[u8]) -> Result<BrowserAnnotationPairing
 }
 
 pub fn read_framed_message(reader: &mut impl Read) -> Result<Option<Vec<u8>>> {
-    let mut length_bytes = [0; 4];
-    let mut bytes_read = 0;
-    while bytes_read < length_bytes.len() {
-        let count = reader
-            .read(&mut length_bytes[bytes_read..])
-            .context("reading browser annotation message length")?;
-        if count == 0 {
-            return if bytes_read == 0 {
-                Ok(None)
-            } else {
-                Err(anyhow!(
-                    "unexpected EOF while reading browser annotation message length"
-                ))
-            };
-        }
-        bytes_read += count;
+    let mut length_bytes = [0u8; 4];
+    match reader
+        .read(&mut length_bytes[..1])
+        .context("reading browser annotation message length")?
+    {
+        0 => return Ok(None),
+        _ => {}
     }
+    reader
+        .read_exact(&mut length_bytes[1..])
+        .context("unexpected EOF while reading browser annotation message length")?;
 
     let length = u32::from_le_bytes(length_bytes) as usize;
     if length > MAX_MESSAGE_SIZE {
-        return Err(anyhow!("browser annotation message exceeds maximum size"));
+        anyhow::bail!("browser annotation message exceeds maximum size");
     }
 
     let mut message = vec![0; length];

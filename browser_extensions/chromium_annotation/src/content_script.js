@@ -414,7 +414,7 @@
     }
 
     focusPollInFlight = true;
-    chrome.runtime.sendMessage({ type: "POLL_FOCUS_REQUEST" }, (response) => {
+    chrome.runtime.sendMessage({ type: "POLL_FOCUS_REQUEST", url: window.location.href }, (response) => {
       focusPollInFlight = false;
       if (chrome.runtime.lastError || !response || !response.ok || !response.request) {
         return;
@@ -422,6 +422,11 @@
 
       const marker = markers.get(response.request.id);
       if (!marker) {
+        chrome.runtime.sendMessage({
+          type: "ACK_FOCUS_REQUEST",
+          comment_id: response.request.id,
+          focus_tab: false,
+        });
         return;
       }
 

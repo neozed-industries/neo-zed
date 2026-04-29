@@ -48,6 +48,9 @@ where
     R: Read,
     W: Write,
 {
+    // The two branches are identical except for the Option argument. A unified loop using
+    // as_deref_mut() fails borrow-check because reborrowing &mut dyn Trait through Option
+    // in a loop ties the inner lifetime to the outer scope, not the loop body.
     match zed_ipc_client {
         Some(zed_ipc_client) => {
             while let Some(message) = read_native_message(reader)? {
@@ -176,6 +179,9 @@ fn default_pairing_state_file() -> PathBuf {
     state_dir().join(PAIRING_STATE_FILE_NAME)
 }
 
+// This mirrors paths::state_dir() in the Zed workspace. If the state directory logic
+// changes there, it must be updated here too, or the host binary will read a pairing
+// file from a different location than the IPC server wrote it.
 fn state_dir() -> PathBuf {
     if cfg!(target_os = "macos") {
         return dirs::home_dir()
@@ -245,9 +251,7 @@ fn handle_request_with_connection(
         | "browserAnnotation.sync"
         | "browserAnnotation.pollFocus"
         | "browserAnnotation.ackFocus"
-        | "browserAnnotation.theme" => {
-            handle_insert_annotation_with_connection(request, zed_ipc_connection)
-        }
+        | "browserAnnotation.theme" => forward_to_zed_ipc_connection(request, zed_ipc_connection),
         _ => JsonRpcResponse::error(
             request.id,
             METHOD_NOT_FOUND,
@@ -270,9 +274,7 @@ fn handle_request_with_client(
         | "browserAnnotation.sync"
         | "browserAnnotation.pollFocus"
         | "browserAnnotation.ackFocus"
-        | "browserAnnotation.theme" => {
-            handle_insert_annotation_with_client(request, zed_ipc_client)
-        }
+        | "browserAnnotation.theme" => forward_to_zed_ipc_client(request, zed_ipc_client),
         _ => JsonRpcResponse::error(
             request.id,
             METHOD_NOT_FOUND,
@@ -281,7 +283,7 @@ fn handle_request_with_client(
     }
 }
 
-fn handle_insert_annotation_with_connection(
+fn forward_to_zed_ipc_connection(
     request: JsonRpcRequest,
     zed_ipc_connection: Option<&ZedIpcConnection>,
 ) -> JsonRpcResponse {
@@ -327,7 +329,7 @@ fn handle_insert_annotation_with_connection(
     }
 }
 
-fn handle_insert_annotation_with_client(
+fn forward_to_zed_ipc_client(
     request: JsonRpcRequest,
     zed_ipc_client: Option<&mut dyn ZedIpcClient>,
 ) -> JsonRpcResponse {

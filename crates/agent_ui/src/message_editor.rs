@@ -730,6 +730,11 @@ impl MessageEditor {
 
         let tooltip = build_browser_annotation_tooltip(annotation);
         let open_url = annotation.url.clone().into();
+        let focus_url = annotation
+            .focus_url
+            .as_deref()
+            .filter(|url| !url.trim().is_empty())
+            .map(|url| url.to_string().into());
 
         let content = build_browser_annotation_content(annotation);
 
@@ -770,6 +775,7 @@ impl MessageEditor {
             Some(self.workspace.clone()),
             Some(open_url),
             annotation.id.clone().map(Into::into),
+            focus_url,
             None,
             self.editor.clone(),
             window,

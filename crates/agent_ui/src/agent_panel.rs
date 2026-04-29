@@ -1519,7 +1519,6 @@ impl AgentPanel {
     pub fn sync_browser_annotations_to_active_thread(
         &mut self,
         annotations: Vec<BrowserAnnotation>,
-        submit: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Result<()> {
@@ -1569,11 +1568,7 @@ impl AgentPanel {
         });
         active_thread.update(cx, |thread_view, cx| {
             thread_view.show_external_source_prompt_warning = true;
-            if submit {
-                thread_view.send(window, cx);
-            } else {
-                cx.notify();
-            }
+            cx.notify();
         });
 
         Ok(())

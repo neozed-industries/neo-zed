@@ -933,6 +933,7 @@ pub(crate) fn insert_crease_for_mention(
         workspace,
         None,
         None,
+        None,
         image,
         editor,
         window,
@@ -950,6 +951,7 @@ pub(crate) fn insert_crease_for_mention_with_open_url(
     workspace: Option<WeakEntity<Workspace>>,
     open_url: Option<SharedString>,
     browser_annotation_id: Option<SharedString>,
+    browser_annotation_focus_url: Option<SharedString>,
     image: Option<Shared<Task<Result<Arc<Image>, String>>>>,
     editor: Entity<Editor>,
     window: &mut Window,
@@ -974,6 +976,7 @@ pub(crate) fn insert_crease_for_mention_with_open_url(
                 workspace.clone(),
                 open_url.clone(),
                 browser_annotation_id.clone(),
+                browser_annotation_focus_url.clone(),
                 start..end,
                 rx,
                 image,
@@ -1177,6 +1180,7 @@ fn render_mention_fold_button(
     workspace: Option<WeakEntity<Workspace>>,
     open_url: Option<SharedString>,
     browser_annotation_id: Option<SharedString>,
+    browser_annotation_focus_url: Option<SharedString>,
     range: Range<Anchor>,
     mut loading_finished: postage::barrier::Receiver,
     image_task: Option<Shared<Task<Result<Arc<Image>, String>>>>,
@@ -1201,6 +1205,7 @@ fn render_mention_fold_button(
             workspace: workspace.clone(),
             open_url: open_url.clone(),
             browser_annotation_id: browser_annotation_id.clone(),
+            browser_annotation_focus_url: browser_annotation_focus_url.clone(),
             range,
             editor,
             loading: Some(loading),
@@ -1219,6 +1224,7 @@ struct LoadingContext {
     workspace: Option<WeakEntity<Workspace>>,
     open_url: Option<SharedString>,
     browser_annotation_id: Option<SharedString>,
+    browser_annotation_focus_url: Option<SharedString>,
     range: Range<Anchor>,
     editor: WeakEntity<Editor>,
     loading: Option<Task<()>>,
@@ -1239,6 +1245,7 @@ impl Render for LoadingContext {
             .workspace(self.workspace.clone())
             .open_url(self.open_url.clone())
             .browser_annotation_id(self.browser_annotation_id.clone())
+            .browser_annotation_focus_url(self.browser_annotation_focus_url.clone())
             .is_toggled(is_in_text_selection)
             .is_loading(self.loading.is_some())
             .when_some(self.tooltip.clone(), |this, tooltip_text| {

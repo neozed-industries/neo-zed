@@ -60,14 +60,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "POLL_FOCUS_REQUEST") {
-    pollFocusRequest()
+    pollFocusRequest(message.url)
       .then((request) => sendResponse({ ok: true, request }))
       .catch((error) => sendResponse({ ok: false, error: error.message }));
     return true;
   }
 
   if (message.type === "ACK_FOCUS_REQUEST") {
-    ackFocusRequest(message.comment_id, sender.tab)
+    ackFocusRequest(message.comment_id, message.focus_tab === false ? undefined : sender.tab)
       .then((result) => sendResponse({ ok: true, result }))
       .catch((error) => sendResponse({ ok: false, error: error.message }));
     return true;
@@ -204,7 +204,7 @@ async function sendComments() {
     throw new Error("No comments to send.");
   }
 
-  await syncZedDraft({ ...session, comments }, true);
+  await syncZedDraft({ ...session, comments }, false);
 
   const nextSession = { ...session, comments: [] };
   await saveSession(nextSession);
@@ -252,12 +252,17 @@ async function getZedTheme() {
   return theme;
 }
 
-async function pollFocusRequest() {
+async function pollFocusRequest(pageUrl) {
+  const params = {};
+  if (typeof pageUrl === "string") {
+    params.url = pageUrl;
+  }
+
   const response = await chrome.runtime.sendNativeMessage(NATIVE_HOST_NAME, {
     jsonrpc: "2.0",
     id: nextRequestId++,
     method: "browserAnnotation.pollFocus",
-    params: {},
+    params,
   });
 
   if (!response || response.error) {

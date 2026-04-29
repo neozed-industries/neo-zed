@@ -2,10 +2,14 @@
 
 const childProcess = require("node:child_process");
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 
 const extensionRoot = path.resolve(__dirname, "..");
+const browserExtensionsRoot = path.resolve(extensionRoot, "..");
+const repositoryRoot = path.resolve(browserExtensionsRoot, "..");
 const defaultUnpackedRoot = path.join("/tmp", "zed_browser_annotation_extension");
+const preparedMarkerFile = ".zed-browser-annotation-unpacked";
 const cliArguments = process.argv.slice(2);
 const checkOnly = cliArguments.includes("--check");
 const unpackedRoot = parseOutputPath();
@@ -88,10 +92,65 @@ function validateManifest(manifest) {
 }
 
 function copyExtensionFiles() {
+  validateOutputPath();
+  validateReplaceableOutputDirectory();
   fs.rmSync(unpackedRoot, { recursive: true, force: true });
   fs.mkdirSync(unpackedRoot, { recursive: true });
   fs.copyFileSync(path.join(extensionRoot, "manifest.json"), path.join(unpackedRoot, "manifest.json"));
   fs.cpSync(path.join(extensionRoot, "src"), path.join(unpackedRoot, "src"), { recursive: true });
+  fs.writeFileSync(path.join(unpackedRoot, preparedMarkerFile), "Zed browser annotation unpacked extension\n");
+}
+
+function validateOutputPath() {
+  const resolvedOutput = path.resolve(unpackedRoot);
+  const parsedOutput = path.parse(resolvedOutput);
+  const forbiddenPaths = [
+    parsedOutput.root,
+    path.resolve(os.tmpdir()),
+    extensionRoot,
+    browserExtensionsRoot,
+    repositoryRoot,
+  ];
+
+  for (const forbiddenPath of forbiddenPaths) {
+    if (samePath(resolvedOutput, forbiddenPath) || isAncestorOf(resolvedOutput, forbiddenPath)) {
+      throw new Error(`Refusing to prepare unpacked extension into unsafe directory: ${resolvedOutput}`);
+    }
+  }
+}
+
+function validateReplaceableOutputDirectory() {
+  if (!fs.existsSync(unpackedRoot)) {
+    return;
+  }
+
+  const stat = fs.statSync(unpackedRoot);
+  if (!stat.isDirectory()) {
+    throw new Error(`Refusing to replace non-directory output path: ${unpackedRoot}`);
+  }
+
+  const entries = fs.readdirSync(unpackedRoot);
+  if (entries.length === 0 || entries.includes(preparedMarkerFile)) {
+    return;
+  }
+
+  const knownPreparedEntries = new Set(["manifest.json", "src"]);
+  if (entries.every((entry) => knownPreparedEntries.has(entry))) {
+    return;
+  }
+
+  throw new Error(
+    `Refusing to replace ${unpackedRoot} because it does not look like a prepared extension directory.`,
+  );
+}
+
+function samePath(left, right) {
+  return path.relative(left, right) === "";
+}
+
+function isAncestorOf(candidateAncestor, child) {
+  const relative = path.relative(candidateAncestor, child);
+  return relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative);
 }
 
 function clearMacExtendedAttributes() {

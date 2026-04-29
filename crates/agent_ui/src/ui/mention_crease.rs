@@ -24,6 +24,7 @@ pub struct MentionCrease {
     workspace: Option<WeakEntity<Workspace>>,
     open_url: Option<SharedString>,
     browser_annotation_id: Option<SharedString>,
+    browser_annotation_focus_url: Option<SharedString>,
     is_toggled: bool,
     is_loading: bool,
     tooltip: Option<SharedString>,
@@ -44,6 +45,7 @@ impl MentionCrease {
             workspace: None,
             open_url: None,
             browser_annotation_id: None,
+            browser_annotation_focus_url: None,
             is_toggled: false,
             is_loading: false,
             tooltip: None,
@@ -68,6 +70,14 @@ impl MentionCrease {
 
     pub fn browser_annotation_id(mut self, browser_annotation_id: Option<SharedString>) -> Self {
         self.browser_annotation_id = browser_annotation_id;
+        self
+    }
+
+    pub fn browser_annotation_focus_url(
+        mut self,
+        browser_annotation_focus_url: Option<SharedString>,
+    ) -> Self {
+        self.browser_annotation_focus_url = browser_annotation_focus_url;
         self
     }
 
@@ -105,6 +115,7 @@ impl RenderOnce for MentionCrease {
         let image_preview = self.image_preview;
         let open_url = self.open_url.clone();
         let browser_annotation_id = self.browser_annotation_id.clone();
+        let browser_annotation_focus_url = self.browser_annotation_focus_url.clone();
 
         let button_height = DefiniteLength::Absolute(AbsoluteLength::Pixels(
             px(window.line_height().into()) - px(1.),
@@ -121,6 +132,9 @@ impl RenderOnce for MentionCrease {
                     focus_browser_tab(
                         open_url.as_ref(),
                         browser_annotation_id.as_ref().map(|id| id.as_ref()),
+                        browser_annotation_focus_url
+                            .as_ref()
+                            .map(|url| url.as_ref()),
                         cx,
                     );
                 })
@@ -175,12 +189,18 @@ impl RenderOnce for MentionCrease {
     }
 }
 
-fn focus_browser_tab(url: &str, browser_annotation_id: Option<&str>, cx: &mut App) {
+fn focus_browser_tab(
+    url: &str,
+    browser_annotation_id: Option<&str>,
+    browser_annotation_focus_url: Option<&str>,
+    cx: &mut App,
+) {
     if let Some(browser_annotation_id) = browser_annotation_id
         && request_browser_annotation_focus(
             BrowserAnnotationFocus {
                 id: browser_annotation_id.to_string(),
                 url: url.to_string(),
+                fallback_url: browser_annotation_focus_url.map(str::to_string),
             },
             cx,
         )
@@ -188,7 +208,7 @@ fn focus_browser_tab(url: &str, browser_annotation_id: Option<&str>, cx: &mut Ap
         return;
     }
 
-    cx.open_url(url);
+    cx.open_url(browser_annotation_focus_url.unwrap_or(url));
 }
 
 fn open_mention_uri(

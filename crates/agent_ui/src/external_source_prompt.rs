@@ -20,6 +20,7 @@ pub struct BrowserAnnotation {
 pub struct BrowserAnnotationFocus {
     pub id: String,
     pub url: String,
+    pub fallback_url: Option<String>,
 }
 
 struct BrowserAnnotationFocusHandler(Arc<dyn Fn(BrowserAnnotationFocus, &mut App) + Send + Sync>);
