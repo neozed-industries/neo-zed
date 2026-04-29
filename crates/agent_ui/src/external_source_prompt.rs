@@ -1,13 +1,48 @@
+use std::sync::Arc;
+
+use gpui::{App, Global};
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ExternalSourcePrompt(String);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BrowserAnnotation {
+    pub id: Option<String>,
     pub url: String,
     pub title: Option<String>,
     pub selected_text: Option<String>,
     pub selector: Option<String>,
     pub comment: Option<String>,
+    pub focus_url: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BrowserAnnotationFocus {
+    pub id: String,
+    pub url: String,
+}
+
+struct BrowserAnnotationFocusHandler(Arc<dyn Fn(BrowserAnnotationFocus, &mut App) + Send + Sync>);
+
+impl Global for BrowserAnnotationFocusHandler {}
+
+pub fn set_browser_annotation_focus_handler(
+    cx: &mut App,
+    handler: impl Fn(BrowserAnnotationFocus, &mut App) + Send + Sync + 'static,
+) {
+    cx.set_global(BrowserAnnotationFocusHandler(Arc::new(handler)));
+}
+
+pub(crate) fn request_browser_annotation_focus(
+    focus: BrowserAnnotationFocus,
+    cx: &mut App,
+) -> bool {
+    let Some(handler) = cx.try_global::<BrowserAnnotationFocusHandler>() else {
+        return false;
+    };
+    let handler = handler.0.clone();
+    handler(focus, cx);
+    true
 }
 
 impl BrowserAnnotation {
@@ -52,10 +87,7 @@ fn push_field(prompt: &mut String, label: &str, value: Option<&str>) {
         return;
     };
 
-    if !prompt.is_empty() {
-        prompt.push('\n');
-    }
-
+    prompt.push('\n');
     prompt.push_str(label);
     prompt.push_str(": ");
     prompt.push_str(value);
@@ -209,11 +241,13 @@ mod tests {
     #[test]
     fn formats_browser_annotation_as_external_prompt() {
         let annotation = BrowserAnnotation {
+            id: Some("comment-1".into()),
             url: "https://example.com/article".into(),
             title: Some("Example article".into()),
             selected_text: Some("Selected page text".into()),
             selector: Some("main article p:nth-child(2)".into()),
             comment: Some("Please review this claim.".into()),
+            focus_url: Some("chrome-extension://extension/src/focus.html?tabId=1".into()),
         };
 
         let prompt = annotation.to_external_source_prompt();
@@ -229,11 +263,13 @@ mod tests {
     #[test]
     fn browser_annotation_omits_empty_optional_fields() {
         let annotation = BrowserAnnotation {
+            id: None,
             url: "https://example.com".into(),
             title: Some(" ".into()),
             selected_text: None,
             selector: None,
             comment: Some("\t".into()),
+            focus_url: None,
         };
 
         let prompt = annotation.to_external_source_prompt();
@@ -247,11 +283,13 @@ mod tests {
     #[test]
     fn browser_annotation_requires_url() {
         let annotation = BrowserAnnotation {
+            id: None,
             url: " ".into(),
             title: Some("Example".into()),
             selected_text: Some("Selected text".into()),
             selector: Some("main".into()),
             comment: Some("Comment".into()),
+            focus_url: None,
         };
 
         assert_eq!(annotation.to_external_source_prompt(), None);

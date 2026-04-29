@@ -9,31 +9,27 @@
   <body>
     <main>
       <header>
-        <h1>Zed Annotation</h1>
-        <button id="ping" type="button">Check Host</button>
+        <div>
+          <h1>Zed Comments</h1>
+          <p id="page-title">Current tab</p>
+        </div>
       </header>
 
-      <dl>
-        <div>
-          <dt>Page</dt>
-          <dd id="page-title">Current tab</dd>
-        </div>
-        <div>
-          <dt>Selector</dt>
-          <dd id="selector">None selected</dd>
-        </div>
-      </dl>
-
-      <label for="selected-text">Selected text</label>
-      <textarea id="selected-text" rows="5" placeholder="Optional page text"></textarea>
-
-      <label for="comment">Comment</label>
-      <textarea id="comment" rows="4" placeholder="What should Zed review?"></textarea>
-
-      <section class="actions">
-        <button id="pick" type="button">Pick Element</button>
-        <button id="send" type="button">Send to Zed</button>
+      <section class="toggle-row">
+        <strong>Comment mode</strong>
+        <button id="comment-mode" class="switch" type="button" role="switch" aria-checked="false">
+          <span></span>
+        </button>
       </section>
+
+      <section class="summary">
+        <span id="comment-count">0 comments</span>
+        <button id="clear" type="button">Clear all</button>
+      </section>
+
+      <section id="comments" class="comments" aria-live="polite"></section>
+
+      <button id="send" class="primary" type="button">Send all to Zed</button>
 
       <p id="status" role="status" aria-live="polite"></p>
     </main>

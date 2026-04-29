@@ -1,20 +1,22 @@
-use agent_ui::AgentPanel;
+use agent_ui::{AgentPanel, BrowserAnnotationFocus};
 use anyhow::{Context as _, Result};
 use browser_annotation_protocol::{
     BROWSER_ANNOTATION_NOT_PAIRED, BrowserAnnotation, BrowserAnnotationPairingMetadata,
     INVALID_PARAMS, INVALID_REQUEST, JsonRpcRequest, JsonRpcResponse, METHOD_NOT_FOUND,
     PAIRING_STATE_FILE_NAME, PARSE_ERROR, ZED_AGENT_PANEL_UNAVAILABLE, parse_authenticated_request,
-    parse_browser_annotation, parse_pairing_metadata, read_framed_message, write_framed_message,
+    parse_browser_annotation, parse_browser_annotation_sync, parse_pairing_metadata,
+    read_framed_message, write_framed_message,
 };
 use futures::{StreamExt as _, channel::mpsc};
-use gpui::{App, AsyncApp, Global};
+use gpui::{App, AsyncApp, Global, Rgba};
 use serde_json::json;
 use std::{
+    collections::VecDeque,
     fs,
     io::{Read, Write},
     path::{Path, PathBuf},
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicBool, Ordering},
         mpsc as std_mpsc,
     },
@@ -26,9 +28,16 @@ use workspace::AppState;
 
 #[cfg(unix)]
 use std::os::unix::net::UnixListener;
+use theme::ActiveTheme as _;
 
-trait BrowserAnnotationTarget: Send + Sync {
+trait BrowserAnnotationIpcTarget: Send + Sync {
     fn insert_annotation(&self, annotation: agent_ui::BrowserAnnotation) -> Result<()>;
+    fn sync_annotations(
+        &self,
+        annotations: Vec<agent_ui::BrowserAnnotation>,
+        submit: bool,
+    ) -> Result<()>;
+    fn theme(&self) -> Result<serde_json::Value>;
 }
 
 #[derive(Clone)]
@@ -36,19 +45,54 @@ struct ForegroundBrowserAnnotationTarget {
     tx: mpsc::UnboundedSender<ForegroundBrowserAnnotationRequest>,
 }
 
-struct ForegroundBrowserAnnotationRequest {
-    annotation: agent_ui::BrowserAnnotation,
-    response_tx: std_mpsc::Sender<Result<()>>,
+enum ForegroundBrowserAnnotationRequest {
+    Sync {
+        annotations: Vec<agent_ui::BrowserAnnotation>,
+        submit: bool,
+        response_tx: std_mpsc::Sender<Result<()>>,
+    },
+    Theme {
+        response_tx: std_mpsc::Sender<Result<serde_json::Value>>,
+    },
 }
 
-impl BrowserAnnotationTarget for ForegroundBrowserAnnotationTarget {
+impl BrowserAnnotationIpcTarget for ForegroundBrowserAnnotationTarget {
     fn insert_annotation(&self, annotation: agent_ui::BrowserAnnotation) -> Result<()> {
         let (response_tx, response_rx) = std_mpsc::channel();
         self.tx
-            .unbounded_send(ForegroundBrowserAnnotationRequest {
-                annotation,
+            .unbounded_send(ForegroundBrowserAnnotationRequest::Sync {
+                annotations: vec![annotation],
+                submit: false,
                 response_tx,
             })
+            .context("browser annotation foreground target is not running")?;
+        response_rx
+            .recv()
+            .context("browser annotation foreground target stopped")?
+    }
+
+    fn sync_annotations(
+        &self,
+        annotations: Vec<agent_ui::BrowserAnnotation>,
+        submit: bool,
+    ) -> Result<()> {
+        let (response_tx, response_rx) = std_mpsc::channel();
+        self.tx
+            .unbounded_send(ForegroundBrowserAnnotationRequest::Sync {
+                annotations,
+                submit,
+                response_tx,
+            })
+            .context("browser annotation foreground target is not running")?;
+        response_rx
+            .recv()
+            .context("browser annotation foreground target stopped")?
+    }
+
+    fn theme(&self) -> Result<serde_json::Value> {
+        let (response_tx, response_rx) = std_mpsc::channel();
+        self.tx
+            .unbounded_send(ForegroundBrowserAnnotationRequest::Theme { response_tx })
             .context("browser annotation foreground target is not running")?;
         response_rx
             .recv()
@@ -58,11 +102,13 @@ impl BrowserAnnotationTarget for ForegroundBrowserAnnotationTarget {
 
 fn to_agent_ui_browser_annotation(annotation: BrowserAnnotation) -> agent_ui::BrowserAnnotation {
     agent_ui::BrowserAnnotation {
+        id: annotation.id,
         url: annotation.url,
         title: annotation.title,
         selected_text: annotation.selected_text,
         selector: annotation.selector,
         comment: annotation.comment,
+        focus_url: annotation.focus_url,
     }
 }
 
@@ -70,9 +116,28 @@ pub fn init(app_state: Arc<AppState>, cx: &mut App) {
     let (tx, mut rx) = mpsc::unbounded::<ForegroundBrowserAnnotationRequest>();
     cx.spawn(async move |cx| {
         while let Some(request) = rx.next().await {
-            let result = insert_browser_annotation(request.annotation, app_state.clone(), cx).await;
-            if request.response_tx.send(result).is_err() {
-                log::warn!("browser annotation IPC client dropped before receiving response");
+            match request {
+                ForegroundBrowserAnnotationRequest::Sync {
+                    annotations,
+                    submit,
+                    response_tx,
+                } => {
+                    let result =
+                        sync_browser_annotations(annotations, submit, app_state.clone(), cx).await;
+                    if response_tx.send(result).is_err() {
+                        log::warn!(
+                            "browser annotation IPC client dropped before receiving response"
+                        );
+                    }
+                }
+                ForegroundBrowserAnnotationRequest::Theme { response_tx } => {
+                    let result = Ok(cx.update(browser_annotation_theme));
+                    if response_tx.send(result).is_err() {
+                        log::warn!(
+                            "browser annotation IPC client dropped before receiving theme response"
+                        );
+                    }
+                }
             }
         }
     })
@@ -85,6 +150,11 @@ pub fn init(app_state: Arc<AppState>, cx: &mut App) {
                 server.metadata().socket_path.display()
             );
             cx.set_global(BrowserAnnotationIpcServerGlobal(server));
+            agent_ui::set_browser_annotation_focus_handler(cx, |focus, cx| {
+                if let Some(server) = cx.try_global::<BrowserAnnotationIpcServerGlobal>() {
+                    server.0.enqueue_focus_request(focus);
+                }
+            });
         }
         Err(error) => {
             log::error!("failed to start browser annotation IPC server: {error:#}");
@@ -106,24 +176,69 @@ pub fn handle_pairing_deep_link(token: Option<&str>, cx: &App) -> Result<()> {
     Ok(())
 }
 
-async fn insert_browser_annotation(
-    annotation: agent_ui::BrowserAnnotation,
+async fn sync_browser_annotations(
+    annotations: Vec<agent_ui::BrowserAnnotation>,
+    submit: bool,
     app_state: Arc<AppState>,
     cx: &mut AsyncApp,
 ) -> Result<()> {
     let multi_workspace = workspace::get_any_active_multi_workspace(app_state, cx.clone()).await?;
 
-    cx.update(|cx| cx.activate(true));
     multi_workspace.update(cx, |multi_workspace, window, cx| {
-        multi_workspace.workspace().update(cx, |workspace, cx| {
-            let panel = workspace
-                .focus_panel::<AgentPanel>(window, cx)
-                .context("No active detached agent panel is available")?;
-            panel.update(cx, |panel, cx| {
-                panel.append_browser_annotation_to_active_thread(annotation, window, cx)
-            })
+        let panel = multi_workspace
+            .panel::<AgentPanel>(cx)
+            .context("No active detached agent panel is available")?;
+        panel.update(cx, |panel, cx| {
+            panel.sync_browser_annotations_to_active_thread(annotations, submit, window, cx)
         })
     })?
+}
+
+fn browser_annotation_theme(cx: &mut App) -> serde_json::Value {
+    let theme = cx.theme();
+    let colors = theme.colors();
+    let status = theme.status();
+
+    json!({
+        "appearance": if theme.appearance().is_light() { "light" } else { "dark" },
+        "colors": {
+            "background": css_color(colors.background),
+            "panel_background": css_color(colors.panel_background),
+            "elevated_surface_background": css_color(colors.elevated_surface_background),
+            "editor_background": css_color(colors.editor_background),
+            "element_background": css_color(colors.element_background),
+            "element_hover": css_color(colors.element_hover),
+            "element_active": css_color(colors.element_active),
+            "element_selected": css_color(colors.element_selected),
+            "border": css_color(colors.border),
+            "border_variant": css_color(colors.border_variant),
+            "border_focused": css_color(colors.border_focused),
+            "text": css_color(colors.text),
+            "text_muted": css_color(colors.text_muted),
+            "text_disabled": css_color(colors.text_disabled),
+            "text_accent": css_color(colors.text_accent),
+            "icon": css_color(colors.icon),
+            "icon_muted": css_color(colors.icon_muted),
+            "success": css_color(status.success),
+            "error": css_color(status.error),
+            "warning": css_color(status.warning),
+        },
+    })
+}
+
+fn css_color(color: gpui::Hsla) -> String {
+    let color: Rgba = color.into();
+    format!(
+        "rgba({}, {}, {}, {:.3})",
+        css_color_component(color.r),
+        css_color_component(color.g),
+        css_color_component(color.b),
+        color.a.clamp(0.0, 1.0)
+    )
+}
+
+fn css_color_component(component: f32) -> u8 {
+    (component.clamp(0.0, 1.0) * 255.0).round() as u8
 }
 
 struct BrowserAnnotationIpcServerGlobal(BrowserAnnotationIpcServer);
@@ -133,6 +248,7 @@ impl Global for BrowserAnnotationIpcServerGlobal {}
 struct BrowserAnnotationIpcServer {
     metadata: BrowserAnnotationPairingMetadata,
     metadata_path: PathBuf,
+    focus_requests: Arc<Mutex<VecDeque<BrowserAnnotationFocus>>>,
     shutdown: Arc<AtomicBool>,
     thread: Option<thread::JoinHandle<()>>,
 }
@@ -151,6 +267,15 @@ impl BrowserAnnotationIpcServer {
         &self.metadata
     }
 
+    fn enqueue_focus_request(&self, focus: BrowserAnnotationFocus) {
+        let mut focus_requests = lock_focus_requests(&self.focus_requests);
+        focus_requests.retain(|request| request.id != focus.id);
+        focus_requests.push_back(focus);
+        while focus_requests.len() > 32 {
+            focus_requests.pop_front();
+        }
+    }
+
     #[cfg(unix)]
     fn start_with_paths(
         socket_path: PathBuf,
@@ -159,26 +284,32 @@ impl BrowserAnnotationIpcServer {
         target: ForegroundBrowserAnnotationTarget,
     ) -> Result<Self> {
         let listener = bind_listener(&socket_path)?;
-        listener
-            .set_nonblocking(true)
-            .context("setting browser annotation IPC listener nonblocking")?;
 
         let metadata = BrowserAnnotationPairingMetadata { socket_path, token };
         write_pairing_metadata(&metadata_path, &metadata)?;
 
         let shutdown = Arc::new(AtomicBool::new(false));
+        let focus_requests = Arc::new(Mutex::new(VecDeque::new()));
         let thread_shutdown = shutdown.clone();
         let thread_metadata = metadata.clone();
+        let thread_focus_requests = focus_requests.clone();
         let thread = thread::Builder::new()
             .name("browser-annotation-ipc".to_string())
             .spawn(move || {
-                run_server(listener, thread_metadata, target, thread_shutdown);
+                run_server(
+                    listener,
+                    thread_metadata,
+                    target,
+                    thread_focus_requests,
+                    thread_shutdown,
+                );
             })
             .context("spawning browser annotation IPC server thread")?;
 
         Ok(Self {
             metadata,
             metadata_path,
+            focus_requests,
             shutdown,
             thread: Some(thread),
         })
@@ -224,6 +355,18 @@ impl Drop for BrowserAnnotationIpcServer {
     }
 }
 
+fn lock_focus_requests(
+    focus_requests: &Arc<Mutex<VecDeque<BrowserAnnotationFocus>>>,
+) -> std::sync::MutexGuard<'_, VecDeque<BrowserAnnotationFocus>> {
+    match focus_requests.lock() {
+        Ok(focus_requests) => focus_requests,
+        Err(error) => {
+            log::warn!("browser annotation focus requests lock was poisoned; recovering");
+            error.into_inner()
+        }
+    }
+}
+
 #[cfg(unix)]
 fn bind_listener(socket_path: &Path) -> Result<UnixListener> {
     if socket_path.exists() {
@@ -248,19 +391,29 @@ fn run_server(
     listener: UnixListener,
     metadata: BrowserAnnotationPairingMetadata,
     target: ForegroundBrowserAnnotationTarget,
+    focus_requests: Arc<Mutex<VecDeque<BrowserAnnotationFocus>>>,
     shutdown: Arc<AtomicBool>,
 ) {
     while !shutdown.load(Ordering::SeqCst) {
         match listener.accept() {
             Ok((mut stream, _)) => {
-                if let Err(error) = serve_connection(&mut stream, &metadata.token, Some(&target)) {
+                if shutdown.load(Ordering::SeqCst) {
+                    break;
+                }
+
+                if let Err(error) = serve_connection(
+                    &mut stream,
+                    &metadata.token,
+                    Some(&target),
+                    Some(&focus_requests),
+                ) {
                     log::warn!("browser annotation IPC connection failed: {error:#}");
                 }
             }
-            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                thread::sleep(Duration::from_millis(50));
-            }
             Err(error) => {
+                if shutdown.load(Ordering::SeqCst) {
+                    break;
+                }
                 log::warn!("browser annotation IPC accept failed: {error}");
                 thread::sleep(Duration::from_millis(200));
             }
@@ -320,10 +473,11 @@ fn remove_pairing_metadata(metadata_path: &Path, metadata: &BrowserAnnotationPai
 fn serve_connection(
     stream: &mut (impl Read + Write),
     token: &str,
-    target: Option<&dyn BrowserAnnotationTarget>,
+    target: Option<&dyn BrowserAnnotationIpcTarget>,
+    focus_requests: Option<&Arc<Mutex<VecDeque<BrowserAnnotationFocus>>>>,
 ) -> Result<()> {
     while let Some(message) = read_framed_message(stream)? {
-        let response = handle_message_with_target(&message, token, target);
+        let response = handle_message_with_target(&message, token, target, focus_requests);
         write_framed_message(stream, &serde_json::to_vec(&response)?)?;
     }
 
@@ -332,16 +486,19 @@ fn serve_connection(
 
 #[cfg(test)]
 fn handle_message(message: &[u8], token: &str) -> JsonRpcResponse {
-    handle_message_with_target(message, token, None)
+    handle_message_with_target(message, token, None, None)
 }
 
 fn handle_message_with_target(
     message: &[u8],
     token: &str,
-    target: Option<&dyn BrowserAnnotationTarget>,
+    target: Option<&dyn BrowserAnnotationIpcTarget>,
+    focus_requests: Option<&Arc<Mutex<VecDeque<BrowserAnnotationFocus>>>>,
 ) -> JsonRpcResponse {
     match parse_authenticated_request(message) {
-        Ok((request, request_token)) => handle_request(request, request_token, token, target),
+        Ok((request, request_token)) => {
+            handle_request(request, request_token, token, target, focus_requests)
+        }
         Err(error) => JsonRpcResponse::error(None, PARSE_ERROR, format!("Parse error: {error}")),
     }
 }
@@ -350,7 +507,8 @@ fn handle_request(
     request: JsonRpcRequest,
     request_token: Option<String>,
     token: &str,
-    target: Option<&dyn BrowserAnnotationTarget>,
+    target: Option<&dyn BrowserAnnotationIpcTarget>,
+    focus_requests: Option<&Arc<Mutex<VecDeque<BrowserAnnotationFocus>>>>,
 ) -> JsonRpcResponse {
     if request.jsonrpc != "2.0" {
         return JsonRpcResponse::error(request.id, INVALID_REQUEST, "Invalid JSON-RPC version");
@@ -366,7 +524,11 @@ fn handle_request(
 
     match request.method.as_str() {
         "browserAnnotation.ping" => JsonRpcResponse::success(request.id, json!({ "ok": true })),
+        "browserAnnotation.theme" => handle_theme_request(request, target),
+        "browserAnnotation.pollFocus" => handle_poll_focus_request(request, focus_requests),
+        "browserAnnotation.ackFocus" => handle_ack_focus_request(request, focus_requests),
         "browserAnnotation.insert" => handle_insert_annotation(request, target),
+        "browserAnnotation.sync" => handle_sync_annotations(request, target),
         _ => JsonRpcResponse::error(
             request.id,
             METHOD_NOT_FOUND,
@@ -375,9 +537,100 @@ fn handle_request(
     }
 }
 
+fn handle_theme_request(
+    request: JsonRpcRequest,
+    target: Option<&dyn BrowserAnnotationIpcTarget>,
+) -> JsonRpcResponse {
+    let id = request.id;
+    let Some(target) = target else {
+        return JsonRpcResponse::error(
+            id,
+            ZED_AGENT_PANEL_UNAVAILABLE,
+            "No active Zed theme is available",
+        );
+    };
+
+    match target.theme() {
+        Ok(theme) => JsonRpcResponse::success(id, json!({ "theme": theme })),
+        Err(error) => JsonRpcResponse::error(id, ZED_AGENT_PANEL_UNAVAILABLE, error.to_string()),
+    }
+}
+
+fn handle_poll_focus_request(
+    request: JsonRpcRequest,
+    focus_requests: Option<&Arc<Mutex<VecDeque<BrowserAnnotationFocus>>>>,
+) -> JsonRpcResponse {
+    let focus_request = focus_requests
+        .and_then(|focus_requests| lock_focus_requests(focus_requests).front().cloned());
+
+    JsonRpcResponse::success(
+        request.id,
+        json!({
+            "request": focus_request.map(|focus| {
+                json!({
+                    "id": focus.id,
+                    "url": focus.url,
+                })
+            })
+        }),
+    )
+}
+
+fn handle_ack_focus_request(
+    request: JsonRpcRequest,
+    focus_requests: Option<&Arc<Mutex<VecDeque<BrowserAnnotationFocus>>>>,
+) -> JsonRpcResponse {
+    let id = request.id;
+    let Some(focus_id) = request.params.get("id").and_then(|id| id.as_str()) else {
+        return JsonRpcResponse::error(id, INVALID_PARAMS, "Focus request id is required");
+    };
+
+    if let Some(focus_requests) = focus_requests {
+        let mut focus_requests = lock_focus_requests(focus_requests);
+        focus_requests.retain(|request| request.id != focus_id);
+    }
+
+    JsonRpcResponse::success(id, json!({ "ok": true }))
+}
+
+fn handle_sync_annotations(
+    request: JsonRpcRequest,
+    target: Option<&dyn BrowserAnnotationIpcTarget>,
+) -> JsonRpcResponse {
+    let id = request.id;
+    let sync = match parse_browser_annotation_sync(request.params) {
+        Ok(sync) => sync,
+        Err(error) => return JsonRpcResponse::error(id, INVALID_PARAMS, error.to_string()),
+    };
+
+    for annotation in &sync.annotations {
+        if annotation.url.trim().is_empty() {
+            return JsonRpcResponse::error(id, INVALID_PARAMS, "Annotation URL is required");
+        }
+    }
+
+    let Some(target) = target else {
+        return JsonRpcResponse::error(
+            id,
+            ZED_AGENT_PANEL_UNAVAILABLE,
+            "No active detached agent panel is available",
+        );
+    };
+
+    let annotations = sync
+        .annotations
+        .into_iter()
+        .map(to_agent_ui_browser_annotation)
+        .collect();
+    match target.sync_annotations(annotations, sync.submit) {
+        Ok(()) => JsonRpcResponse::success(id, json!({ "ok": true })),
+        Err(error) => JsonRpcResponse::error(id, ZED_AGENT_PANEL_UNAVAILABLE, error.to_string()),
+    }
+}
+
 fn handle_insert_annotation(
     request: JsonRpcRequest,
-    target: Option<&dyn BrowserAnnotationTarget>,
+    target: Option<&dyn BrowserAnnotationIpcTarget>,
 ) -> JsonRpcResponse {
     let id = request.id;
     let annotation = match parse_browser_annotation(request.params) {
@@ -418,15 +671,36 @@ mod tests {
     #[derive(Default)]
     struct FakeBrowserAnnotationTarget {
         annotations: Mutex<Vec<agent_ui::BrowserAnnotation>>,
+        submitted: Mutex<bool>,
     }
 
-    impl BrowserAnnotationTarget for FakeBrowserAnnotationTarget {
+    impl BrowserAnnotationIpcTarget for FakeBrowserAnnotationTarget {
         fn insert_annotation(&self, annotation: agent_ui::BrowserAnnotation) -> Result<()> {
             self.annotations
                 .lock()
                 .expect("annotations lock")
                 .push(annotation);
             Ok(())
+        }
+
+        fn sync_annotations(
+            &self,
+            annotations: Vec<agent_ui::BrowserAnnotation>,
+            submit: bool,
+        ) -> Result<()> {
+            *self.annotations.lock().expect("annotations lock") = annotations;
+            *self.submitted.lock().expect("submitted lock") = submit;
+            Ok(())
+        }
+
+        fn theme(&self) -> Result<serde_json::Value> {
+            Ok(json!({
+                "appearance": "dark",
+                "colors": {
+                    "panel_background": "rgba(30, 30, 30, 1.000)",
+                    "text": "rgba(220, 220, 220, 1.000)"
+                }
+            }))
         }
     }
 
@@ -451,6 +725,33 @@ mod tests {
         assert_eq!(
             response,
             JsonRpcResponse::success(Some(json!(1)), json!({ "ok": true }))
+        );
+    }
+
+    #[test]
+    fn theme_request_uses_target() {
+        let target = FakeBrowserAnnotationTarget::default();
+        let response = handle_message_with_target(
+            &authenticated_request("browserAnnotation.theme", json!({})),
+            "secret",
+            Some(&target),
+            None,
+        );
+
+        assert_eq!(
+            response,
+            JsonRpcResponse::success(
+                Some(json!(1)),
+                json!({
+                    "theme": {
+                        "appearance": "dark",
+                        "colors": {
+                            "panel_background": "rgba(30, 30, 30, 1.000)",
+                            "text": "rgba(220, 220, 220, 1.000)"
+                        }
+                    }
+                })
+            )
         );
     }
 
@@ -542,6 +843,7 @@ mod tests {
             ),
             "secret",
             Some(&target),
+            None,
         );
 
         assert_eq!(
@@ -554,20 +856,57 @@ mod tests {
     }
 
     #[test]
+    fn sync_annotations_uses_target_and_submit_flag() {
+        let target = FakeBrowserAnnotationTarget::default();
+        let response = handle_message_with_target(
+            &authenticated_request(
+                "browserAnnotation.sync",
+                json!({
+                    "annotations": [{
+                        "id": "comment-1",
+                        "url": "https://example.com",
+                        "comment": "Review this"
+                    }],
+                    "submit": true
+                }),
+            ),
+            "secret",
+            Some(&target),
+            None,
+        );
+
+        assert_eq!(
+            response,
+            JsonRpcResponse::success(Some(json!(1)), json!({ "ok": true }))
+        );
+        let annotations = target.annotations.lock().expect("annotations lock");
+        assert_eq!(annotations.len(), 1);
+        assert_eq!(annotations[0].id.as_deref(), Some("comment-1"));
+        assert!(*target.submitted.lock().expect("submitted lock"));
+    }
+
+    #[test]
     fn converts_protocol_annotation_to_agent_ui_annotation() {
         let annotation = to_agent_ui_browser_annotation(BrowserAnnotation {
+            id: Some("comment-1".to_string()),
             url: "https://example.com".to_string(),
             title: Some("Example".to_string()),
             selected_text: Some("Selected text".to_string()),
             selector: Some("main".to_string()),
             comment: Some("Review this".to_string()),
+            focus_url: Some("chrome-extension://extension/src/focus.html?tabId=1".to_string()),
         });
 
+        assert_eq!(annotation.id.as_deref(), Some("comment-1"));
         assert_eq!(annotation.url, "https://example.com");
         assert_eq!(annotation.title.as_deref(), Some("Example"));
         assert_eq!(annotation.selected_text.as_deref(), Some("Selected text"));
         assert_eq!(annotation.selector.as_deref(), Some("main"));
         assert_eq!(annotation.comment.as_deref(), Some("Review this"));
+        assert_eq!(
+            annotation.focus_url.as_deref(),
+            Some("chrome-extension://extension/src/focus.html?tabId=1")
+        );
     }
 
     #[test]
@@ -593,7 +932,7 @@ mod tests {
         .expect("write request");
         stream.set_position(0);
 
-        serve_connection(&mut stream, "secret", None).expect("serve connection");
+        serve_connection(&mut stream, "secret", None, None).expect("serve connection");
 
         let output_start =
             (4 + authenticated_request("browserAnnotation.ping", json!({})).len()) as u64;

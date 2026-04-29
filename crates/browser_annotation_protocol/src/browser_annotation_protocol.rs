@@ -54,11 +54,21 @@ pub struct JsonRpcError {
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 pub struct BrowserAnnotation {
+    pub id: Option<String>,
     pub url: String,
     pub title: Option<String>,
     pub selected_text: Option<String>,
     pub selector: Option<String>,
     pub comment: Option<String>,
+    pub focus_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub struct BrowserAnnotationSync {
+    #[serde(default)]
+    pub annotations: Vec<BrowserAnnotation>,
+    #[serde(default)]
+    pub submit: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -83,6 +93,10 @@ pub fn parse_authenticated_request(message: &[u8]) -> Result<(JsonRpcRequest, Op
 
 pub fn parse_browser_annotation(params: Value) -> Result<BrowserAnnotation> {
     serde_json::from_value(params).context("invalid browser annotation params")
+}
+
+pub fn parse_browser_annotation_sync(params: Value) -> Result<BrowserAnnotationSync> {
+    serde_json::from_value(params).context("invalid browser annotation sync params")
 }
 
 pub fn authenticated_request<'a>(
@@ -187,19 +201,39 @@ mod tests {
     #[test]
     fn parses_browser_annotation() {
         let annotation = parse_browser_annotation(json!({
+            "id": "comment-1",
             "url": "https://example.com",
             "title": "Example",
             "selected_text": "Selected text",
             "selector": "main",
-            "comment": "Review this"
+            "comment": "Review this",
+            "focus_url": "chrome-extension://extension/src/focus.html?tabId=1"
         }))
         .expect("parse annotation");
 
+        assert_eq!(annotation.id.as_deref(), Some("comment-1"));
         assert_eq!(annotation.url, "https://example.com");
         assert_eq!(annotation.title.as_deref(), Some("Example"));
         assert_eq!(annotation.selected_text.as_deref(), Some("Selected text"));
         assert_eq!(annotation.selector.as_deref(), Some("main"));
         assert_eq!(annotation.comment.as_deref(), Some("Review this"));
+        assert_eq!(
+            annotation.focus_url.as_deref(),
+            Some("chrome-extension://extension/src/focus.html?tabId=1")
+        );
+    }
+
+    #[test]
+    fn parses_browser_annotation_sync() {
+        let sync = parse_browser_annotation_sync(json!({
+            "annotations": [{ "id": "comment-1", "url": "https://example.com" }],
+            "submit": true
+        }))
+        .expect("parse sync");
+
+        assert_eq!(sync.annotations.len(), 1);
+        assert_eq!(sync.annotations[0].id.as_deref(), Some("comment-1"));
+        assert!(sync.submit);
     }
 
     #[test]

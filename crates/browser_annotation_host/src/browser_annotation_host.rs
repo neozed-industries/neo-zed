@@ -3,7 +3,8 @@ use browser_annotation_protocol::{
     BROWSER_ANNOTATION_NOT_PAIRED, BrowserAnnotationPairingMetadata, INVALID_PARAMS,
     INVALID_REQUEST, JsonRpcRequest, JsonRpcResponse, METHOD_NOT_FOUND, PAIRING_STATE_FILE_NAME,
     PARSE_ERROR, ZED_IPC_NOT_CONNECTED, authenticated_request, parse_browser_annotation,
-    parse_pairing_metadata, parse_request, read_framed_message, write_framed_message,
+    parse_browser_annotation_sync, parse_pairing_metadata, parse_request, read_framed_message,
+    write_framed_message,
 };
 use serde_json::json;
 use std::{
@@ -178,7 +179,7 @@ fn default_pairing_state_file() -> PathBuf {
 fn state_dir() -> PathBuf {
     if cfg!(target_os = "macos") {
         return dirs::home_dir()
-            .expect("failed to determine home directory")
+            .unwrap_or_else(std::env::temp_dir)
             .join(".local")
             .join("state")
             .join("Zed");
@@ -188,12 +189,12 @@ fn state_dir() -> PathBuf {
         return std::env::var_os("FLATPAK_XDG_STATE_HOME")
             .map(PathBuf::from)
             .or_else(dirs::state_dir)
-            .expect("failed to determine XDG_STATE_HOME directory")
+            .unwrap_or_else(std::env::temp_dir)
             .join("zed");
     }
 
     dirs::data_local_dir()
-        .expect("failed to determine LocalAppData directory")
+        .unwrap_or_else(std::env::temp_dir)
         .join("Zed")
 }
 
@@ -240,7 +241,11 @@ fn handle_request_with_connection(
 
     match request.method.as_str() {
         "browserAnnotation.ping" => JsonRpcResponse::success(request.id, json!({ "ok": true })),
-        "browserAnnotation.insert" => {
+        "browserAnnotation.insert"
+        | "browserAnnotation.sync"
+        | "browserAnnotation.pollFocus"
+        | "browserAnnotation.ackFocus"
+        | "browserAnnotation.theme" => {
             handle_insert_annotation_with_connection(request, zed_ipc_connection)
         }
         _ => JsonRpcResponse::error(
@@ -261,7 +266,13 @@ fn handle_request_with_client(
 
     match request.method.as_str() {
         "browserAnnotation.ping" => JsonRpcResponse::success(request.id, json!({ "ok": true })),
-        "browserAnnotation.insert" => handle_insert_annotation_with_client(request, zed_ipc_client),
+        "browserAnnotation.insert"
+        | "browserAnnotation.sync"
+        | "browserAnnotation.pollFocus"
+        | "browserAnnotation.ackFocus"
+        | "browserAnnotation.theme" => {
+            handle_insert_annotation_with_client(request, zed_ipc_client)
+        }
         _ => JsonRpcResponse::error(
             request.id,
             METHOD_NOT_FOUND,
@@ -275,7 +286,9 @@ fn handle_insert_annotation_with_connection(
     zed_ipc_connection: Option<&ZedIpcConnection>,
 ) -> JsonRpcResponse {
     let id = request.id.clone();
-    if let Some(error) = validate_insert_annotation(&request) {
+    if should_validate_annotation_request(&request)
+        && let Some(error) = validate_annotation_params(&request)
+    {
         return error;
     }
 
@@ -319,7 +332,9 @@ fn handle_insert_annotation_with_client(
     zed_ipc_client: Option<&mut dyn ZedIpcClient>,
 ) -> JsonRpcResponse {
     let id = request.id.clone();
-    if let Some(error) = validate_insert_annotation(&request) {
+    if should_validate_annotation_request(&request)
+        && let Some(error) = validate_annotation_params(&request)
+    {
         return error;
     }
 
@@ -341,7 +356,32 @@ fn handle_insert_annotation_with_client(
     }
 }
 
-fn validate_insert_annotation(request: &JsonRpcRequest) -> Option<JsonRpcResponse> {
+fn validate_annotation_params(request: &JsonRpcRequest) -> Option<JsonRpcResponse> {
+    if request.method == "browserAnnotation.sync" {
+        let sync = match parse_browser_annotation_sync(request.params.clone()) {
+            Ok(sync) => sync,
+            Err(error) => {
+                return Some(JsonRpcResponse::error(
+                    request.id.clone(),
+                    INVALID_PARAMS,
+                    error.to_string(),
+                ));
+            }
+        };
+
+        for annotation in sync.annotations {
+            if annotation.url.trim().is_empty() {
+                return Some(JsonRpcResponse::error(
+                    request.id.clone(),
+                    INVALID_PARAMS,
+                    "Annotation URL is required",
+                ));
+            }
+        }
+
+        return None;
+    }
+
     let annotation = match parse_browser_annotation(request.params.clone()) {
         Ok(annotation) => annotation,
         Err(error) => {
@@ -362,6 +402,13 @@ fn validate_insert_annotation(request: &JsonRpcRequest) -> Option<JsonRpcRespons
     }
 
     None
+}
+
+fn should_validate_annotation_request(request: &JsonRpcRequest) -> bool {
+    matches!(
+        request.method.as_str(),
+        "browserAnnotation.insert" | "browserAnnotation.sync"
+    )
 }
 
 pub fn read_native_message(reader: &mut impl Read) -> Result<Option<Vec<u8>>> {
@@ -475,6 +522,48 @@ mod tests {
         assert_eq!(
             zed_ipc_client.method.as_deref(),
             Some("browserAnnotation.insert")
+        );
+    }
+
+    #[test]
+    fn theme_request_forwards_to_zed_ipc() {
+        let mut zed_ipc_client = FakeZedIpcClient {
+            response: JsonRpcResponse::success(
+                Some(json!(2)),
+                json!({
+                    "theme": {
+                        "appearance": "dark",
+                        "colors": {
+                            "panel_background": "rgba(30, 30, 30, 1.000)"
+                        }
+                    }
+                }),
+            ),
+            method: None,
+            token: None,
+        };
+        let response = handle_message_with_client(
+            br#"{"jsonrpc":"2.0","id":2,"method":"browserAnnotation.theme","params":{}}"#,
+            Some(&mut zed_ipc_client),
+        );
+
+        assert_eq!(
+            response,
+            JsonRpcResponse::success(
+                Some(json!(2)),
+                json!({
+                    "theme": {
+                        "appearance": "dark",
+                        "colors": {
+                            "panel_background": "rgba(30, 30, 30, 1.000)"
+                        }
+                    }
+                }),
+            )
+        );
+        assert_eq!(
+            zed_ipc_client.method.as_deref(),
+            Some("browserAnnotation.theme")
         );
     }
 

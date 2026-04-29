@@ -1,105 +1,214 @@
 :root {
-  color-scheme: light dark;
+  color-scheme: var(--zed-browser-annotation-color-scheme, light dark);
+  --zed-browser-annotation-background: #f4f4f5;
+  --zed-browser-annotation-panel-background: #ffffff;
+  --zed-browser-annotation-elevated-surface-background: #ffffff;
+  --zed-browser-annotation-element-background: #f4f4f5;
+  --zed-browser-annotation-element-hover: #ececef;
+  --zed-browser-annotation-element-active: #e5e5e8;
+  --zed-browser-annotation-element-selected: #e8eefc;
+  --zed-browser-annotation-border: #d8d8dc;
+  --zed-browser-annotation-border-variant: #e5e5e8;
+  --zed-browser-annotation-border-focused: #4f7dde;
+  --zed-browser-annotation-text: #1f2023;
+  --zed-browser-annotation-text-muted: #696a70;
+  --zed-browser-annotation-text-disabled: #94959b;
+  --zed-browser-annotation-text-accent: #315fbd;
+  --zed-browser-annotation-success: #2f7d32;
+  --zed-browser-annotation-error: #c4262e;
   font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --zed-browser-annotation-background: #18191b;
+    --zed-browser-annotation-panel-background: #1f2023;
+    --zed-browser-annotation-elevated-surface-background: #25262a;
+    --zed-browser-annotation-element-background: #2a2b30;
+    --zed-browser-annotation-element-hover: #313238;
+    --zed-browser-annotation-element-active: #383a40;
+    --zed-browser-annotation-element-selected: #30394f;
+    --zed-browser-annotation-border: #3a3c42;
+    --zed-browser-annotation-border-variant: #303238;
+    --zed-browser-annotation-border-focused: #6b8ff0;
+    --zed-browser-annotation-text: #e4e4e7;
+    --zed-browser-annotation-text-muted: #a0a1a7;
+    --zed-browser-annotation-text-disabled: #707178;
+    --zed-browser-annotation-text-accent: #8ba8ff;
+    --zed-browser-annotation-success: #66a866;
+    --zed-browser-annotation-error: #f06a70;
+  }
 }
 
 body {
   width: 360px;
   margin: 0;
-  background: Canvas;
-  color: CanvasText;
+  background: var(--zed-browser-annotation-panel-background);
+  color: var(--zed-browser-annotation-text);
+  font-size: 12px;
 }
 
 main {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 14px;
+  gap: 10px;
+  padding: 10px;
 }
 
 header,
-.actions {
+.summary,
+.toggle-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 10px;
+}
+
+h1,
+p {
+  margin: 0;
 }
 
 h1 {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 650;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+#page-title {
+  max-width: 260px;
+  overflow: hidden;
+  color: var(--zed-browser-annotation-text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 button {
-  min-height: 32px;
-  border: 1px solid ButtonBorder;
-  border-radius: 6px;
-  padding: 6px 10px;
-  background: ButtonFace;
-  color: ButtonText;
+  min-height: 26px;
+  border: 1px solid var(--zed-browser-annotation-border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  background: var(--zed-browser-annotation-element-background);
+  color: var(--zed-browser-annotation-text);
   font: inherit;
+  line-height: 1;
   cursor: pointer;
 }
 
+button:hover:not(:disabled) {
+  background: var(--zed-browser-annotation-element-hover);
+}
+
+button:active:not(:disabled) {
+  background: var(--zed-browser-annotation-element-active);
+}
+
 button:disabled {
+  color: var(--zed-browser-annotation-text-disabled);
   cursor: default;
-  opacity: 0.65;
 }
 
-#send {
-  background: #1a73e8;
-  border-color: #1a73e8;
-  color: #ffffff;
+.primary {
+  font-weight: 500;
 }
 
-dl {
-  display: grid;
-  gap: 8px;
-  margin: 0;
+.toggle-row {
+  border-block: 1px solid var(--zed-browser-annotation-border-variant);
+  padding: 8px 0;
 }
 
-dl > div {
-  display: grid;
-  gap: 2px;
-}
-
-dt,
-label {
+.toggle-row strong {
   font-size: 12px;
-  font-weight: 650;
+  font-weight: 500;
 }
 
-dd {
-  margin: 0;
+.switch {
+  position: relative;
+  flex: 0 0 auto;
+  width: 30px;
+  min-height: 18px;
+  border-color: var(--zed-browser-annotation-border);
+  border-radius: 999px;
+  padding: 0;
+  background: var(--zed-browser-annotation-element-background);
+}
+
+.switch span {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border: 1px solid var(--zed-browser-annotation-border);
+  border-radius: 999px;
+  background: var(--zed-browser-annotation-panel-background);
+  transition: transform 120ms ease;
+}
+
+.switch[aria-checked="true"] {
+  border-color: var(--zed-browser-annotation-border-focused);
+  background: var(--zed-browser-annotation-element-selected);
+}
+
+.switch[aria-checked="true"] span {
+  transform: translateX(12px);
+}
+
+.summary {
+  color: var(--zed-browser-annotation-text-muted);
+}
+
+.comments {
+  display: grid;
+  max-height: 260px;
+  overflow: auto;
+}
+
+.comment {
+  display: grid;
+  gap: 6px;
+  border-top: 1px solid var(--zed-browser-annotation-border-variant);
+  padding: 8px 0;
+}
+
+.comment:first-child {
+  border-top: 0;
+}
+
+.comment-text {
   overflow-wrap: anywhere;
-  color: color-mix(in srgb, CanvasText 72%, Canvas 28%);
+  color: var(--zed-browser-annotation-text);
   font-size: 12px;
+  line-height: 1.4;
 }
 
-textarea {
-  box-sizing: border-box;
-  width: 100%;
-  resize: vertical;
-  border: 1px solid ButtonBorder;
-  border-radius: 6px;
-  padding: 8px;
-  background: Canvas;
-  color: CanvasText;
-  font: inherit;
+.comment-target,
+.empty {
+  color: var(--zed-browser-annotation-text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.comment button {
+  justify-self: end;
+  min-height: 24px;
+  padding: 3px 7px;
 }
 
 #status {
-  min-height: 18px;
-  margin: 0;
+  min-height: 17px;
   overflow-wrap: anywhere;
+  color: var(--zed-browser-annotation-text-muted);
   font-size: 12px;
+  line-height: 1.4;
 }
 
 #status[data-kind="error"] {
-  color: #b3261e;
+  color: var(--zed-browser-annotation-error);
 }
 
 #status[data-kind="success"] {
-  color: #137333;
+  color: var(--zed-browser-annotation-success);
 }

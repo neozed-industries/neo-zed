@@ -923,6 +923,38 @@ pub(crate) fn insert_crease_for_mention(
     window: &mut Window,
     cx: &mut App,
 ) -> Option<(CreaseId, postage::barrier::Sender)> {
+    insert_crease_for_mention_with_open_url(
+        anchor,
+        content_len,
+        crease_label,
+        crease_icon,
+        crease_tooltip,
+        mention_uri,
+        workspace,
+        None,
+        None,
+        image,
+        editor,
+        window,
+        cx,
+    )
+}
+
+pub(crate) fn insert_crease_for_mention_with_open_url(
+    anchor: text::Anchor,
+    content_len: usize,
+    crease_label: SharedString,
+    crease_icon: SharedString,
+    crease_tooltip: Option<SharedString>,
+    mention_uri: Option<MentionUri>,
+    workspace: Option<WeakEntity<Workspace>>,
+    open_url: Option<SharedString>,
+    browser_annotation_id: Option<SharedString>,
+    image: Option<Shared<Task<Result<Arc<Image>, String>>>>,
+    editor: Entity<Editor>,
+    window: &mut Window,
+    cx: &mut App,
+) -> Option<(CreaseId, postage::barrier::Sender)> {
     let (tx, rx) = postage::barrier::channel();
 
     let crease_id = editor.update(cx, |editor, cx| {
@@ -940,6 +972,8 @@ pub(crate) fn insert_crease_for_mention(
                 crease_tooltip,
                 mention_uri.clone(),
                 workspace.clone(),
+                open_url.clone(),
+                browser_annotation_id.clone(),
                 start..end,
                 rx,
                 image,
@@ -1141,6 +1175,8 @@ fn render_mention_fold_button(
     tooltip: Option<SharedString>,
     mention_uri: Option<MentionUri>,
     workspace: Option<WeakEntity<Workspace>>,
+    open_url: Option<SharedString>,
+    browser_annotation_id: Option<SharedString>,
     range: Range<Anchor>,
     mut loading_finished: postage::barrier::Receiver,
     image_task: Option<Shared<Task<Result<Arc<Image>, String>>>>,
@@ -1163,6 +1199,8 @@ fn render_mention_fold_button(
             tooltip,
             mention_uri: mention_uri.clone(),
             workspace: workspace.clone(),
+            open_url: open_url.clone(),
+            browser_annotation_id: browser_annotation_id.clone(),
             range,
             editor,
             loading: Some(loading),
@@ -1179,6 +1217,8 @@ struct LoadingContext {
     tooltip: Option<SharedString>,
     mention_uri: Option<MentionUri>,
     workspace: Option<WeakEntity<Workspace>>,
+    open_url: Option<SharedString>,
+    browser_annotation_id: Option<SharedString>,
     range: Range<Anchor>,
     editor: WeakEntity<Editor>,
     loading: Option<Task<()>>,
@@ -1197,6 +1237,8 @@ impl Render for LoadingContext {
         MentionCrease::new(id, self.icon.clone(), self.label.clone())
             .mention_uri(self.mention_uri.clone())
             .workspace(self.workspace.clone())
+            .open_url(self.open_url.clone())
+            .browser_annotation_id(self.browser_annotation_id.clone())
             .is_toggled(is_in_text_selection)
             .is_loading(self.loading.is_some())
             .when_some(self.tooltip.clone(), |this, tooltip_text| {

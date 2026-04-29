@@ -28,6 +28,7 @@ assert.deepEqual(
     selected_text: " Selected text ",
     selector: " main ",
     comment: " Review this ",
+    focus_url: " chrome-extension://extension/src/focus.html?tabId=1 ",
   }),
   {
     url: "https://example.com",
@@ -35,6 +36,7 @@ assert.deepEqual(
     selected_text: "Selected text",
     selector: "main",
     comment: "Review this",
+    focus_url: "chrome-extension://extension/src/focus.html?tabId=1",
   },
 );
 
@@ -58,6 +60,55 @@ assert.deepEqual(
     params: { url: "https://example.com" },
   },
 );
+
+assert.deepEqual(helpers.buildThemeRequest(8), {
+  jsonrpc: "2.0",
+  id: 8,
+  method: "browserAnnotation.theme",
+  params: {},
+});
+
+assert.deepEqual(
+  helpers.normalizeTheme({
+    appearance: "light",
+    colors: {
+      panel_background: " rgba(255, 255, 255, 1) ",
+      text: "rgba(20, 20, 20, 1)",
+      unknown: "red",
+    },
+  }),
+  {
+    appearance: "light",
+    colors: {
+      panel_background: "rgba(255, 255, 255, 1)",
+      text: "rgba(20, 20, 20, 1)",
+    },
+  },
+);
+
+const themeTarget = {
+  values: {},
+  style: {
+    setProperty(name, value) {
+      themeTarget.values[name] = value;
+    },
+  },
+};
+helpers.applyTheme(
+  {
+    appearance: "dark",
+    colors: {
+      panel_background: "rgba(30, 30, 30, 1)",
+      text: "rgba(220, 220, 220, 1)",
+    },
+  },
+  themeTarget,
+);
+assert.deepEqual(themeTarget.values, {
+  "--zed-browser-annotation-color-scheme": "dark",
+  "--zed-browser-annotation-panel-background": "rgba(30, 30, 30, 1)",
+  "--zed-browser-annotation-text": "rgba(220, 220, 220, 1)",
+});
 
 const documentElement = element("html");
 documentElement.ownerDocument = { documentElement };

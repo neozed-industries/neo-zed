@@ -10,14 +10,6 @@
   "background": {
     "service_worker": "src/background.js"
   },
-  "content_scripts": [
-    {
-      "matches": ["http://*/*", "https://*/*"],
-      "js": ["src/shared_core.js", "src/content_script.js"],
-      "css": ["src/content_script.css"],
-      "run_at": "document_idle"
-    }
-  ],
   "host_permissions": ["http://*/*", "https://*/*"],
   "permissions": ["activeTab", "nativeMessaging", "scripting", "storage", "tabs"]
 }

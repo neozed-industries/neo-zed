@@ -6,8 +6,21 @@ This is a production-oriented Manifest V3 Chromium extension scaffold for sendin
 
 1. Build or install the `browser_annotation_host` native messaging host separately.
 2. Register the native host as `browser_annotation_host` in Chromium's native messaging host registry.
-3. Open `chrome://extensions`, enable Developer mode, and load this directory as an unpacked extension.
-4. Open an `http` or `https` page, click the extension action, select page text or use **Pick Element**, add a comment, and click **Send to Zed**.
+3. Prepare a clean unpacked extension directory:
+
+   ```sh
+   npm run prepare:unpacked
+   ```
+
+4. Open `chrome://extensions`, enable Developer mode, choose **Load unpacked**, and select:
+
+   ```text
+   /tmp/zed_browser_annotation_extension
+   ```
+
+5. Open an `http` or `https` page, click the extension action, select page text or use **Pick Element**, add a comment, and click **Send to Zed**.
+
+Do not load a `.crx`, `.pem`, or the parent `browser_extensions` directory during local development. The prepare step copies only the manifest and runtime `src/` files into `/tmp/zed_browser_annotation_extension`, validates manifest references, and clears macOS quarantine/removable extended attributes from that prepared directory. To prepare a different directory, run `npm run prepare:unpacked -- --output /path/to/directory`.
 
 The extension sends a JSON-RPC native message:
 
@@ -29,5 +42,6 @@ The extension sends a JSON-RPC native message:
 ## Tests
 
 ```sh
+npm run check:manifest
 npm test
 ```
