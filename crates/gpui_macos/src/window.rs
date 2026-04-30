@@ -324,7 +324,10 @@ pub(crate) fn convert_mouse_position(position: NSPoint, window_height: Pixels) -
 /// This function is not thread safe. Callers must ensure this is called on the AppKit main
 /// thread because it reads the active AppKit window and updates GPUI window state associated
 /// with Objective-C objects.
-pub(crate) unsafe fn set_active_window_cursor_style(style: CursorStyle) {
+pub(crate) unsafe fn set_active_window_cursor_style(
+    style: CursorStyle,
+    cursor_hidden: &AtomicBool,
+) {
     // SAFETY: The caller guarantees AppKit main-thread access. The class check ensures the
     // window has our WINDOW_STATE_IVAR before reading it.
     unsafe {
@@ -342,6 +345,9 @@ pub(crate) unsafe fn set_active_window_cursor_style(style: CursorStyle) {
         };
 
         let Some(active_window) = active_window else {
+            if !matches!(style, CursorStyle::None) {
+                unhide_cursor(cursor_hidden);
+            }
             return;
         };
 
@@ -353,6 +359,22 @@ pub(crate) unsafe fn set_active_window_cursor_style(style: CursorStyle) {
                 window_state.native_window,
                 invalidateCursorRectsForView: window_state.native_view.as_ptr()
             ];
+        }
+    }
+}
+
+/// Unhides the cursor if this GPUI platform instance has hidden it.
+///
+/// # Safety
+///
+/// Must be called on the AppKit main thread.
+unsafe fn unhide_cursor(cursor_hidden: &AtomicBool) {
+    unsafe {
+        if cursor_hidden
+            .compare_exchange(true, false, Ordering::Relaxed, Ordering::Relaxed)
+            .is_ok()
+        {
+            let _: () = msg_send![class!(NSCursor), unhide];
         }
     }
 }
@@ -475,6 +497,7 @@ struct MacWindowState {
     background_appearance: WindowBackgroundAppearance,
     cursor_style: CursorStyle,
     cursor_visible: Arc<AtomicBool>,
+    cursor_hidden: Arc<AtomicBool>,
     display_link: Option<DisplayLink>,
     renderer: renderer::Renderer,
     request_frame_callback: Option<Box<dyn FnMut(RequestFrameOptions)>>,
@@ -677,6 +700,7 @@ impl MacWindow {
             ..
         }: WindowParams,
         cursor_visible: Arc<AtomicBool>,
+        cursor_hidden: Arc<AtomicBool>,
         foreground_executor: ForegroundExecutor,
         background_executor: BackgroundExecutor,
         renderer_context: renderer::Context,
@@ -795,6 +819,7 @@ impl MacWindow {
                 background_appearance: WindowBackgroundAppearance::Opaque,
                 cursor_style: CursorStyle::Arrow,
                 cursor_visible,
+                cursor_hidden,
                 display_link: None,
                 renderer: renderer::new_renderer(
                     renderer_context,
@@ -1828,7 +1853,26 @@ extern "C" fn reset_cursor_rects(this: &Object, _: Sel) {
         let _: () = msg_send![super(this, class!(NSView)), resetCursorRects];
 
         let window_state = get_window_state(this);
-        let cursor_style = window_state.lock().cursor_style;
+        let cursor_style;
+        let cursor_hidden;
+
+        {
+            let window_state = window_state.lock();
+
+            if matches!(window_state.cursor_style, CursorStyle::None) {
+                if window_state
+                    .cursor_hidden
+                    .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
+                    .is_ok()
+                {
+                    let _: () = msg_send![class!(NSCursor), hide];
+                }
+                return;
+            }
+
+            cursor_style = window_state.cursor_style;
+            cursor_hidden = window_state.cursor_hidden.clone();
+        };
 
         let cursor: id = match cursor_style {
             CursorStyle::Arrow => msg_send![class!(NSCursor), arrowCursor],
@@ -1865,6 +1909,8 @@ extern "C" fn reset_cursor_rects(this: &Object, _: Sel) {
             CursorStyle::DragCopy => msg_send![class!(NSCursor), dragCopyCursor],
             CursorStyle::ContextualMenu => msg_send![class!(NSCursor), contextualMenuCursor],
         };
+
+        unhide_cursor(&cursor_hidden);
 
         let bounds = NSView::bounds(this as *const Object as id);
         let _: () = msg_send![this, addCursorRect: bounds cursor: cursor];

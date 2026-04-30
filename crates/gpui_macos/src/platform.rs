@@ -184,6 +184,7 @@ pub(crate) struct MacPlatformState {
     keyboard_mapper: Rc<MacKeyboardMapper>,
     /// Mirrors `[NSCursor setHiddenUntilMouseMoves:]` state, which AppKit doesn't expose.
     cursor_visible: Arc<AtomicBool>,
+    cursor_hidden: Arc<AtomicBool>,
 }
 
 impl MacPlatform {
@@ -221,6 +222,7 @@ impl MacPlatform {
             menus: None,
             keyboard_mapper,
             cursor_visible: Arc::new(AtomicBool::new(true)),
+            cursor_hidden: Arc::new(AtomicBool::new(false)),
         }))
     }
 
@@ -625,10 +627,17 @@ impl Platform for MacPlatform {
         handle: AnyWindowHandle,
         options: WindowParams,
     ) -> Result<Box<dyn PlatformWindow>> {
-        let (cursor_visible, foreground_executor, background_executor, renderer_context) = {
+        let (
+            cursor_visible,
+            cursor_hidden,
+            foreground_executor,
+            background_executor,
+            renderer_context,
+        ) = {
             let guard = self.0.lock();
             (
                 guard.cursor_visible.clone(),
+                guard.cursor_hidden.clone(),
                 guard.foreground_executor.clone(),
                 guard.background_executor.clone(),
                 guard.renderer_context.clone(),
@@ -639,6 +648,7 @@ impl Platform for MacPlatform {
             handle,
             options,
             cursor_visible,
+            cursor_hidden,
             foreground_executor,
             background_executor,
             renderer_context,
@@ -995,8 +1005,9 @@ impl Platform for MacPlatform {
     /// Match cursor style to one of the styles available
     /// in macOS's [NSCursor](https://developer.apple.com/documentation/appkit/nscursor).
     fn set_cursor_style(&self, style: CursorStyle) {
+        let cursor_hidden = self.0.lock().cursor_hidden.clone();
         unsafe {
-            set_active_window_cursor_style(style);
+            set_active_window_cursor_style(style, &cursor_hidden);
         }
     }
 
