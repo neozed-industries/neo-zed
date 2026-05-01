@@ -167,7 +167,7 @@ Anthropic models on Bedrock support a 1M token extended context window through t
 }
 ```
 
-Zed enables extended context for supported models (Claude Sonnet 4.5 and Claude Opus 4.6). Extended context usage may increase API costs—refer to AWS Bedrock pricing for details.
+Zed enables extended context for supported models (Claude Sonnet 4.5, Claude Opus 4.6, and Claude Opus 4.7). Extended context usage may increase API costs—refer to AWS Bedrock pricing for details.
 
 #### Image Support {#bedrock-image-support}
 
@@ -241,7 +241,7 @@ Zed will also use the `DEEPSEEK_API_KEY` environment variable if it's defined.
 
 #### Custom Models {#deepseek-custom-models}
 
-The Zed agent comes pre-configured to use the latest version for common models (DeepSeek Chat, DeepSeek Reasoner).
+The Zed agent comes pre-configured to use DeepSeek V4 Flash and DeepSeek V4 Pro.
 If you wish to use alternate models or customize the API endpoint, you can do so by adding the following to your Zed settings file ([how to edit](../configuring-zed.md#settings-files)):
 
 ```json [settings]
@@ -251,15 +251,16 @@ If you wish to use alternate models or customize the API endpoint, you can do so
       "api_url": "https://api.deepseek.com",
       "available_models": [
         {
-          "name": "deepseek-chat",
-          "display_name": "DeepSeek Chat",
-          "max_tokens": 64000
+          "name": "deepseek-v4-flash",
+          "display_name": "DeepSeek V4 Flash",
+          "max_tokens": 1000000,
+          "max_output_tokens": 384000
         },
         {
-          "name": "deepseek-reasoner",
-          "display_name": "DeepSeek Reasoner",
-          "max_tokens": 64000,
-          "max_output_tokens": 4096
+          "name": "deepseek-v4-pro",
+          "display_name": "DeepSeek V4 Pro",
+          "max_tokens": 1000000,
+          "max_output_tokens": 384000
         }
       ]
     }
@@ -607,6 +608,7 @@ By default, OpenAI-compatible models inherit the following capabilities:
 - `parallel_tool_calls`: false (does not support `parallel_tool_calls` parameter)
 - `prompt_cache_key`: false (does not support `prompt_cache_key` parameter)
 - `chat_completions`: true (calls the `/chat/completions` endpoint)
+- `interleaved_reasoning`: false (thinking tokens are sent inline in message text; set to true to send them as a dedicated `reasoning_content` field for models that expect it)
 
 If a provider exposes models that only work with the Responses API, set `chat_completions` to `false` for those entries. Zed uses the Responses endpoint for these models.
 
@@ -762,7 +764,7 @@ You can also set a custom endpoint for Vercel AI Gateway in your settings file:
 [Vercel v0](https://v0.app/docs/api/model) is a model for generating full-stack apps, with framework-aware completions for stacks like Next.js and Vercel.
 It supports text and image inputs and provides fast streaming responses.
 
-The v0 models are [OpenAI-compatible models](/#openai-api-compatible), and Vercel appears as a dedicated provider in the panel's settings view.
+The v0 models are [OpenAI-compatible models](#openai-api-compatible), and Vercel appears as a dedicated provider in the panel's settings view.
 
 To start using it with Zed, ensure you have first created a [v0 API key](https://v0.dev/chat/settings/keys).
 Once you have it, paste it directly into the Vercel provider section in the panel's settings view.

@@ -1374,7 +1374,8 @@ async fn test_empty_prediction(cx: &mut TestAppContext) {
     });
 
     let (request, respond_tx) = requests.predict.next().await.unwrap();
-    let response = model_response(&request, "");
+    let mut response = model_response(&request, "");
+    response.model_version = Some("zeta2:test-empty".to_string());
     let id = response.request_id.clone();
     respond_tx.send(response).unwrap();
 
@@ -1397,7 +1398,7 @@ async fn test_empty_prediction(cx: &mut TestAppContext) {
             request_id: id,
             reason: EditPredictionRejectReason::Empty,
             was_shown: false,
-            model_version: None,
+            model_version: Some("zeta2:test-empty".to_string()),
             e2e_latency_ms: Some(0),
         }]
     );
@@ -1436,7 +1437,8 @@ async fn test_interpolated_empty(cx: &mut TestAppContext) {
         buffer.set_text("Hello!\nHow are you?\nBye", cx);
     });
 
-    let response = model_response(&request, SIMPLE_DIFF);
+    let mut response = model_response(&request, SIMPLE_DIFF);
+    response.model_version = Some("zeta2:test-interpolated-empty".to_string());
     let id = response.request_id.clone();
     respond_tx.send(response).unwrap();
 
@@ -1459,7 +1461,7 @@ async fn test_interpolated_empty(cx: &mut TestAppContext) {
             request_id: id,
             reason: EditPredictionRejectReason::InterpolatedEmpty,
             was_shown: false,
-            model_version: None,
+            model_version: Some("zeta2:test-interpolated-empty".to_string()),
             e2e_latency_ms: Some(0),
         }]
     );
@@ -1611,7 +1613,7 @@ async fn test_current_preferred(cx: &mut TestAppContext) {
 
     let (request, respond_tx) = requests.predict.next().await.unwrap();
     // worse than current prediction
-    let second_response = model_response(
+    let mut second_response = model_response(
         &request,
         indoc! { r"
             --- a/root/foo.md
@@ -1623,6 +1625,7 @@ async fn test_current_preferred(cx: &mut TestAppContext) {
              Bye
         "},
     );
+    second_response.model_version = Some("zeta2:test-current-preferred".to_string());
     let second_id = second_response.request_id.clone();
     respond_tx.send(second_response).unwrap();
 
@@ -1649,7 +1652,7 @@ async fn test_current_preferred(cx: &mut TestAppContext) {
             request_id: second_id,
             reason: EditPredictionRejectReason::CurrentPreferred,
             was_shown: false,
-            model_version: None,
+            model_version: Some("zeta2:test-current-preferred".to_string()),
             e2e_latency_ms: Some(0),
         }]
     );
@@ -1713,7 +1716,8 @@ async fn test_cancel_earlier_pending_requests(cx: &mut TestAppContext) {
         );
     });
 
-    let first_response = model_response(&request1, SIMPLE_DIFF);
+    let mut first_response = model_response(&request1, SIMPLE_DIFF);
+    first_response.model_version = Some("zeta2:test-canceled".to_string());
     let first_id = first_response.request_id.clone();
     respond_first.send(first_response).unwrap();
 
@@ -1742,7 +1746,7 @@ async fn test_cancel_earlier_pending_requests(cx: &mut TestAppContext) {
             request_id: first_id,
             reason: EditPredictionRejectReason::Canceled,
             was_shown: false,
-            model_version: None,
+            model_version: Some("zeta2:test-canceled".to_string()),
             e2e_latency_ms: None,
         }]
     );
@@ -1826,7 +1830,8 @@ async fn test_cancel_second_on_third_request(cx: &mut TestAppContext) {
         );
     });
 
-    let cancelled_response = model_response(&request2, SIMPLE_DIFF);
+    let mut cancelled_response = model_response(&request2, SIMPLE_DIFF);
+    cancelled_response.model_version = Some("zeta2:test-canceled-second".to_string());
     let cancelled_id = cancelled_response.request_id.clone();
     respond_second.send(cancelled_response).unwrap();
 
@@ -1874,7 +1879,7 @@ async fn test_cancel_second_on_third_request(cx: &mut TestAppContext) {
                 request_id: cancelled_id,
                 reason: EditPredictionRejectReason::Canceled,
                 was_shown: false,
-                model_version: None,
+                model_version: Some("zeta2:test-canceled-second".to_string()),
                 e2e_latency_ms: None,
             },
             EditPredictionRejection {
@@ -2346,6 +2351,7 @@ fn model_response(request: &PredictEditsV3Request, diff_to_apply: &str) -> Predi
         request_id: Uuid::new_v4().to_string(),
         editable_range,
         output: new_excerpt,
+        cursor_offset: None,
         model_version: None,
     }
 }
@@ -2355,6 +2361,7 @@ fn empty_response() -> PredictEditsV3Response {
         request_id: Uuid::new_v4().to_string(),
         editable_range: 0..0,
         output: String::new(),
+        cursor_offset: None,
         model_version: None,
     }
 }
@@ -2481,7 +2488,6 @@ async fn test_edit_prediction_basic_interpolation(cx: &mut TestAppContext) {
             excerpt_start_row: None,
             excerpt_ranges: Default::default(),
             syntax_ranges: None,
-            experiment: None,
             in_open_source_repo: false,
             can_collect_data: false,
             repo_url: None,
@@ -2685,6 +2691,7 @@ async fn test_edit_prediction_no_spurious_trailing_newline(cx: &mut TestAppConte
         output: "hello world\n".to_string(),
         editable_range: 0..excerpt_length,
         model_version: None,
+        cursor_offset: None,
     };
     respond_tx.send(response).unwrap();
 
@@ -2743,9 +2750,10 @@ async fn test_v3_prediction_strips_cursor_marker_from_edit_text(cx: &mut TestApp
     respond_tx
         .send(PredictEditsV3Response {
             request_id: Uuid::new_v4().to_string(),
-            output: "hello<|user_cursor|> world".to_string(),
+            output: "hello world".to_string(),
             editable_range: 0..excerpt_length,
             model_version: None,
+            cursor_offset: Some(5),
         })
         .unwrap();
 
@@ -2849,6 +2857,7 @@ async fn make_test_ep_store(
                                     editable_range: 0..req.input.cursor_excerpt.len(),
                                     output: completion_response.lock().clone(),
                                     model_version: None,
+                                    cursor_offset: None,
                                 })
                                 .unwrap()
                                 .into(),
