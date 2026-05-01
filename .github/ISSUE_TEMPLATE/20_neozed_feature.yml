@@ -44,10 +44,11 @@ body:
       label: Required proof
       description: Build, test, screenshot, or recording evidence required in the PR.
       value: |
-        - Build/test:
+        - Build/test: run `cargo fmt --all -- --check`; run `cargo check --workspace --all-targets` and fix every warning and error before committing; run focused clippy/tests for changed crates.
         - Screenshot:
         - Screen recording:
         - Manual verification:
+        - Commit discipline: keep commits atomic. If `cargo check --workspace --all-targets` reveals pre-existing or cleanup-only warnings/errors, fix and commit those separately before committing the feature changes. Do not combine warning/error cleanup with the feature implementation commit unless the warning/error is directly caused by that implementation.
     validations:
       required: true
   - type: textarea
