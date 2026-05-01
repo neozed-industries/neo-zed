@@ -41,7 +41,16 @@ pub(crate) const SCROLL_LINES: f32 = 3.0;
 pub(crate) const DOUBLE_CLICK_INTERVAL: Duration = Duration::from_millis(400);
 #[cfg(any(feature = "wayland", feature = "x11"))]
 pub(crate) const DOUBLE_CLICK_DISTANCE: Pixels = px(5.0);
-pub(crate) const KEYRING_LABEL: &str = "zed-github-account";
+pub(crate) const KEYRING_LABEL: &str = "neozed-credentials";
+const CREDENTIAL_KEY_PREFIX: &str = "neozed-credentials:";
+
+fn credential_key(url: &str) -> String {
+    if url.starts_with(CREDENTIAL_KEY_PREFIX) {
+        url.to_string()
+    } else {
+        format!("{CREDENTIAL_KEY_PREFIX}{url}")
+    }
+}
 
 #[cfg(any(feature = "wayland", feature = "x11"))]
 const FILE_PICKER_PORTAL_MISSING: &str =
@@ -535,7 +544,7 @@ impl<P: LinuxClient + 'static> Platform for LinuxPlatform<P> {
     }
 
     fn write_credentials(&self, url: &str, username: &str, password: &[u8]) -> Task<Result<()>> {
-        let url = url.to_string();
+        let url = credential_key(url);
         let username = username.to_string();
         let password = password.to_vec();
         self.background_executor().spawn(async move {
@@ -554,7 +563,7 @@ impl<P: LinuxClient + 'static> Platform for LinuxPlatform<P> {
     }
 
     fn read_credentials(&self, url: &str) -> Task<Result<Option<(String, Vec<u8>)>>> {
-        let url = url.to_string();
+        let url = credential_key(url);
         self.background_executor().spawn(async move {
             let keyring = oo7::Keyring::new().await?;
             keyring.unlock().await?;
@@ -582,7 +591,7 @@ impl<P: LinuxClient + 'static> Platform for LinuxPlatform<P> {
     }
 
     fn delete_credentials(&self, url: &str) -> Task<Result<()>> {
-        let url = url.to_string();
+        let url = credential_key(url);
         self.background_executor().spawn(async move {
             let keyring = oo7::Keyring::new().await?;
             keyring.unlock().await?;

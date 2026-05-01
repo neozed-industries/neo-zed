@@ -39,13 +39,13 @@ To completely remove all Zed configuration files and data:
 1. Open Finder
 2. Press `Cmd + Shift + G` to open "Go to Folder"
 3. Delete the following directories if they exist:
-   - `~/Library/Application Support/Zed`
-   - `~/Library/Saved Application State/dev.zed.Zed.savedState`
-   - `~/Library/Logs/Zed`
-   - `~/Library/Caches/dev.zed.Zed`
-   - `~/Library/Caches/Zed`
-   - `~/.config/zed`
-   - `~/.local/state/Zed`
+   - `~/Library/Application Support/Neo Zed`
+   - `~/Library/Saved Application State/dev.neozed.savedState`
+   - `~/Library/Logs/Neo\ Zed`
+   - `~/Library/Caches/dev.neozed`
+   - `~/Library/Caches/Neo\ Zed`
+   - `~/.config/neozed`
+   - `~/.local/state/Neo Zed`
 
 ## Linux
 
@@ -59,7 +59,7 @@ zed --uninstall
 
 You'll be prompted whether to keep or delete your preferences. After making a choice, you should see a message that Zed was successfully uninstalled.
 
-If the `zed` command is not found in your PATH, try:
+If the `neozed` command is not found in your PATH, try:
 
 ```sh
 $HOME/.local/bin/zed --uninstall
@@ -81,7 +81,7 @@ If the uninstall command fails or Zed was installed to a custom location, you ca
 
 - Installation directory: `~/.local/zed.app` (or your custom installation path)
 - Binary symlink: `~/.local/bin/zed`
-- Configuration and data: `~/.config/zed`
+- Configuration and data: `~/.config/neozed`
 
 ## Windows
 

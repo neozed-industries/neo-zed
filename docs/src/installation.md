@@ -41,20 +41,20 @@ For most Linux users, the easiest way to install Zed is through our installation
 curl -f https://zed.dev/install.sh | sh
 ```
 
-You can now optionally specify a **version** of Zed to install using the `ZED_VERSION` environment variable:
+You can now optionally specify a **version** of Neo Zed to install using the `NEOZED_VERSION` environment variable:
 
 ```sh
 # Install the latest stable version (default)
 curl -f https://zed.dev/install.sh | sh
 
 # Install a specific version
-curl -f https://zed.dev/install.sh | ZED_VERSION=0.216.0 sh
+curl -f https://zed.dev/install.sh | NEOZED_VERSION=0.216.0 sh
 ```
 
 To install the preview build, which receives updates about a week ahead of stable:
 
 ```sh
-curl -f https://zed.dev/install.sh | ZED_CHANNEL=preview sh
+curl -f https://zed.dev/install.sh | NEOZED_CHANNEL=preview sh
 ```
 
 This script supports `x86_64` and `AArch64`, as well as common Linux distributions: Ubuntu, Arch, Debian, RedHat, CentOS, Fedora, and more.

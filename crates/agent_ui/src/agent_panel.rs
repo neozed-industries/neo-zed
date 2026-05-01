@@ -3138,7 +3138,7 @@ impl AgentPanel {
                             }
                         })
                         .item(
-                            ContextMenuEntry::new("Zed Agent")
+                            ContextMenuEntry::new("Neo Zed Agent")
                                 .when(is_agent_selected(Agent::NativeAgent), |this| {
                                     this.action(Box::new(NewExternalAgentThread { agent: None }))
                                 })
@@ -5083,7 +5083,7 @@ mod tests {
         });
 
         panel.update_in(&mut cx, |panel, window, cx| {
-            panel.activate_draft(true, window, cx);
+            panel.activate_draft(true, "agent_panel", window, cx);
         });
         cx.run_until_parked();
 

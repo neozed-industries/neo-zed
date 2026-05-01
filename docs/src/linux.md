@@ -16,7 +16,7 @@ curl -f https://zed.dev/install.sh | sh
 We also offer a preview build of Zed which receives updates about a week ahead of stable. You can install it with:
 
 ```sh
-curl -f https://zed.dev/install.sh | ZED_CHANNEL=preview sh
+curl -f https://zed.dev/install.sh | NEOZED_CHANNEL=preview sh
 ```
 
 The Zed installed by the script works best on systems that:
@@ -125,7 +125,7 @@ or
 $HOME/.local/zed.app/bin.zed --uninstall
 ```
 
-The first case might fail if a symlink was not properly established between `$HOME/.local/bin/zed` and `$HOME/.local/zed.app/bin.zed`. But the second case should work as long as Zed was installed to its default location.
+The first case might fail if a symlink was not properly established between `$HOME/.local/bin/zed` and `$HOME/.local/zed.app/bin.neozed`. But the second case should work as long as Zed was installed to its default location.
 
 If Zed was installed to a different location, you must invoke the `zed` binary stored in that installation directory and pass the `--uninstall` flag to it in the same format as the previous commands.
 
@@ -177,7 +177,7 @@ There are a few different ways to force Zed to use a specific GPU:
 
 ##### Option A
 
-You can use the `ZED_DEVICE_ID={device_id}` environment variable to specify the device ID of the GPU you wish to have Zed use.
+You can use the `NEOZED_DEVICE_ID={device_id}` environment variable to specify the device ID of the GPU you wish to have Zed use.
 
 You can obtain the device ID of your GPU by running `lspci -nn | grep VGA` which will output each GPU on one line like:
 
@@ -188,7 +188,7 @@ You can obtain the device ID of your GPU by running `lspci -nn | grep VGA` which
 where the device ID here is `2484`. This value is in hexadecimal, so to force Zed to use this specific GPU you would set the environment variable like so:
 
 ```
-ZED_DEVICE_ID=0x2484 zed
+NEOZED_DEVICE_ID=0x2484 zed
 ```
 
 Make sure to export the variable if you choose to define it globally in a `.bashrc` or similar.
@@ -219,7 +219,7 @@ Additionally, it is extremely beneficial to provide the contents of your Zed log
 
 ```sh
 truncate -s 0 ~/.local/share/zed/logs/Zed.log # Clear the log file
-ZED_LOG=wgpu=info zed .
+NEOZED_LOG=wgpu=info zed .
 cat ~/.local/share/zed/logs/Zed.log
 # copy the output
 ```
@@ -227,7 +227,7 @@ cat ~/.local/share/zed/logs/Zed.log
 Or, if you have the Zed cli setup, you can do
 
 ```sh
-ZED_LOG=wgpu=info /path/to/zed/cli --foreground .
+NEOZED_LOG=wgpu=info /path/to/zed/cli --foreground .
 # copy the output
 ```
 
@@ -387,12 +387,12 @@ Replace `192` with your desired DPI value. This affects the system globally and 
 
 ### Font rendering parameters
 
-On Linux, Zed reads `ZED_FONTS_GAMMA` and `ZED_FONTS_GRAYSCALE_ENHANCED_CONTRAST` environment variables for the values to use for font rendering.
+On Linux, Zed reads `NEOZED_FONTS_GAMMA` and `NEOZED_FONTS_GRAYSCALE_ENHANCED_CONTRAST` environment variables for the values to use for font rendering.
 
-`ZED_FONTS_GAMMA` corresponds to [getgamma](https://learn.microsoft.com/en-us/windows/win32/api/dwrite/nf-dwrite-idwriterenderingparams-getgamma) values.
+`NEOZED_FONTS_GAMMA` corresponds to [getgamma](https://learn.microsoft.com/en-us/windows/win32/api/dwrite/nf-dwrite-idwriterenderingparams-getgamma) values.
 Allowed range [1.0, 2.2], other values are clipped.
 Default: 1.8
 
-`ZED_FONTS_GRAYSCALE_ENHANCED_CONTRAST` corresponds to [getgrayscaleenhancedcontrast](https://learn.microsoft.com/en-us/windows/win32/api/dwrite_1/nf-dwrite_1-idwriterenderingparams1-getgrayscaleenhancedcontrast) values.
+`NEOZED_FONTS_GRAYSCALE_ENHANCED_CONTRAST` corresponds to [getgrayscaleenhancedcontrast](https://learn.microsoft.com/en-us/windows/win32/api/dwrite_1/nf-dwrite_1-idwriterenderingparams1-getgrayscaleenhancedcontrast) values.
 Allowed range: [0.0, ..), other values are clipped.
 Default: 1.0
