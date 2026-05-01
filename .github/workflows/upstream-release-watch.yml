@@ -1,0 +1,24 @@
+name: upstream-release-watch
+
+on:
+  schedule:
+    - cron: "0 15 * * MON"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check-upstream-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check upstream Zed stable release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NEOZED_REPOSITORY: ${{ github.repository }}
+        run: script/neozed/check-upstream-release

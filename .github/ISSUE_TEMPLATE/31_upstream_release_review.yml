@@ -1,0 +1,51 @@
+name: Upstream release review
+description: Review a new upstream Zed stable release for selective NeoZed backports.
+labels: ["neozed:upstream-review", "state:needs triage"]
+body:
+  - type: textarea
+    id: upstream_release
+    attributes:
+      label: Upstream release
+      description: Zed stable tag, release URL, and commit SHA.
+    validations:
+      required: true
+  - type: textarea
+    id: previous_review
+    attributes:
+      label: Previous reviewed release
+      description: Last upstream tag NeoZed reviewed.
+    validations:
+      required: true
+  - type: textarea
+    id: candidate_commits
+    attributes:
+      label: Candidate commits
+      description: Commits between the previous reviewed tag and the new upstream release.
+      value: |
+        <!-- Classify each candidate as take / skip / needs manual review. -->
+    validations:
+      required: true
+  - type: textarea
+    id: review_rules
+    attributes:
+      label: Review rules
+      value: |
+        Follow `docs/neozed/WORKFLOW.md`, `docs/neozed/FORK_POLICY.md`, and `docs/neozed/UPSTREAM_REVIEW.md`.
+
+        Do not merge upstream branches.
+        Do not auto-cherry-pick the full release.
+        Cherry-pick accepted commits into `main` first.
+        Backport to `stable/v1.0` only when the stable backport policy is met.
+    validations:
+      required: true
+  - type: textarea
+    id: verification
+    attributes:
+      label: Required verification
+      value: |
+        - Candidate classification completed:
+        - Accepted commits verified on `main`:
+        - Stable backports, if any, verified on `stable/v1.0`:
+        - `docs/neozed/UPSTREAM_REVIEW.md` updated:
+    validations:
+      required: true

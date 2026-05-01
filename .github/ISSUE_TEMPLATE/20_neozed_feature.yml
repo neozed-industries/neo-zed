@@ -1,0 +1,59 @@
+name: NeoZed feature
+description: Track a product feature added on top of Zed.
+labels: ["neozed:feature", "state:needs triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this for NeoZed product behavior. This issue is the durable source of truth for agent work.
+  - type: textarea
+    id: intent
+    attributes:
+      label: Product intent
+      description: What should NeoZed users be able to do after this ships?
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user problem, workflow gap, or product bet does this address?
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Concrete behavior that must be true before this can merge.
+      placeholder: |
+        - Acceptance criterion
+    validations:
+      required: true
+  - type: textarea
+    id: non_goals
+    attributes:
+      label: Non-goals
+      description: What should agents avoid adding while implementing this?
+      placeholder: |
+        - Non-goal
+    validations:
+      required: true
+  - type: textarea
+    id: proof
+    attributes:
+      label: Required proof
+      description: Build, test, screenshot, or recording evidence required in the PR.
+      value: |
+        - Build/test:
+        - Screenshot:
+        - Screen recording:
+        - Manual verification:
+    validations:
+      required: true
+  - type: textarea
+    id: references
+    attributes:
+      label: References
+      description: Designs, screenshots, prior art, related issues, or notes.
+    validations:
+      required: false

@@ -1,0 +1,146 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+UPSTREAM_REMOTE_URL="${UPSTREAM_REMOTE_URL:-https://github.com/zed-industries/zed.git}"
+UPSTREAM_REVIEW_FILE="${UPSTREAM_REVIEW_FILE:-docs/neozed/UPSTREAM_REVIEW.md}"
+REPOSITORY="${NEOZED_REPOSITORY:-${GITHUB_REPOSITORY:-}}"
+DRY_RUN="${DRY_RUN:-false}"
+
+if ! command -v gh >/dev/null; then
+    echo "gh is required" >&2
+    exit 1
+fi
+
+if ! command -v git >/dev/null; then
+    echo "git is required" >&2
+    exit 1
+fi
+
+if [[ -z "$REPOSITORY" ]]; then
+    REPOSITORY="$(gh repo view --json nameWithOwner -q .nameWithOwner)"
+fi
+
+if [[ ! -f "$UPSTREAM_REVIEW_FILE" ]]; then
+    echo "missing $UPSTREAM_REVIEW_FILE" >&2
+    exit 1
+fi
+
+last_reviewed_tag="$(sed -n 's/^- Zed tag: `\([^`]*\)`.*/\1/p' "$UPSTREAM_REVIEW_FILE" | head -1)"
+if [[ -z "$last_reviewed_tag" ]]; then
+    echo "could not find last reviewed upstream tag in $UPSTREAM_REVIEW_FILE" >&2
+    exit 1
+fi
+
+tmpdir="$(mktemp -d)"
+trap 'rm -rf "$tmpdir"' EXIT
+
+git -C "$tmpdir" init -q upstream-zed
+git -C "$tmpdir/upstream-zed" remote add upstream "$UPSTREAM_REMOTE_URL"
+git -C "$tmpdir/upstream-zed" fetch -q --tags upstream
+
+latest_stable_tag="$(
+    git -C "$tmpdir/upstream-zed" tag --list 'v[0-9]*' \
+        | grep -Ev '(-pre|nightly)' \
+        | sort -V \
+        | tail -1
+)"
+
+if [[ -z "$latest_stable_tag" ]]; then
+    echo "could not determine latest upstream stable tag" >&2
+    exit 1
+fi
+
+if [[ "$latest_stable_tag" == "$last_reviewed_tag" ]]; then
+    echo "Upstream stable already reviewed: $latest_stable_tag"
+    exit 0
+fi
+
+last_commit="$(git -C "$tmpdir/upstream-zed" rev-parse "$last_reviewed_tag^{}")"
+latest_commit="$(git -C "$tmpdir/upstream-zed" rev-parse "$latest_stable_tag^{}")"
+release_url="https://github.com/zed-industries/zed/releases/tag/$latest_stable_tag"
+compare_url="https://github.com/zed-industries/zed/compare/$last_reviewed_tag...$latest_stable_tag"
+
+existing_issue_count="$(
+    gh issue list \
+        --repo "$REPOSITORY" \
+        --state open \
+        --search "\"Review upstream Zed $latest_stable_tag\"" \
+        --json number \
+        --jq length
+)"
+
+if [[ "$existing_issue_count" != "0" ]]; then
+    echo "Review issue already exists for $latest_stable_tag"
+    exit 0
+fi
+
+candidate_commits="$(
+    git -C "$tmpdir/upstream-zed" log \
+        --reverse \
+        --no-merges \
+        --format='- [ ] `%h` %s' \
+        "$last_reviewed_tag..$latest_stable_tag"
+)"
+
+if [[ -z "$candidate_commits" ]]; then
+    candidate_commits="- No non-merge commits found in range."
+fi
+
+body_file="$tmpdir/issue.md"
+cat > "$body_file" <<EOF
+## Upstream Release
+
+- Zed tag: \`$latest_stable_tag\`
+- Release: $release_url
+- Compare: $compare_url
+- Upstream commit: \`$latest_commit\`
+
+## Previous Reviewed Release
+
+- Zed tag: \`$last_reviewed_tag\`
+- Upstream commit: \`$last_commit\`
+
+## Candidate Commits
+
+Classify each candidate as \`take\`, \`skip\`, or \`needs manual review\`.
+
+$candidate_commits
+
+## Review Rules
+
+Follow \`docs/neozed/WORKFLOW.md\`, \`docs/neozed/FORK_POLICY.md\`, and \`docs/neozed/UPSTREAM_REVIEW.md\`.
+
+- Do not merge upstream branches.
+- Do not auto-cherry-pick the full release.
+- Cherry-pick accepted commits into \`main\` first.
+- Backport to \`stable/v1.0\` only when the stable backport policy is met.
+- Update \`docs/neozed/UPSTREAM_REVIEW.md\` after review completion.
+
+## Required Verification
+
+- [ ] Candidate classification completed
+- [ ] Accepted commits verified on \`main\`
+- [ ] Stable backports, if any, verified on \`stable/v1.0\`
+- [ ] \`docs/neozed/UPSTREAM_REVIEW.md\` updated
+EOF
+
+label_args=()
+for label in "neozed:upstream-review" "state:needs triage"; do
+    if gh label list --repo "$REPOSITORY" --json name --jq '.[].name' | grep -Fxq "$label"; then
+        label_args+=(--label "$label")
+    else
+        echo "Label does not exist, skipping: $label" >&2
+    fi
+done
+
+if [[ "$DRY_RUN" == "true" ]]; then
+    echo "Would create issue in $REPOSITORY: Review upstream Zed $latest_stable_tag"
+    echo "Issue body written to $body_file"
+    exit 0
+fi
+
+gh issue create \
+    --repo "$REPOSITORY" \
+    --title "Review upstream Zed $latest_stable_tag" \
+    --body-file "$body_file" \
+    "${label_args[@]}"

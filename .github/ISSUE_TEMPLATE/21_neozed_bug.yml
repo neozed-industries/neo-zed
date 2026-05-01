@@ -1,0 +1,58 @@
+name: NeoZed bug
+description: Track a bug in NeoZed behavior.
+labels: ["neozed:bug", "state:needs triage"]
+body:
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      placeholder: |
+        1. First step
+        2. Second step
+    validations:
+      required: true
+  - type: textarea
+    id: current_expected
+    attributes:
+      label: Current vs expected behavior
+      description: Include screenshots or recordings if useful.
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: Is this NeoZed-only, inherited from Zed, or unknown?
+      placeholder: |
+        - NeoZed-only / inherited from Zed / unknown:
+        - Suspected area:
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Version and system specs
+      placeholder: |
+        NeoZed:
+        OS:
+        Architecture:
+    validations:
+      required: true
+  - type: textarea
+    id: proof
+    attributes:
+      label: Required proof
+      value: |
+        - Build/test:
+        - Screenshot:
+        - Screen recording:
+        - Manual verification:
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or diagnostics
+      description: Redact secrets before posting.
+    validations:
+      required: false
