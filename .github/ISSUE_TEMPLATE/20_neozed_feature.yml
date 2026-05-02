@@ -21,6 +21,33 @@ body:
     validations:
       required: true
   - type: textarea
+    id: ux_research
+    attributes:
+      label: UX research
+      description: Does this fit Zed's design language? Check the `ui` crate for existing components. Search upstream Zed issues for prior art. Use `graphify-out/` to traverse the codebase graph before assuming something doesn't exist.
+      placeholder: |
+        - Fits Zed design language because:
+        - Existing components reused:
+        - Upstream prior art:
+    validations:
+      required: true
+  - type: textarea
+    id: architecture
+    attributes:
+      label: Architecture
+      description: |
+        Sketch the approach before any code is written. This section must be reviewed and approved before implementation starts.
+        - Which crates and files are touched?
+        - What data is already available vs needs to be added?
+        - Check other code instances for the pattern you plan to use.
+        - If UI: provide HTML/CSS mockups in References before implementing.
+      placeholder: |
+        - Crates/files touched:
+        - Data available:
+        - Pattern reference:
+    validations:
+      required: true
+  - type: textarea
     id: acceptance
     attributes:
       label: Acceptance criteria
@@ -49,12 +76,15 @@ body:
         - Screen recording:
         - Manual verification:
         - Commit discipline: keep commits atomic. If `cargo check --workspace --all-targets` reveals pre-existing or cleanup-only warnings/errors, fix and commit those separately before committing the feature changes. Do not combine warning/error cleanup with the feature implementation commit unless the warning/error is directly caused by that implementation.
+        - If stuck: stop immediately and ask rather than guessing or straying from scope.
     validations:
       required: true
   - type: textarea
     id: references
     attributes:
       label: References
-      description: Designs, screenshots, prior art, related issues, or notes.
+      description: |
+        Designs (HTML/CSS mockups for UI changes), screenshots, prior art, related issues, or notes.
+        Tip: use `graphify-out/wiki/` or `graphify query "<concept>"` to find related code before grepping.
     validations:
       required: false
