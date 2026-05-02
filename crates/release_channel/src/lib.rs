@@ -10,7 +10,7 @@ use semver::Version;
 /// stable | dev | nightly | preview
 pub static RELEASE_CHANNEL_NAME: LazyLock<String> = LazyLock::new(|| {
     if cfg!(debug_assertions) {
-        env::var("ZED_RELEASE_CHANNEL")
+        env::var("NEOZED_RELEASE_CHANNEL")
             .unwrap_or_else(|_| include_str!("../../zed/RELEASE_CHANNEL").trim().to_string())
     } else {
         include_str!("../../zed/RELEASE_CHANNEL").trim().to_string()
@@ -28,10 +28,10 @@ pub static RELEASE_CHANNEL: LazyLock<ReleaseChannel> =
 #[cfg(target_os = "windows")]
 pub fn app_identifier() -> &'static str {
     match *RELEASE_CHANNEL {
-        ReleaseChannel::Dev => "Zed-Editor-Dev",
-        ReleaseChannel::Nightly => "Zed-Editor-Nightly",
-        ReleaseChannel::Preview => "Zed-Editor-Preview",
-        ReleaseChannel::Stable => "Zed-Editor-Stable",
+        ReleaseChannel::Dev => "Neo-Zed-Editor-Dev",
+        ReleaseChannel::Nightly => "Neo-Zed-Editor-Nightly",
+        ReleaseChannel::Preview => "Neo-Zed-Editor-Preview",
+        ReleaseChannel::Stable => "Neo-Zed-Editor-Stable",
     }
 }
 
@@ -85,8 +85,8 @@ impl AppVersion {
         build_id: Option<&str>,
         commit_sha: Option<AppCommitSha>,
     ) -> Version {
-        let mut version: Version = if let Ok(from_env) = env::var("ZED_APP_VERSION") {
-            from_env.parse().expect("invalid ZED_APP_VERSION")
+        let mut version: Version = if let Ok(from_env) = env::var("NEOZED_APP_VERSION") {
+            from_env.parse().expect("invalid NEOZED_APP_VERSION")
         } else {
             pkg_version.parse().expect("invalid version in Cargo.toml")
         };
@@ -181,10 +181,10 @@ impl ReleaseChannel {
     /// Returns the display name for this [`ReleaseChannel`].
     pub fn display_name(&self) -> &'static str {
         match self {
-            ReleaseChannel::Dev => "Zed Dev",
-            ReleaseChannel::Nightly => "Zed Nightly",
-            ReleaseChannel::Preview => "Zed Preview",
-            ReleaseChannel::Stable => "Zed",
+            ReleaseChannel::Dev => "Neo Zed Dev",
+            ReleaseChannel::Nightly => "Neo Zed Nightly",
+            ReleaseChannel::Preview => "Neo Zed Preview",
+            ReleaseChannel::Stable => "Neo Zed",
         }
     }
 
@@ -200,13 +200,13 @@ impl ReleaseChannel {
 
     /// Returns the application ID that's used by Wayland as application ID
     /// and WM_CLASS on X11.
-    /// This also has to match the bundle identifier for Zed on macOS.
+    /// This also has to match the bundle identifier for Neo Zed on macOS.
     pub fn app_id(&self) -> &'static str {
         match self {
-            ReleaseChannel::Dev => "dev.zed.Zed-Dev",
-            ReleaseChannel::Nightly => "dev.zed.Zed-Nightly",
-            ReleaseChannel::Preview => "dev.zed.Zed-Preview",
-            ReleaseChannel::Stable => "dev.zed.Zed",
+            ReleaseChannel::Dev => "dev.neozed.Dev",
+            ReleaseChannel::Nightly => "dev.neozed.Nightly",
+            ReleaseChannel::Preview => "dev.neozed.Preview",
+            ReleaseChannel::Stable => "dev.neozed",
         }
     }
 

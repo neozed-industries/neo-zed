@@ -1136,13 +1136,13 @@ mod tests {
         ));
         fs.insert_tree("/root", json!({})).await;
 
-        // Test 1: Path with .zed component should require confirmation
+        // Test 1: Path with .neozed component should require confirmation
         let (stream_tx, mut stream_rx) = ToolCallEventStream::test();
         let _auth = cx.update(|cx| {
             tool.authorize(
                 &EditFileToolInput {
                     display_description: "test 1".into(),
-                    path: ".zed/settings.json".into(),
+                    path: ".neozed/settings.json".into(),
                     mode: EditFileMode::Edit,
                 },
                 &stream_tx,
@@ -1173,7 +1173,7 @@ mod tests {
         let event = stream_rx.expect_authorization().await;
         assert_eq!(event.tool_call.fields.title, Some("test 2".into()));
 
-        // Test 3: Relative path without .zed should not require confirmation
+        // Test 3: Relative path without .neozed should not require confirmation
         let (stream_tx, mut stream_rx) = ToolCallEventStream::test();
         cx.update(|cx| {
             tool.authorize(
@@ -1190,13 +1190,13 @@ mod tests {
         .unwrap();
         assert!(stream_rx.try_recv().is_err());
 
-        // Test 4: Path with .zed in the middle should require confirmation
+        // Test 4: Path with .neozed in the middle should require confirmation
         let (stream_tx, mut stream_rx) = ToolCallEventStream::test();
         let _auth = cx.update(|cx| {
             tool.authorize(
                 &EditFileToolInput {
                     display_description: "test 4".into(),
-                    path: "root/.zed/tasks.json".into(),
+                    path: "root/.neozed/tasks.json".into(),
                     mode: EditFileMode::Edit,
                 },
                 &stream_tx,
@@ -1217,13 +1217,13 @@ mod tests {
             agent_settings::AgentSettings::override_global(settings, cx);
         });
 
-        // 5.1: .zed/settings.json is a sensitive path — still prompts
+        // 5.1: .neozed/settings.json is a sensitive path — still prompts
         let (stream_tx, mut stream_rx) = ToolCallEventStream::test();
         let _auth = cx.update(|cx| {
             tool.authorize(
                 &EditFileToolInput {
                     display_description: "test 5.1".into(),
-                    path: ".zed/settings.json".into(),
+                    path: ".neozed/settings.json".into(),
                     mode: EditFileMode::Edit,
                 },
                 &stream_tx,
@@ -1694,7 +1694,7 @@ mod tests {
         fs.insert_tree(
             "/workspace/shared",
             json!({
-                ".zed": {
+                ".neozed": {
                     "settings.json": "{}"
                 }
             }),
@@ -1738,9 +1738,9 @@ mod tests {
             ("frontend/src/main.js", false, "File in first worktree"),
             ("backend/src/main.rs", false, "File in second worktree"),
             (
-                "shared/.zed/settings.json",
+                "shared/.neozed/settings.json",
                 true,
-                ".zed file in third worktree",
+                ".neozed file in third worktree",
             ),
             ("/etc/hosts", true, "Absolute path outside all worktrees"),
             (
@@ -1785,11 +1785,11 @@ mod tests {
         fs.insert_tree(
             "/project",
             json!({
-                ".zed": {
+                ".neozed": {
                     "settings.json": "{}"
                 },
                 "src": {
-                    ".zed": {
+                    ".neozed": {
                         "local.json": "{}"
                     }
                 }
@@ -1880,7 +1880,7 @@ mod tests {
             "/project",
             json!({
                 "existing.txt": "content",
-                ".zed": {
+                ".neozed": {
                     "settings.json": "{}"
                 }
             }),
@@ -1916,13 +1916,13 @@ mod tests {
         ];
 
         for mode in modes {
-            // Test .zed path with different modes
+            // Test .neozed path with different modes
             let (stream_tx, mut stream_rx) = ToolCallEventStream::test();
             let _auth = cx.update(|cx| {
                 tool.authorize(
                     &EditFileToolInput {
                         display_description: "Edit settings".into(),
-                        path: "project/.zed/settings.json".into(),
+                        path: "project/.neozed/settings.json".into(),
                         mode: mode.clone(),
                     },
                     &stream_tx,

@@ -209,7 +209,7 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 
 /.factory/ @zed-industries/platform-team
-/.zed/ @zed-industries/platform-team
+/.neozed/ @zed-industries/platform-team
 /assets/badge/ @zed-industries/platform-team
 /assets/settings/ @zed-industries/platform-team
 /ci/ @zed-industries/platform-team

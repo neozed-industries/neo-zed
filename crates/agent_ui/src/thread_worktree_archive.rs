@@ -1039,7 +1039,7 @@ mod tests {
             assert!(
                 plan.is_none(),
                 "build_root_plan should return None for a linked worktree \
-                 outside the Zed-managed worktrees directory",
+                 outside the Neo Zed-managed worktrees directory",
             );
         });
     }

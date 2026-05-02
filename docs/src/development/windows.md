@@ -205,7 +205,7 @@ Caused by:
 warning: build failed, waiting for other jobs to finish...
 ```
 
-To fix this issue, manually set the `ZED_RC_TOOLKIT_PATH` environment variable to the RC toolkit path. Usually this is:
+To fix this issue, manually set the `NEOZED_RC_TOOLKIT_PATH` environment variable to the RC toolkit path. Usually this is:
 `C:\Program Files (x86)\Windows Kits\10\bin\<SDK_version>\x64`.
 
 See this [issue](https://github.com/zed-industries/zed/issues/18393) for more information.

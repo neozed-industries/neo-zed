@@ -568,7 +568,7 @@ fn run_server(
 fn short_socket_path() -> PathBuf {
     let suffix = Uuid::new_v4().simple().to_string();
     std::env::temp_dir()
-        .join(format!("zed-ba-{}-{}", std::process::id(), &suffix[..8]))
+        .join(format!("neozed-ba-{}-{}", std::process::id(), &suffix[..8]))
         .join("ipc.sock")
 }
 
@@ -592,7 +592,7 @@ fn remove_socket_directory(socket_path: &Path) {
 fn is_generated_socket_directory(path: &Path) -> bool {
     path.file_name()
         .and_then(|name| name.to_str())
-        .is_some_and(|name| name.starts_with("zed-ba-"))
+        .is_some_and(|name| name.starts_with("neozed-ba-"))
 }
 
 fn pairing_metadata_path() -> PathBuf {
@@ -733,7 +733,7 @@ fn handle_request(
         return JsonRpcResponse::error(
             request.id,
             BROWSER_ANNOTATION_NOT_PAIRED,
-            "Browser annotation client is not paired with this Zed instance",
+            "Browser annotation client is not paired with this Neo Zed instance",
         );
     }
 
@@ -761,7 +761,7 @@ fn handle_theme_request(
         return JsonRpcResponse::error(
             id,
             ZED_AGENT_PANEL_UNAVAILABLE,
-            "No active Zed theme is available",
+            "No active Neo Zed theme is available",
         );
     };
 
@@ -863,7 +863,7 @@ fn handle_sync_annotations(
         .collect();
     if sync.submit {
         log::warn!(
-            "browser annotation IPC submit flag ignored; annotations require Zed-side review"
+            "browser annotation IPC submit flag ignored; annotations require Neo Zed-side review"
         );
     }
     match target.sync_annotations(annotations) {
@@ -1009,7 +1009,7 @@ mod tests {
             JsonRpcResponse::error(
                 Some(json!(1)),
                 BROWSER_ANNOTATION_NOT_PAIRED,
-                "Browser annotation client is not paired with this Zed instance"
+                "Browser annotation client is not paired with this Neo Zed instance"
             )
         );
     }
@@ -1295,7 +1295,7 @@ mod tests {
             .expect("system time")
             .as_nanos();
         let metadata_path = PathBuf::from("/tmp").join(format!(
-            "zed-ba-permissions-{}-{socket_id}.json",
+            "neozed-ba-permissions-{}-{socket_id}.json",
             std::process::id(),
         ));
         let (foreground_tx, _foreground_rx) = mpsc::unbounded();
@@ -1346,11 +1346,11 @@ mod tests {
             .expect("system time")
             .as_nanos();
         let socket_path = PathBuf::from("/tmp").join(format!(
-            "zed-ba-lifecycle-{}-{socket_id}.sock",
+            "neozed-ba-lifecycle-{}-{socket_id}.sock",
             std::process::id(),
         ));
         let metadata_path = PathBuf::from("/tmp").join(format!(
-            "zed-ba-lifecycle-{}-{socket_id}.json",
+            "neozed-ba-lifecycle-{}-{socket_id}.json",
             std::process::id(),
         ));
         let (tx, _rx) = mpsc::unbounded();
@@ -1383,11 +1383,11 @@ mod tests {
             .expect("system time")
             .as_nanos();
         let socket_path = PathBuf::from("/tmp").join(format!(
-            "zed-ba-test-{}-{socket_id}.sock",
+            "neozed-ba-test-{}-{socket_id}.sock",
             std::process::id(),
         ));
         let metadata_path = PathBuf::from("/tmp").join(format!(
-            "zed-ba-test-{}-{socket_id}.json",
+            "neozed-ba-test-{}-{socket_id}.json",
             std::process::id(),
         ));
         let (foreground_tx, _foreground_rx) = mpsc::unbounded();
@@ -1433,11 +1433,11 @@ mod tests {
             .expect("system time")
             .as_nanos();
         let socket_path = PathBuf::from("/tmp").join(format!(
-            "zed-ba-concurrent-{}-{socket_id}.sock",
+            "neozed-ba-concurrent-{}-{socket_id}.sock",
             std::process::id(),
         ));
         let metadata_path = PathBuf::from("/tmp").join(format!(
-            "zed-ba-concurrent-{}-{socket_id}.json",
+            "neozed-ba-concurrent-{}-{socket_id}.json",
             std::process::id(),
         ));
         let (foreground_tx, _foreground_rx) = mpsc::unbounded();

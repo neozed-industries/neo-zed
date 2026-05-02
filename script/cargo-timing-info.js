@@ -8,7 +8,7 @@ function getZedDataDir() {
   const platform = process.platform;
 
   if (platform === "darwin") {
-    // macOS: ~/Library/Application Support/Zed
+// macOS: ~/Library/Application Support/Neo Zed
     return path.join(os.homedir(), "Library", "Application Support", "Zed");
   } else if (platform === "linux" || platform === "freebsd") {
     // Linux/FreeBSD: $FLATPAK_XDG_DATA_HOME or XDG_DATA_HOME/zed
