@@ -87,7 +87,13 @@ pub(crate) unsafe fn set_window_long(
 }
 
 pub(crate) fn windows_credentials_target_name(url: &str) -> String {
-    format!("zed:url={}", url)
+    const CREDENTIAL_KEY_PREFIX: &str = "neozed-credentials:";
+    let url = if url.starts_with(CREDENTIAL_KEY_PREFIX) {
+        url.to_string()
+    } else {
+        format!("{CREDENTIAL_KEY_PREFIX}{url}")
+    };
+    format!("neozed:url={url}")
 }
 
 pub(crate) fn load_cursor(style: CursorStyle) -> Option<HCURSOR> {

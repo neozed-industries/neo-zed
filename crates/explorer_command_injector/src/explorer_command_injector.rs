@@ -44,7 +44,7 @@ struct ExplorerCommandInjector;
 impl IExplorerCommand_Impl for ExplorerCommandInjector_Impl {
     fn GetTitle(&self, _: Ref<IShellItemArray>) -> Result<windows_core::PWSTR> {
         let command_description =
-            retrieve_command_description().unwrap_or(HSTRING::from("Open with Zed"));
+            retrieve_command_description().unwrap_or(HSTRING::from("Open with Neo Zed"));
         unsafe { SHStrDupW(&command_description) }
     }
 
@@ -128,15 +128,15 @@ impl IClassFactory_Impl for ExplorerCommandInjectorFactory_Impl {
 }
 
 #[cfg(all(feature = "stable", not(feature = "preview"), not(feature = "nightly")))]
-const MODULE_ID: GUID = GUID::from_u128(0x6a1f6b13_3b82_48a1_9e06_7bb0a6d0bffd);
+const MODULE_ID: GUID = GUID::from_u128(0xc2c9f0d1_4b0e_4c77_a7a4_6f2d8f0b1a31);
 #[cfg(all(feature = "preview", not(feature = "stable"), not(feature = "nightly")))]
-const MODULE_ID: GUID = GUID::from_u128(0xaf8e85ea_fb20_4db2_93cf_56513c1ec697);
+const MODULE_ID: GUID = GUID::from_u128(0xd3a0f924_7d9b_4c4f_9a86_3cf3bb53dd40);
 #[cfg(all(feature = "nightly", not(feature = "stable"), not(feature = "preview")))]
-const MODULE_ID: GUID = GUID::from_u128(0x266f2cfe_1653_42af_b55c_fe3590c83871);
+const MODULE_ID: GUID = GUID::from_u128(0xe4957591_9ec8_44f7_b0d5_a585c8a59313);
 
 // Make cargo clippy happy
 #[cfg(all(feature = "nightly", feature = "stable", feature = "preview"))]
-const MODULE_ID: GUID = GUID::from_u128(0x685f4d49_6718_4c55_b271_ebb5c6a48d6f);
+const MODULE_ID: GUID = GUID::from_u128(0xf3a31e46_c50d_49ad_820f_6eb53f31c1c2);
 
 #[unsafe(no_mangle)]
 extern "system" fn DllGetClassObject(
@@ -184,15 +184,15 @@ fn get_zed_exe_path() -> Option<String> {
 #[inline]
 fn retrieve_command_description() -> Result<HSTRING> {
     #[cfg(all(feature = "stable", not(feature = "preview"), not(feature = "nightly")))]
-    const REG_PATH: &str = "Software\\Classes\\ZedEditorContextMenu";
+    const REG_PATH: &str = "Software\\Classes\\NeoZedContextMenu";
     #[cfg(all(feature = "preview", not(feature = "stable"), not(feature = "nightly")))]
-    const REG_PATH: &str = "Software\\Classes\\ZedEditorPreviewContextMenu";
+    const REG_PATH: &str = "Software\\Classes\\NeoZedPreviewContextMenu";
     #[cfg(all(feature = "nightly", not(feature = "stable"), not(feature = "preview")))]
-    const REG_PATH: &str = "Software\\Classes\\ZedEditorNightlyContextMenu";
+    const REG_PATH: &str = "Software\\Classes\\NeoZedNightlyContextMenu";
 
     // Make cargo clippy happy
     #[cfg(all(feature = "nightly", feature = "stable", feature = "preview"))]
-    const REG_PATH: &str = "Software\\Classes\\ZedEditorClippyContextMenu";
+    const REG_PATH: &str = "Software\\Classes\\NeoZedClippyContextMenu";
 
     let key = windows_registry::CURRENT_USER.open(REG_PATH)?;
     key.get_hstring("Title")

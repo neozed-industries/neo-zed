@@ -165,7 +165,7 @@ You can find the names of your currently installed extensions by listing the sub
 On macOS:
 
 ```sh
-ls ~/Library/Application\ Support/Zed/extensions/installed/
+ls ~/Library/Application\ Support/Neo\ Zed/extensions/installed/
 ```
 
 On Linux:
@@ -1992,7 +1992,7 @@ Note, specifying `file_scan_exclusions` in settings.json will override the defau
 {
   "file_types": {
     "JSONC": [
-      "**/.zed/**/*.json",
+      "**/.neozed/**/*.json",
       "**/zed/**/*.json",
       "**/Zed/**/*.json",
       "**/.vscode/**/*.json"
@@ -5472,7 +5472,7 @@ To preview and enable a settings profile, open the command palette via {#kb comm
 ## An example configuration:
 
 ```json [settings]
-// ~/.config/zed/settings.json
+// ~/.config/neozed/settings.json
 {
   "theme": "cave-light",
   "tab_size": 2,

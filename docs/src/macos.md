@@ -42,49 +42,49 @@ Zed uses Metal for GPU-accelerated rendering, which is available on all supporte
 
 ## Installing the CLI
 
-Zed includes a command-line tool for opening files and projects from Terminal. To install it:
+Neo Zed includes a command-line tool for opening files and projects from Terminal. To install it:
 
-1. Open Zed
+1. Open Neo Zed
 2. Open the command palette with `Cmd+Shift+P`
 3. Run `cli: install`
 
-This creates a `zed` command in `/usr/local/bin`. You can then open files and folders:
+This creates a `neozed` command in `/usr/local/bin`. You can then open files and folders:
 
 ```sh
-zed .                    # Open current folder
-zed file.txt             # Open a file
-zed project/ file.txt    # Open a folder and a file
+neozed .                    # Open current folder
+neozed file.txt             # Open a file
+neozed project/ file.txt    # Open a folder and a file
 ```
 
 See the [CLI Reference](./reference/cli.md) for all available options.
 
 ## Uninstall
 
-1. Quit Zed if it's running
-2. Drag Zed from Applications to the Trash
+1. Quit Neo Zed if it's running
+2. Drag Neo Zed from Applications to the Trash
 3. Optionally, remove your settings and extensions:
 
 ```sh
-rm -rf ~/.config/zed
-rm -rf ~/Library/Application\ Support/Zed
-rm -rf ~/Library/Caches/Zed
-rm -rf ~/Library/Logs/Zed
-rm -rf ~/Library/Saved\ Application\ State/dev.zed.Zed.savedState
+rm -rf ~/.config/neozed
+rm -rf ~/Library/Application\ Support/Neo\ Zed
+rm -rf ~/Library/Caches/Neo\ Zed
+rm -rf ~/Library/Logs/Neo\ Zed
+rm -rf ~/Library/Saved\ Application\ State/dev.neozed.savedState
 ```
 
 If you installed the CLI, remove it with:
 
 ```sh
-rm /usr/local/bin/zed
+rm /usr/local/bin/neozed
 ```
 
 ## Troubleshooting
 
-### Zed won't open or shows "damaged" warning
+### Neo Zed won't open or shows "damaged" warning
 
-If macOS reports that Zed is damaged or can't be opened, it's likely a Gatekeeper issue. Try:
+If macOS reports that Neo Zed is damaged or can't be opened, it's likely a Gatekeeper issue. Try:
 
-1. Right-click (or Control-click) on Zed in Applications
+1. Right-click (or Control-click) on Neo Zed in Applications
 2. Select "Open" from the context menu
 3. Click "Open" in the dialog that appears
 
@@ -93,12 +93,12 @@ This tells macOS to trust the application.
 If that doesn't work, remove the quarantine attribute:
 
 ```sh
-xattr -cr /Applications/Zed.app
+xattr -cr /Applications/Neo\ Zed.app
 ```
 
 ### CLI command not found
 
-If the `zed` command isn't available after installation:
+If the `neozed` command isn't available after installation:
 
 1. Check that `/usr/local/bin` is in your PATH
 2. Try reinstalling the CLI via `cli: install` in the command palette

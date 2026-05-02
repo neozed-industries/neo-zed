@@ -1059,7 +1059,7 @@ impl Platform for MacPlatform {
     }
 
     fn write_credentials(&self, url: &str, username: &str, password: &[u8]) -> Task<Result<()>> {
-        let url = url.to_string();
+        let url = credential_key(url);
         let username = username.to_string();
         let password = password.to_vec();
         self.background_executor().spawn(async move {
@@ -1100,7 +1100,7 @@ impl Platform for MacPlatform {
     }
 
     fn read_credentials(&self, url: &str) -> Task<Result<Option<(String, Vec<u8>)>>> {
-        let url = url.to_string();
+        let url = credential_key(url);
         self.background_executor().spawn(async move {
             let url = CFString::from(url.as_str());
             let cf_true = CFBoolean::true_value().as_CFTypeRef();
@@ -1145,7 +1145,7 @@ impl Platform for MacPlatform {
     }
 
     fn delete_credentials(&self, url: &str) -> Task<Result<()>> {
-        let url = url.to_string();
+        let url = credential_key(url);
 
         self.background_executor().spawn(async move {
             unsafe {
@@ -1161,6 +1161,16 @@ impl Platform for MacPlatform {
             }
             Ok(())
         })
+    }
+}
+
+const CREDENTIAL_KEY_PREFIX: &str = "neozed-credentials:";
+
+fn credential_key(url: &str) -> String {
+    if url.starts_with(CREDENTIAL_KEY_PREFIX) {
+        url.to_string()
+    } else {
+        format!("{CREDENTIAL_KEY_PREFIX}{url}")
     }
 }
 

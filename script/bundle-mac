@@ -51,10 +51,10 @@ shift $((OPTIND-1))
 # Get release channel
 pushd crates/zed
 channel=$(<RELEASE_CHANNEL)
-export ZED_RELEASE_CHANNEL="${channel}"
+export NEOZED_RELEASE_CHANNEL="${channel}"
 popd
 
-export ZED_BUNDLE=true
+export NEOZED_BUNDLE=true
 
 cargo_bundle_version=$(cargo -q bundle --help 2>&1 | head -n 1 || echo "")
 if [ "$cargo_bundle_version" != "cargo-bundle v0.6.1-zed" ]; then
@@ -336,5 +336,5 @@ cp target/${target_triple}/${target_dir}/zed "${app_path}/Contents/MacOS/zed"
 cp target/${target_triple}/${target_dir}/cli "${app_path}/Contents/MacOS/cli"
 sign_app_binaries
 
-sign_binary "target/$target_triple/release/remote_server"
-gzip -f --stdout --best target/$target_triple/release/remote_server > target/zed-remote-server-macos-$arch_suffix.gz
+sign_binary "target/$target_triple/$target_dir/remote_server"
+gzip -f --stdout --best target/$target_triple/$target_dir/remote_server > target/neozed-remote-server-macos-$arch_suffix.gz

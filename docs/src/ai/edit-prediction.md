@@ -15,7 +15,7 @@ The default provider is [Zeta, an open source model developed by Zed](https://ze
 To use Zeta, [sign in](../authentication.md#what-features-require-signing-in).
 Once signed in, predictions appear as you type.
 
-You can confirm that Zeta is properly configured by opening the [Settings Editor](zed://settings/edit_predictions.providers) (`Cmd+,` on macOS or `Ctrl+,` on Linux/Windows) and searching for `edit_predictions`. The `provider` field should be set to `Zed AI`.
+You can confirm that Zeta is properly configured by opening the [Settings Editor](neozed://settings/edit_predictions.providers) (`Cmd+,` on macOS or `Ctrl+,` on Linux/Windows) and searching for `edit_predictions`. The `provider` field should be set to `Zed AI`.
 
 Or verify this in your settings.json:
 
@@ -182,7 +182,7 @@ To disable edit predictions for specific directories or files, set this in your 
 ```json [settings]
 {
   "edit_predictions": {
-    "disabled_globs": ["~/.config/zed/settings.json"]
+    "disabled_globs": ["~/.config/neozed/settings.json"]
   }
 }
 ```

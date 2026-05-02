@@ -284,14 +284,14 @@ When documenting rules/instructions for AI, note that Zed recognizes these files
 
 ### Settings File Locations
 
-- macOS: `~/.config/zed/settings.json`
-- Linux: `~/.config/zed/settings.json`
+- macOS: `~/.config/neozed/settings.json`
+- Linux: `~/.config/neozed/settings.json`
 - Windows: `%AppData%\Zed\settings.json`
 
 ### Keymap File Locations
 
-- macOS: `~/.config/zed/keymap.json`
-- Linux: `~/.config/zed/keymap.json`
+- macOS: `~/.config/neozed/keymap.json`
+- Linux: `~/.config/neozed/keymap.json`
 - Windows: `%AppData%\Zed\keymap.json`
 
 ## Safety Constraints
