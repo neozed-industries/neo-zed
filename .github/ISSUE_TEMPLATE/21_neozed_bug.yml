@@ -44,7 +44,7 @@ body:
       label: Required proof
       value: |
         - Build/test:
-        - Screenshot:
+        - Screenshot: for UI proof, run `script/bundle-mac -d -i -o` from the repo root to build, install, and open `/Applications/Neo Zed.app`; then use the Computer Use plugin to interact with that installed app window and capture window screenshots. Attach screenshots to the PR conversation. Never commit screenshots to the repo.
         - Screen recording:
         - Manual verification:
     validations:
