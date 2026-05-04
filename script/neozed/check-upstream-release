@@ -2,7 +2,7 @@
 set -euo pipefail
 
 UPSTREAM_REMOTE_URL="${UPSTREAM_REMOTE_URL:-https://github.com/zed-industries/zed.git}"
-UPSTREAM_REVIEW_FILE="${UPSTREAM_REVIEW_FILE:-docs/neozed/UPSTREAM_REVIEW.md}"
+LAST_REVIEWED_UPSTREAM_TAG="${LAST_REVIEWED_UPSTREAM_TAG:-v1.0.0}"
 REPOSITORY="${NEOZED_REPOSITORY:-${GITHUB_REPOSITORY:-}}"
 DRY_RUN="${DRY_RUN:-false}"
 
@@ -18,17 +18,6 @@ fi
 
 if [[ -z "$REPOSITORY" ]]; then
     REPOSITORY="$(gh repo view --json nameWithOwner -q .nameWithOwner)"
-fi
-
-if [[ ! -f "$UPSTREAM_REVIEW_FILE" ]]; then
-    echo "missing $UPSTREAM_REVIEW_FILE" >&2
-    exit 1
-fi
-
-last_reviewed_tag="$(sed -n 's/^- Zed tag: `\([^`]*\)`.*/\1/p' "$UPSTREAM_REVIEW_FILE" | head -1)"
-if [[ -z "$last_reviewed_tag" ]]; then
-    echo "could not find last reviewed upstream tag in $UPSTREAM_REVIEW_FILE" >&2
-    exit 1
 fi
 
 tmpdir="$(mktemp -d)"
@@ -50,20 +39,20 @@ if [[ -z "$latest_stable_tag" ]]; then
     exit 1
 fi
 
-if [[ "$latest_stable_tag" == "$last_reviewed_tag" ]]; then
+if [[ "$latest_stable_tag" == "$LAST_REVIEWED_UPSTREAM_TAG" ]]; then
     echo "Upstream stable already reviewed: $latest_stable_tag"
     exit 0
 fi
 
-last_commit="$(git -C "$tmpdir/upstream-zed" rev-parse "$last_reviewed_tag^{}")"
+last_commit="$(git -C "$tmpdir/upstream-zed" rev-parse "$LAST_REVIEWED_UPSTREAM_TAG^{}")"
 latest_commit="$(git -C "$tmpdir/upstream-zed" rev-parse "$latest_stable_tag^{}")"
 release_url="https://github.com/zed-industries/zed/releases/tag/$latest_stable_tag"
-compare_url="https://github.com/zed-industries/zed/compare/$last_reviewed_tag...$latest_stable_tag"
+compare_url="https://github.com/zed-industries/zed/compare/$LAST_REVIEWED_UPSTREAM_TAG...$latest_stable_tag"
 
 existing_issue_count="$(
     gh issue list \
         --repo "$REPOSITORY" \
-        --state open \
+        --state all \
         --search "\"Review upstream Zed $latest_stable_tag\"" \
         --json number \
         --jq length
@@ -79,7 +68,7 @@ candidate_commits="$(
         --reverse \
         --no-merges \
         --format='- [ ] `%h` %s' \
-        "$last_reviewed_tag..$latest_stable_tag"
+        "$LAST_REVIEWED_UPSTREAM_TAG..$latest_stable_tag"
 )"
 
 if [[ -z "$candidate_commits" ]]; then
@@ -97,7 +86,7 @@ cat > "$body_file" <<EOF
 
 ## Previous Reviewed Release
 
-- Zed tag: \`$last_reviewed_tag\`
+- Zed tag: \`$LAST_REVIEWED_UPSTREAM_TAG\`
 - Upstream commit: \`$last_commit\`
 
 ## Candidate Commits
@@ -108,20 +97,17 @@ $candidate_commits
 
 ## Review Rules
 
-Follow \`docs/neozed/WORKFLOW.md\`, \`docs/neozed/FORK_POLICY.md\`, and \`docs/neozed/UPSTREAM_REVIEW.md\`.
-
 - Do not merge upstream branches.
 - Do not auto-cherry-pick the full release.
 - Cherry-pick accepted commits into \`main\` first.
-- Backport to \`stable/v1.0\` only when the stable backport policy is met.
-- Update \`docs/neozed/UPSTREAM_REVIEW.md\` after review completion.
+- Backport to stable only when the change is a serious bug, crash, security, data-loss, or build/release fix.
+- Record the final take/skip/manual-review decisions in this issue or the linked PR.
 
 ## Required Verification
 
 - [ ] Candidate classification completed
 - [ ] Accepted commits verified on \`main\`
-- [ ] Stable backports, if any, verified on \`stable/v1.0\`
-- [ ] \`docs/neozed/UPSTREAM_REVIEW.md\` updated
+- [ ] Stable backports, if any, verified on the stable branch
 EOF
 
 label_args=()
