@@ -6,10 +6,7 @@ use crate::{
         PromptCompletionProvider, PromptCompletionProviderDelegate, PromptContextAction,
         PromptContextType, SlashCommandCompletion,
     },
-    mention_set::{
-        Mention, MentionImage, MentionSet, insert_crease_for_mention,
-        insert_crease_for_mention_with_open_url,
-    },
+    mention_set::{Mention, MentionImage, MentionSet, insert_crease_for_mention},
 };
 use acp_thread::MentionUri;
 use agent::ThreadStore;
@@ -34,7 +31,7 @@ use project::{
 use prompt_store::PromptStore;
 use rope::Point;
 use settings::Settings;
-use std::{collections::HashSet, fmt::Write, ops::Range, rc::Rc, sync::Arc};
+use std::{fmt::Write, ops::Range, rc::Rc, sync::Arc};
 use theme_settings::ThemeSettings;
 use ui::{ContextMenu, Disclosure, ElevationIndex, prelude::*};
 use util::paths::PathStyle;
@@ -139,7 +136,6 @@ pub struct MessageEditor {
     mention_set: Entity<MentionSet>,
     editor: Entity<Editor>,
     workspace: WeakEntity<Workspace>,
-    browser_annotation_crease_ids: HashSet<editor::display_map::CreaseId>,
     session_capabilities: SharedSessionCapabilities,
     agent_id: AgentId,
     thread_store: Option<Entity<ThreadStore>>,
@@ -550,7 +546,6 @@ impl MessageEditor {
             editor,
             mention_set,
             workspace,
-            browser_annotation_crease_ids: HashSet::default(),
             session_capabilities,
             agent_id,
             thread_store,
@@ -683,173 +678,6 @@ impl MessageEditor {
             .borrow()
             .as_ref()
             .is_some_and(|menu| matches!(menu, CodeContextMenu::Completions(_)) && menu.visible())
-    }
-
-    pub fn append_browser_annotation(
-        &mut self,
-        annotation: &crate::BrowserAnnotation,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let Some(workspace) = self.workspace.upgrade() else {
-            return;
-        };
-
-        let path_style = workspace.read(cx).project().read(cx).path_style(cx);
-        let uri = match MentionUri::parse(&annotation.url, path_style) {
-            Ok(uri) => uri,
-            Err(error) => match url::Url::parse(&annotation.url) {
-                Ok(url) => MentionUri::Fetch { url },
-                Err(url_error) => {
-                    log::warn!(
-                        "browser annotation: failed to parse annotation URL {:?}: {error:#}; {url_error:#}",
-                        annotation.url
-                    );
-                    self.append_message(
-                        vec![acp::ContentBlock::Text(acp::TextContent::new(
-                            build_browser_annotation_content(annotation),
-                        ))],
-                        Some("\n\n"),
-                        window,
-                        cx,
-                    );
-                    return;
-                }
-            },
-        };
-
-        let label: SharedString = annotation
-            .title
-            .as_deref()
-            .filter(|t| !t.trim().is_empty())
-            .map(|t| t.to_string().into())
-            .unwrap_or_else(|| annotation.url.clone().into());
-
-        let tooltip = build_browser_annotation_tooltip(annotation);
-        let open_url = annotation.url.clone().into();
-        let focus_url = annotation
-            .focus_url
-            .as_deref()
-            .filter(|url| !url.trim().is_empty())
-            .map(|url| url.to_string().into());
-
-        let content = build_browser_annotation_content(annotation);
-
-        let mention_text = uri.as_link().to_string();
-        let content_len = mention_text.len();
-
-        if !self.is_empty(cx) {
-            self.editor.update(cx, |editor, cx| {
-                editor.edit(
-                    [(multi_buffer::Anchor::Max..multi_buffer::Anchor::Max, " ")],
-                    cx,
-                );
-            });
-        }
-
-        let multi_buffer = self.editor.read(cx).buffer().clone();
-        let Some(buffer) = multi_buffer.read(cx).as_singleton() else {
-            return;
-        };
-        let start = buffer.update(cx, |buffer, _cx| buffer.anchor_before(buffer.len()));
-        self.editor.update(cx, |editor, cx| {
-            editor.edit(
-                [(
-                    multi_buffer::Anchor::Max..multi_buffer::Anchor::Max,
-                    mention_text.clone(),
-                )],
-                cx,
-            );
-        });
-
-        let Some((crease_id, _tx)) = insert_crease_for_mention_with_open_url(
-            start,
-            content_len,
-            label,
-            uri.icon_path(cx),
-            tooltip,
-            Some(uri.clone()),
-            Some(self.workspace.clone()),
-            Some(open_url),
-            annotation.id.clone().map(Into::into),
-            focus_url,
-            None,
-            self.editor.clone(),
-            window,
-            cx,
-        ) else {
-            return;
-        };
-
-        self.browser_annotation_crease_ids.insert(crease_id);
-
-        self.mention_set.update(cx, |mention_set, _cx| {
-            mention_set.insert_mention(
-                crease_id,
-                uri,
-                Task::ready(Ok(Mention::Text {
-                    content,
-                    tracked_buffers: Vec::new(),
-                }))
-                .shared(),
-            );
-        });
-
-        cx.notify();
-    }
-
-    pub fn set_browser_annotations(
-        &mut self,
-        annotations: &[crate::BrowserAnnotation],
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.clear_browser_annotations(window, cx);
-        for annotation in annotations {
-            self.append_browser_annotation(annotation, window, cx);
-        }
-    }
-
-    fn clear_browser_annotations(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.browser_annotation_crease_ids.is_empty() {
-            return;
-        }
-
-        let crease_ids = self
-            .browser_annotation_crease_ids
-            .drain()
-            .collect::<Vec<_>>();
-        let crease_id_set = crease_ids.iter().copied().collect::<HashSet<_>>();
-
-        self.editor.update(cx, |editor, cx| {
-            let mut edits = Vec::new();
-            editor.display_map.update(cx, |map, cx| {
-                let snapshot = map.snapshot(cx);
-                for (crease_id, crease) in snapshot.crease_snapshot.creases() {
-                    if crease_id_set.contains(&crease_id) {
-                        edits.push((crease.range().clone(), ""));
-                    }
-                }
-            });
-            if !edits.is_empty() {
-                editor.edit(edits, cx);
-            }
-        });
-
-        self.mention_set.update(cx, |mention_set, _cx| {
-            for crease_id in &crease_ids {
-                mention_set.remove_mention(crease_id);
-            }
-        });
-
-        self.editor.update(cx, |editor, cx| {
-            editor.remove_creases(crease_ids, cx);
-        });
-
-        if self.editor.read(cx).text(cx).trim().is_empty() {
-            self.editor
-                .update(cx, |editor, cx| editor.clear(window, cx));
-        }
     }
 
     #[cfg(test)]
@@ -1759,7 +1587,6 @@ impl MessageEditor {
         cx: &mut Context<Self>,
     ) {
         let Some(workspace) = self.workspace.upgrade() else {
-            log::warn!("browser annotation: workspace dropped, cannot insert message blocks");
             return;
         };
 
@@ -1778,10 +1605,6 @@ impl MessageEditor {
                 }) => {
                     let Some(mention_uri) = MentionUri::parse(&resource.uri, path_style).log_err()
                     else {
-                        log::warn!(
-                            "browser annotation: failed to parse mention URI {:?}",
-                            resource.uri
-                        );
                         continue;
                     };
                     let start = text.len();
@@ -2076,74 +1899,6 @@ fn find_matching_bracket(text: &str, open: char, close: char) -> Option<usize> {
         }
     }
     None
-}
-
-fn build_browser_annotation_tooltip(annotation: &crate::BrowserAnnotation) -> Option<SharedString> {
-    let mut parts: Vec<String> = Vec::new();
-
-    if let Some(title) = annotation.title.as_deref().filter(|t| !t.trim().is_empty()) {
-        parts.push(format!("Title: {title}"));
-    }
-
-    parts.push(format!("URL: {}", annotation.url));
-
-    if let Some(selected) = annotation
-        .selected_text
-        .as_deref()
-        .filter(|t| !t.trim().is_empty())
-    {
-        parts.push(format!(
-            "Selected text: {}",
-            truncate_browser_annotation_tooltip_field(selected, 500)
-        ));
-    }
-
-    if let Some(selector) = annotation
-        .selector
-        .as_deref()
-        .filter(|t| !t.trim().is_empty())
-    {
-        parts.push(format!("Selector: {selector}"));
-    }
-
-    if let Some(comment) = annotation
-        .comment
-        .as_deref()
-        .filter(|t| !t.trim().is_empty())
-    {
-        parts.push(format!("Comment: {comment}"));
-    }
-
-    if parts.is_empty() {
-        return None;
-    }
-
-    Some(parts.join("\n").into())
-}
-
-fn truncate_browser_annotation_tooltip_field(value: &str, max_chars: usize) -> String {
-    let mut output = String::new();
-    let mut characters = value.chars();
-
-    for _ in 0..max_chars {
-        let Some(character) = characters.next() else {
-            return output;
-        };
-        output.push(character);
-    }
-
-    if characters.next().is_some() {
-        output.push_str("...");
-    }
-
-    output
-}
-
-fn build_browser_annotation_content(annotation: &crate::BrowserAnnotation) -> String {
-    annotation
-        .to_external_source_prompt()
-        .map(|prompt| prompt.into_string())
-        .unwrap_or_else(|| "Browser annotation".to_string())
 }
 
 #[cfg(test)]

@@ -44,12 +44,12 @@ use crate::{
     ui::EndTrialUpsell,
 };
 use crate::{
-    Agent, AgentInitialContent, BrowserAnnotation, ExternalSourcePrompt, NewExternalAgentThread,
+    Agent, AgentInitialContent, ExternalSourcePrompt, NewExternalAgentThread,
     NewNativeAgentThreadFromSummary,
 };
 use agent_settings::AgentSettings;
 use ai_onboarding::AgentPanelOnboarding;
-use anyhow::{Context as _, Result};
+use anyhow::Result;
 use chrono::{DateTime, Utc};
 use client::UserStore;
 use cloud_api_types::Plan;
@@ -1394,97 +1394,6 @@ impl AgentPanel {
         editor.update(cx, |editor, cx| {
             editor.clear(window, cx);
         });
-    }
-
-    pub fn append_browser_annotation_to_active_thread(
-        &mut self,
-        annotation: BrowserAnnotation,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Result<()> {
-        annotation
-            .to_external_source_prompt()
-            .context("browser annotation did not contain usable text")?;
-
-        let Some(active_thread) = self.active_thread_view(cx) else {
-            self.external_thread(
-                None,
-                None,
-                None,
-                None,
-                Some(AgentInitialContent::BrowserAnnotation(annotation)),
-                true,
-                "agent_panel",
-                window,
-                cx,
-            );
-            return Ok(());
-        };
-
-        let message_editor = active_thread.read(cx).message_editor.clone();
-        message_editor.update(cx, |editor, cx| {
-            editor.append_browser_annotation(&annotation, window, cx);
-        });
-        active_thread.update(cx, |thread_view, cx| {
-            thread_view.show_external_source_prompt_warning = true;
-            cx.notify();
-        });
-
-        Ok(())
-    }
-
-    pub fn sync_browser_annotations_to_active_thread(
-        &mut self,
-        annotations: Vec<BrowserAnnotation>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Result<()> {
-        if !annotations.is_empty() {
-            annotations.iter().try_for_each(|annotation| {
-                annotation
-                    .to_external_source_prompt()
-                    .context("browser annotation did not contain usable text")
-                    .map(|_| ())
-            })?;
-        }
-
-        if annotations.is_empty() {
-            if let Some(active_thread) = self.active_thread_view(cx) {
-                let message_editor = active_thread.read(cx).message_editor.clone();
-                message_editor.update(cx, |editor, cx| {
-                    editor.set_browser_annotations(&[], window, cx);
-                });
-            }
-            return Ok(());
-        }
-
-        let active_thread = match self.active_thread_view(cx) {
-            Some(active_thread) => active_thread,
-            None => {
-                self.external_thread(
-                    None,
-                    None,
-                    None,
-                    None,
-                    Some(AgentInitialContent::BrowserAnnotations(annotations.clone())),
-                    true,
-                    "agent_panel",
-                    window,
-                    cx,
-                );
-                return Ok(());
-            }
-        };
-        let message_editor = active_thread.read(cx).message_editor.clone();
-        message_editor.update(cx, |editor, cx| {
-            editor.set_browser_annotations(&annotations, window, cx);
-        });
-        active_thread.update(cx, |thread_view, cx| {
-            thread_view.show_external_source_prompt_warning = true;
-            cx.notify();
-        });
-
-        Ok(())
     }
 
     fn new_native_agent_thread_from_summary(
@@ -3959,14 +3868,11 @@ mod tests {
     use super::*;
     use crate::NewWorktreeBranchTarget;
     use crate::conversation_view::tests::{StubAgentServer, init_test};
-    use crate::mention_set::Mention;
     use crate::test_support::{
         active_session_id, active_thread_id, open_thread_with_connection,
         open_thread_with_custom_connection, send_message,
     };
-    use acp_thread::{
-        AgentConnection, MentionUri, StubAgentConnection, ThreadStatus, UserMessageId,
-    };
+    use acp_thread::{AgentConnection, StubAgentConnection, ThreadStatus, UserMessageId};
     use action_log::ActionLog;
     use anyhow::{Result, anyhow};
     use feature_flags::FeatureFlagAppExt;
@@ -4945,206 +4851,6 @@ mod tests {
         });
 
         (panel, cx)
-    }
-
-    fn browser_annotation() -> BrowserAnnotation {
-        BrowserAnnotation {
-            id: Some("comment-1".into()),
-            url: "https://example.com/article".into(),
-            title: Some("Example article".into()),
-            selected_text: Some("Selected page text".into()),
-            selector: Some("main article p:nth-child(2)".into()),
-            comment: Some("Please review this claim.".into()),
-            focus_url: Some("chrome-extension://extension/src/focus.html?tabId=1".into()),
-        }
-    }
-
-    fn browser_annotation_with_url(url: &str) -> BrowserAnnotation {
-        BrowserAnnotation {
-            id: Some("comment-1".into()),
-            url: url.into(),
-            title: Some("Browser page".into()),
-            selected_text: Some("Selected page text".into()),
-            selector: Some("main".into()),
-            comment: Some("Comment".into()),
-            focus_url: Some(url.into()),
-        }
-    }
-
-    #[gpui::test]
-    async fn test_browser_annotation_creates_draft_thread(cx: &mut TestAppContext) {
-        let (panel, mut cx) = setup_panel(cx).await;
-
-        crate::test_support::set_stub_agent_connection(StubAgentConnection::new());
-        panel.update(&mut cx, |panel, _cx| {
-            panel.selected_agent = Agent::Stub;
-        });
-
-        panel.read_with(&cx, |panel, cx| {
-            assert_eq!(panel.active_thread_id(cx), None);
-        });
-
-        panel.update_in(&mut cx, |panel, window, cx| {
-            panel
-                .append_browser_annotation_to_active_thread(browser_annotation(), window, cx)
-                .expect("annotation should be inserted into a new draft thread");
-        });
-        cx.run_until_parked();
-
-        panel.read_with(&cx, |panel, cx| {
-            let thread_id = panel
-                .active_thread_id(cx)
-                .expect("annotation should create an active draft thread");
-            assert_eq!(
-                panel.editor_text(thread_id, cx).as_deref(),
-                Some("[@https://example.com/article](https://example.com/article)")
-            );
-            let thread_view = panel
-                .active_thread_view(cx)
-                .expect("active draft should have a thread view");
-            assert!(
-                thread_view.read(cx).show_external_source_prompt_warning,
-                "browser annotations should require manual review before sending"
-            );
-        });
-
-        let message_editor = panel.read_with(&cx, |panel, cx| {
-            panel
-                .active_thread_view(cx)
-                .expect("active draft should have a thread view")
-                .read(cx)
-                .message_editor
-                .clone()
-        });
-        let contents = message_editor
-            .update(&mut cx, |message_editor, cx| {
-                message_editor
-                    .mention_set()
-                    .update(cx, |mention_set, cx| mention_set.contents(false, cx))
-            })
-            .await
-            .expect("browser annotation mention content should load")
-            .into_values()
-            .collect::<Vec<_>>();
-
-        let [(uri, Mention::Text { content, .. })] = contents.as_slice() else {
-            panic!("expected one browser annotation mention");
-        };
-        assert!(matches!(uri, MentionUri::Fetch { .. }));
-        assert_eq!(
-            content,
-            "Browser annotation\nURL: https://example.com/article\nTitle: Example article\nSelected text: Selected page text\nSelector: main article p:nth-child(2)\nComment: Please review this claim."
-        );
-    }
-
-    #[gpui::test]
-    async fn test_browser_annotation_sync_creates_draft_thread_with_all_annotations(
-        cx: &mut TestAppContext,
-    ) {
-        let (panel, mut cx) = setup_panel(cx).await;
-
-        crate::test_support::set_stub_agent_connection(StubAgentConnection::new());
-        panel.update(&mut cx, |panel, _cx| {
-            panel.selected_agent = Agent::Stub;
-        });
-
-        panel.update_in(&mut cx, |panel, window, cx| {
-            panel
-                .sync_browser_annotations_to_active_thread(
-                    vec![
-                        browser_annotation_with_url("https://example.com/one"),
-                        browser_annotation_with_url("https://example.com/two"),
-                    ],
-                    window,
-                    cx,
-                )
-                .expect("annotations should be synced into a new draft thread");
-        });
-        cx.run_until_parked();
-
-        panel.read_with(&cx, |panel, cx| {
-            let thread_id = panel
-                .active_thread_id(cx)
-                .expect("annotations should create an active draft thread");
-            assert_eq!(
-                panel.editor_text(thread_id, cx).as_deref(),
-                Some("[@https://example.com/one](https://example.com/one) [@https://example.com/two](https://example.com/two)")
-            );
-        });
-    }
-
-    #[gpui::test]
-    async fn test_browser_annotation_appends_to_existing_draft(cx: &mut TestAppContext) {
-        let (panel, mut cx) = setup_panel(cx).await;
-
-        crate::test_support::set_stub_agent_connection(StubAgentConnection::new());
-        panel.update(&mut cx, |panel, _cx| {
-            panel.selected_agent = Agent::Stub;
-        });
-
-        panel.update_in(&mut cx, |panel, window, cx| {
-            panel.activate_draft(true, "agent_panel", window, cx);
-        });
-        cx.run_until_parked();
-
-        panel.update_in(&mut cx, |panel, window, cx| {
-            let thread_view = panel
-                .active_thread_view(cx)
-                .expect("draft should have an active thread view");
-            let message_editor = thread_view.read(cx).message_editor.clone();
-            message_editor.update(cx, |editor, cx| {
-                editor.set_text("Existing draft", window, cx);
-            });
-        });
-
-        panel.update_in(&mut cx, |panel, window, cx| {
-            panel
-                .append_browser_annotation_to_active_thread(browser_annotation(), window, cx)
-                .expect("annotation should append to the active draft");
-        });
-
-        panel.read_with(&cx, |panel, cx| {
-            let thread_id = panel
-                .active_thread_id(cx)
-                .expect("draft should remain active");
-            assert_eq!(
-                panel.editor_text(thread_id, cx).as_deref(),
-                Some("Existing draft [@https://example.com/article](https://example.com/article)")
-            );
-        });
-    }
-
-    #[gpui::test]
-    async fn test_browser_annotation_inserts_chip_for_internal_browser_url(
-        cx: &mut TestAppContext,
-    ) {
-        let (panel, mut cx) = setup_panel(cx).await;
-
-        crate::test_support::set_stub_agent_connection(StubAgentConnection::new());
-        panel.update(&mut cx, |panel, _cx| {
-            panel.selected_agent = Agent::Stub;
-        });
-
-        panel.update_in(&mut cx, |panel, window, cx| {
-            panel
-                .append_browser_annotation_to_active_thread(
-                    browser_annotation_with_url("chrome://newtab"),
-                    window,
-                    cx,
-                )
-                .expect("annotation should be inserted into a new draft thread");
-        });
-        cx.run_until_parked();
-
-        panel.read_with(&cx, |panel, cx| {
-            let thread_id = panel
-                .active_thread_id(cx)
-                .expect("annotation should create an active draft thread");
-            assert_eq!(
-                panel.editor_text(thread_id, cx).as_deref(),
-                Some("[@chrome://newtab](chrome://newtab)")
-            );
-        });
     }
 
     #[gpui::test]

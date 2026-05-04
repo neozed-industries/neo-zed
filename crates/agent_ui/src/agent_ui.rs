@@ -66,11 +66,7 @@ pub use crate::inline_assistant::InlineAssistant;
 pub use crate::thread_metadata_store::ThreadId;
 pub use agent_diff::{AgentDiffPane, AgentDiffToolbar};
 pub use conversation_view::ConversationView;
-pub(crate) use external_source_prompt::request_browser_annotation_focus;
-pub use external_source_prompt::{
-    BrowserAnnotation, BrowserAnnotationFocus, ExternalSourcePrompt,
-    set_browser_annotation_focus_handler,
-};
+pub use external_source_prompt::ExternalSourcePrompt;
 pub(crate) use mode_selector::ModeSelector;
 pub(crate) use model_selector::ModelSelector;
 pub(crate) use model_selector_popover::ModelSelectorPopover;
@@ -347,8 +343,6 @@ pub enum AgentInitialContent {
         auto_submit: bool,
     },
     FromExternalSource(ExternalSourcePrompt),
-    BrowserAnnotation(BrowserAnnotation),
-    BrowserAnnotations(Vec<BrowserAnnotation>),
 }
 
 impl From<ExternalSourcePrompt> for AgentInitialContent {
