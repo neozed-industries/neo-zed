@@ -13,7 +13,7 @@ use theme_settings::ThemeSettings;
 use ui::{ButtonLike, TintColor, Tooltip, prelude::*};
 use workspace::{OpenOptions, Workspace};
 
-use crate::{Agent, BrowserAnnotationFocus, request_browser_annotation_focus};
+use crate::Agent;
 
 #[derive(IntoElement)]
 pub struct MentionCrease {
@@ -22,9 +22,6 @@ pub struct MentionCrease {
     label: SharedString,
     mention_uri: Option<MentionUri>,
     workspace: Option<WeakEntity<Workspace>>,
-    open_url: Option<SharedString>,
-    browser_annotation_id: Option<SharedString>,
-    browser_annotation_focus_url: Option<SharedString>,
     is_toggled: bool,
     is_loading: bool,
     tooltip: Option<SharedString>,
@@ -43,9 +40,6 @@ impl MentionCrease {
             label: label.into(),
             mention_uri: None,
             workspace: None,
-            open_url: None,
-            browser_annotation_id: None,
-            browser_annotation_focus_url: None,
             is_toggled: false,
             is_loading: false,
             tooltip: None,
@@ -60,24 +54,6 @@ impl MentionCrease {
 
     pub fn workspace(mut self, workspace: Option<WeakEntity<Workspace>>) -> Self {
         self.workspace = workspace;
-        self
-    }
-
-    pub fn open_url(mut self, open_url: Option<SharedString>) -> Self {
-        self.open_url = open_url;
-        self
-    }
-
-    pub fn browser_annotation_id(mut self, browser_annotation_id: Option<SharedString>) -> Self {
-        self.browser_annotation_id = browser_annotation_id;
-        self
-    }
-
-    pub fn browser_annotation_focus_url(
-        mut self,
-        browser_annotation_focus_url: Option<SharedString>,
-    ) -> Self {
-        self.browser_annotation_focus_url = browser_annotation_focus_url;
         self
     }
 
@@ -113,9 +89,6 @@ impl RenderOnce for MentionCrease {
         let is_loading = self.is_loading;
         let tooltip = self.tooltip;
         let image_preview = self.image_preview;
-        let open_url = self.open_url.clone();
-        let browser_annotation_id = self.browser_annotation_id.clone();
-        let browser_annotation_focus_url = self.browser_annotation_focus_url.clone();
 
         let button_height = DefiniteLength::Absolute(AbsoluteLength::Pixels(
             px(window.line_height().into()) - px(1.),
@@ -127,23 +100,8 @@ impl RenderOnce for MentionCrease {
             .height(button_height)
             .selected_style(ButtonStyle::Tinted(TintColor::Accent))
             .toggle_state(self.is_toggled)
-            .when_some(open_url, |this, open_url| {
-                this.on_click(move |_event, _window, cx| {
-                    focus_browser_tab(
-                        open_url.as_ref(),
-                        browser_annotation_id.as_ref().map(|id| id.as_ref()),
-                        browser_annotation_focus_url
-                            .as_ref()
-                            .map(|url| url.as_ref()),
-                        cx,
-                    );
-                })
-            })
             .when_some(
-                self.open_url
-                    .is_none()
-                    .then(|| self.mention_uri.clone().zip(self.workspace.clone()))
-                    .flatten(),
+                self.mention_uri.clone().zip(self.workspace.clone()),
                 |this, (mention_uri, workspace)| {
                     this.on_click(move |_event, window, cx| {
                         open_mention_uri(mention_uri.clone(), &workspace, window, cx);
@@ -187,28 +145,6 @@ impl RenderOnce for MentionCrease {
                 }
             })
     }
-}
-
-fn focus_browser_tab(
-    url: &str,
-    browser_annotation_id: Option<&str>,
-    browser_annotation_focus_url: Option<&str>,
-    cx: &mut App,
-) {
-    if let Some(browser_annotation_id) = browser_annotation_id
-        && request_browser_annotation_focus(
-            BrowserAnnotationFocus {
-                id: browser_annotation_id.to_string(),
-                url: url.to_string(),
-                fallback_url: browser_annotation_focus_url.map(str::to_string),
-            },
-            cx,
-        )
-    {
-        return;
-    }
-
-    cx.open_url(browser_annotation_focus_url.unwrap_or(url));
 }
 
 fn open_mention_uri(

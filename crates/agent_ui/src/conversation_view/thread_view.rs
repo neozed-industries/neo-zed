@@ -426,16 +426,6 @@ impl ThreadView {
                             cx,
                         );
                     }
-                    AgentInitialContent::BrowserAnnotation(annotation) => {
-                        show_external_source_prompt_warning = true;
-                        should_auto_submit = false;
-                        editor.append_browser_annotation(&annotation, window, cx);
-                    }
-                    AgentInitialContent::BrowserAnnotations(annotations) => {
-                        show_external_source_prompt_warning = true;
-                        should_auto_submit = false;
-                        editor.set_browser_annotations(&annotations, window, cx);
-                    }
                 }
             } else if let Some(draft) = thread.read(cx).draft_prompt() {
                 editor.set_message(draft.to_vec(), window, cx);

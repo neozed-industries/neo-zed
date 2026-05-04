@@ -1,5 +1,4 @@
 mod app_menus;
-pub(crate) mod browser_annotation_ipc;
 pub mod edit_prediction_registry;
 #[cfg(target_os = "macos")]
 pub(crate) mod mac_only_instance;

@@ -57,9 +57,6 @@ pub enum OpenRequestKind {
     AgentPanel {
         external_source_prompt: Option<ExternalSourcePrompt>,
     },
-    BrowserAnnotationPairing {
-        token: Option<String>,
-    },
     SharedAgentThread {
         session_id: String,
     },
@@ -94,10 +91,6 @@ impl std::fmt::Debug for OpenRequestKind {
             } => f
                 .debug_struct("AgentPanel")
                 .field("external_source_prompt", external_source_prompt)
-                .finish(),
-            Self::BrowserAnnotationPairing { token } => f
-                .debug_struct("BrowserAnnotationPairing")
-                .field("token", token)
                 .finish(),
             Self::SharedAgentThread { session_id } => f
                 .debug_struct("SharedAgentThread")
@@ -178,10 +171,6 @@ impl OpenRequest {
                 } else {
                     log::error!("Invalid session ID in URL: {}", session_id_str);
                 }
-            } else if let Some(browser_annotation_path) =
-                url.strip_prefix("neozed://browser-annotation")
-            {
-                this.parse_browser_annotation_url(browser_annotation_path)?
             } else if let Some(agent_path) = url.strip_prefix("neozed://agent") {
                 this.parse_agent_url(agent_path)
             } else if let Some(schema_path) = url.strip_prefix("neozed://schemas/") {
@@ -236,24 +225,6 @@ impl OpenRequest {
         self.kind = Some(OpenRequestKind::AgentPanel {
             external_source_prompt,
         });
-    }
-
-    fn parse_browser_annotation_url(&mut self, path: &str) -> Result<()> {
-        // Format: /pair or /pair?token=<token>
-        let path = path.strip_prefix('/').unwrap_or(path);
-        let (route, query) = path.split_once('?').unwrap_or((path, ""));
-        anyhow::ensure!(
-            route == "pair",
-            "invalid browser annotation URL: expected pair route"
-        );
-
-        let token = url::form_urlencoded::parse(query.as_bytes())
-            .find_map(|(key, value)| (key == "token").then_some(value))
-            .filter(|token| !token.is_empty())
-            .map(|token| token.to_string());
-
-        self.kind = Some(OpenRequestKind::BrowserAnnotationPairing { token });
-        Ok(())
     }
 
     fn parse_git_clone_url(&mut self, clone_path: &str) -> Result<()> {
@@ -1052,29 +1023,6 @@ mod tests {
                 assert_eq!(external_source_prompt, None);
             }
             _ => panic!("Expected AgentPanel kind"),
-        }
-    }
-
-    #[gpui::test]
-    fn test_parse_browser_annotation_pairing_url(cx: &mut TestAppContext) {
-        let _app_state = init_test(cx);
-
-        let request = cx.update(|cx| {
-            OpenRequest::parse(
-                RawOpenRequest {
-                    urls: vec!["zed://browser-annotation/pair?token=secret".into()],
-                    ..Default::default()
-                },
-                cx,
-            )
-            .unwrap()
-        });
-
-        match request.kind {
-            Some(OpenRequestKind::BrowserAnnotationPairing { token }) => {
-                assert_eq!(token.as_deref(), Some("secret"));
-            }
-            _ => panic!("Expected BrowserAnnotationPairing kind"),
         }
     }
 
