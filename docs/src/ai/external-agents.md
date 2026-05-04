@@ -12,7 +12,7 @@ Zed supports [Gemini CLI](https://github.com/google-gemini/gemini-cli) (the refe
 For Zed's built-in agent and the full list of tools it can use natively, see [Agent Tools](./tools.md).
 
 > Note that Zed's interaction with external agents is strictly UI-based; the billing, legal, and terms arrangement is directly between you and the agent provider.
-> Zed does not charge for use of external agents, and our [zero-data retention agreements/privacy guarantees](./ai-improvement.md) are **_only_** applicable for Zed's hosted models.
+> Zed does not charge for use of external agents, and our [zero-data retention agreements/privacy guarantees](./ai-improvement.md) are **_only_** applicable for Neo Zed's hosted models.
 
 ## Gemini CLI {#gemini-cli}
 

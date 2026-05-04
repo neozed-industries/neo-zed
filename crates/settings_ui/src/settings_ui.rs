@@ -1240,8 +1240,7 @@ fn render_settings_item_link(
         .and_then(|entry| entry.text())
         .map_or(false, |maybe_url| {
             json_path.is_some()
-                && (maybe_url.strip_prefix("neozed://settings/") == json_path
-                    || maybe_url.strip_prefix("zed://settings/") == json_path)
+                && maybe_url.strip_prefix("neozed://settings/") == json_path
         });
 
     let (link_icon, link_icon_color) = if clipboard_has_link {

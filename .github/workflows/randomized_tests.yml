@@ -13,7 +13,7 @@ env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
   RUST_BACKTRACE: 1
-  NEOZED_SERVER_URL: https://zed.dev
+  ZED_SERVER_URL: https://zed.dev
 
 jobs:
   tests:

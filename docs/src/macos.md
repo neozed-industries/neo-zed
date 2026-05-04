@@ -69,7 +69,7 @@ rm -rf ~/.config/neozed
 rm -rf ~/Library/Application\ Support/Neo\ Zed
 rm -rf ~/Library/Caches/Neo\ Zed
 rm -rf ~/Library/Logs/Neo\ Zed
-rm -rf ~/Library/Saved\ Application\ State/dev.neozed.savedState
+rm -rf ~/Library/Saved\ Application\ State/dev.neozed.NeoZed.savedState
 ```
 
 If you installed the CLI, remove it with:

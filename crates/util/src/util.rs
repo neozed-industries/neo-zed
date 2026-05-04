@@ -323,12 +323,12 @@ pub fn get_zed_cli_path() -> Result<PathBuf> {
         &["./cli"]
     } else if cfg!(target_os = "windows") {
         // bin/neozed.exe is for installed builds, ./cli.exe is for development builds.
-        &["bin/neozed.exe", "bin/zed.exe", "./cli.exe"]
+        &["bin/neozed.exe", "./cli.exe"]
     } else if cfg!(target_os = "linux") || cfg!(target_os = "freebsd") {
         // bin is the standard, ./cli is for the target directory in development builds.
-        &["../bin/neozed", "../bin/zed", "./cli"]
+        &["../bin/neozed", "./cli"]
     } else {
-        anyhow::bail!("unsupported platform for determining zed-cli path");
+        anyhow::bail!("unsupported platform for determining neozed-cli path");
     };
 
     possible_locations
@@ -342,7 +342,7 @@ pub fn get_zed_cli_path() -> Result<PathBuf> {
         })
         .with_context(|| {
             format!(
-                "could not find zed-cli from any of: {}",
+                "could not find neozed-cli from any of: {}",
                 possible_locations.join(", ")
             )
         })

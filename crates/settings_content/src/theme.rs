@@ -273,8 +273,8 @@ pub enum ThemeSelection {
     },
 }
 
-pub const DEFAULT_LIGHT_THEME: &'static str = "NeoZed Light";
-pub const DEFAULT_DARK_THEME: &'static str = "NeoZed Dark";
+pub const DEFAULT_LIGHT_THEME: &'static str = "Neo Zed Light";
+pub const DEFAULT_DARK_THEME: &'static str = "Neo Zed Dark";
 
 impl Default for ThemeSelection {
     fn default() -> Self {

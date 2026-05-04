@@ -11,7 +11,7 @@ Zed collects minimal data necessary to serve and improve our product. Features t
 
 - **Telemetry**: Zed collects only the data necessary to understand usage and fix issues. Client-side telemetry can be disabled in settings.
 
-- **AI**: Data sharing for AI improvement is opt-in, and each share is a one-time action; it does not grant permission for future data collection. You can use Zed's AI features without sharing any data with Zed and without authenticating.
+- **AI**: Data sharing for AI improvement is opt-in, and each share is a one-time action; it does not grant permission for future data collection. You can use Neo Zed's AI features without sharing any data with Zed and without authenticating.
 
 - **Open-Source**: Zed's codebase is public. You can inspect exactly what data is collected and how it's handled. If you find issues, we encourage you to report them.
 
@@ -25,7 +25,7 @@ Zed collects minimal data necessary to serve and improve our product. Features t
 
 - [Telemetry](../telemetry.md): How Zed collects general telemetry data.
 
-- [Zed AI Features and Privacy](./ai-improvement.md): An overview of Zed's AI features, your data when using AI in Zed, and how to opt-in and help Zed improve these features.
+- [Neo Zed AI Features and Privacy](./ai-improvement.md): An overview of Neo Zed's AI features, your data when using AI in Zed, and how to opt-in and help Zed improve these features.
 
 - [Accounts](../authentication.md): When and why you'd need to authenticate into Zed, how to do so, and what scope we need from you.
 

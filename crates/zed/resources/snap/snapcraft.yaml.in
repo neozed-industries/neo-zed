@@ -54,6 +54,6 @@ parts:
 apps:
   neozed:
     command: usr/bin/neozed
-    common-id: dev.neozed
+    common-id: dev.neozed.NeoZed
     environment:
-      NEOZED_BUNDLE_TYPE: snap
+      ZED_BUNDLE_TYPE: snap

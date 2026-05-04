@@ -44,11 +44,11 @@ fn main() {
 
 #[cfg(target_os = "macos")]
 fn main() {
-    // Set NEOZED_STATELESS early to prevent file system access to real config directories
+    // Set ZED_STATELESS early to prevent file system access to real config directories
     // This must be done before any code accesses zed_env_vars::ZED_STATELESS
     // SAFETY: We're at the start of main(), before any threads are spawned
     unsafe {
-        std::env::set_var("NEOZED_STATELESS", "1");
+        std::env::set_var("ZED_STATELESS", "1");
     }
 
     env_logger::builder()

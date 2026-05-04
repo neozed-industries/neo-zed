@@ -27,9 +27,8 @@ use walkdir::WalkDir;
 
 use std::io::IsTerminal;
 
-const URL_PREFIX: [&str; 6] = [
+const URL_PREFIX: [&str; 5] = [
     "neozed://",
-    "zed://",
     "http://",
     "https://",
     "file://",
@@ -990,8 +989,8 @@ mod flatpak {
     use std::process::Command;
     use std::{env, process};
 
-    const EXTRA_LIB_ENV_NAME: &str = "NEOZED_FLATPAK_LIB_PATH";
-    const NO_ESCAPE_ENV_NAME: &str = "NEOZED_FLATPAK_NO_ESCAPE";
+    const EXTRA_LIB_ENV_NAME: &str = "ZED_FLATPAK_LIB_PATH";
+    const NO_ESCAPE_ENV_NAME: &str = "ZED_FLATPAK_NO_ESCAPE";
 
     /// Adds bundled libraries to LD_LIBRARY_PATH if running under flatpak
     pub fn ld_extra_libs() {
@@ -1014,7 +1013,7 @@ mod flatpak {
             let mut args = vec!["/usr/bin/flatpak-spawn".into(), "--host".into()];
             args.append(&mut get_xdg_env_args());
             args.push(
-                "--env=NEOZED_UPDATE_EXPLANATION=Please use flatpak to update Neo Zed".into(),
+                "--env=ZED_UPDATE_EXPLANATION=Please use flatpak to update Neo Zed".into(),
             );
             args.push(
                 format!(
@@ -1050,7 +1049,7 @@ mod flatpak {
             args.zed = Some("/app/libexec/zed-editor".into());
             unsafe {
                 env::set_var(
-                    "NEOZED_UPDATE_EXPLANATION",
+                    "ZED_UPDATE_EXPLANATION",
                     "Please use flatpak to update Neo Zed",
                 )
             };

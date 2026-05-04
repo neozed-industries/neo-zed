@@ -1,5 +1,5 @@
 ---
-title: Plans and Usage - Zed AI
+title: Plans and Usage - Neo Zed AI
 description: Understand Zed's AI plans, token-based usage metering, spend limits, and trial details.
 ---
 
@@ -13,11 +13,11 @@ Zed works without AI features or a subscription. No [authentication](../authenti
 
 ## Usage {#usage}
 
-Usage of Zed's hosted models is measured on a token basis, converted to dollars at the rates lists on [the Models page](./models.md) (list price from the provider, +10%).
+Usage of Neo Zed's hosted models is measured on a token basis, converted to dollars at the rates lists on [the Models page](./models.md) (list price from the provider, +10%).
 
-Zed Pro comes with $5 of monthly dollar credit. A trial of Zed Pro includes $20 of credit, usable for 14 days. Monthly included credit resets on your monthly billing date.
+Neo Zed Pro comes with $5 of monthly dollar credit. A trial of Neo Zed Pro includes $20 of credit, usable for 14 days. Monthly included credit resets on your monthly billing date.
 
-The [Zed Student plan](https://zed.dev/education) includes $10/month in token credits. The Student plan is available free for one year to verified university students.
+The [Neo Zed Student plan](https://zed.dev/education) includes $10/month in token credits. The Student plan is available free for one year to verified university students.
 
 To view your current usage, you can visit your account at [dashboard.zed.dev/account](https://dashboard.zed.dev/account). Information from our metering and billing provider, Orb, is embedded on that page.
 
@@ -29,7 +29,7 @@ The default value for all Pro users is $10, for a total monthly spend with Zed o
 
 Once the spend limit is hit, we'll stop any further usage until your token spend limit resets.
 
-> **Note:** Spend limits are a Zed Pro feature. Student plan users do not currently have the ability to configure spend limits; usage is capped at the $10/month included credit.
+> **Note:** Spend limits are a Neo Zed Pro feature. Student plan users do not currently have the ability to configure spend limits; usage is capped at the $10/month included credit.
 
 ## Business Usage {#business-usage}
 
@@ -37,4 +37,4 @@ Email [sales@zed.dev](mailto:sales@zed.dev) with any questions on business plans
 
 ## Trials {#trials}
 
-Note that trials will automatically convert to Zed Free plans on termination, and no cancellation is needed to prevent conversion to Zed Pro.
+Note that trials will automatically convert to Neo Zed Free plans on termination, and no cancellation is needed to prevent conversion to Neo Zed Pro.

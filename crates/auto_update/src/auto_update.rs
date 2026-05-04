@@ -241,8 +241,8 @@ pub fn init(client: Arc<Client>, cx: &mut App) {
             .map(|channel| channel.poll_for_updates())
             .unwrap_or(false);
 
-        if option_env!("NEOZED_UPDATE_EXPLANATION").is_none()
-            && env::var("NEOZED_UPDATE_EXPLANATION").is_err()
+        if option_env!("ZED_UPDATE_EXPLANATION").is_none()
+            && env::var("ZED_UPDATE_EXPLANATION").is_err()
             && poll_for_updates
         {
             let mut update_subscription = AutoUpdateSetting::get_global(cx)
@@ -267,9 +267,9 @@ pub fn init(client: Arc<Client>, cx: &mut App) {
 }
 
 pub fn check(_: &Check, window: &mut Window, cx: &mut App) {
-    if let Some(message) = option_env!("NEOZED_UPDATE_EXPLANATION")
+    if let Some(message) = option_env!("ZED_UPDATE_EXPLANATION")
         .map(ToOwned::to_owned)
-        .or_else(|| env::var("NEOZED_UPDATE_EXPLANATION").ok())
+        .or_else(|| env::var("ZED_UPDATE_EXPLANATION").ok())
     {
         drop(window.prompt(
             gpui::PromptLevel::Info,
@@ -798,7 +798,7 @@ impl AutoUpdater {
 
     async fn target_path(installer_dir: &InstallerDir) -> Result<PathBuf> {
         let filename = match OS {
-            "macos" => anyhow::Ok("Zed.dmg"),
+            "macos" => anyhow::Ok("NeoZed.dmg"),
             "linux" => Ok("zed.tar.gz"),
             "windows" => Ok("NeoZed.exe"),
             unsupported_os => anyhow::bail!("not supported: {unsupported_os}"),
@@ -1000,7 +1000,7 @@ async fn install_release_linux(
     } else {
         String::default()
     };
-    let app_folder_name = format!("zed{}.app", suffix);
+    let app_folder_name = format!("neozed{}.app", suffix);
 
     let from = extracted.join(&app_folder_name);
     let mut to = home_dir.join(".local");
@@ -1042,7 +1042,7 @@ async fn install_release_macos(
         .file_name()
         .with_context(|| format!("invalid running app path {running_app_path:?}"))?;
 
-    let mount_path = temp_dir.path().join("Zed");
+    let mount_path = temp_dir.path().join("Neo Zed");
     let mut mounted_app_path: OsString = mount_path.join(running_app_filename).into();
 
     mounted_app_path.push("/");

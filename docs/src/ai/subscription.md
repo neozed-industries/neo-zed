@@ -1,11 +1,11 @@
 ---
-title: Zed AI Subscription
-description: Learn about Zed Pro and Business plans for hosted AI models with higher rate limits and premium features.
+title: Neo Zed AI Subscription
+description: Learn about Neo Zed Pro and Business plans for hosted AI models with higher rate limits and premium features.
 ---
 
 # Subscription
 
-Zed's hosted models are offered via subscription to Zed Pro or Zed Business.
+Neo Zed's hosted models are offered via subscription to Neo Zed Pro or Neo Zed Business.
 
 > You can use [your own API keys](./llm-providers.md) or [external agents](./external-agents.md) without a Zed subscription.
 

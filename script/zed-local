@@ -158,7 +158,7 @@ const instanceWidth = Math.floor(screenWidth / columns);
 const instanceHeight = Math.floor(screenHeight / rows);
 
 // If a user is specified, make sure it's first in the list
-const user = process.env.NEOZED_IMPERSONATE;
+const user = process.env.ZED_IMPERSONATE;
 if (user) {
   users = [user].concat(users.filter((u) => u !== user));
 }
@@ -194,21 +194,21 @@ setTimeout(() => {
     const size = [instanceWidth, instanceHeight].join(",");
     let binaryPath = zedBinary;
     if (i != 0 && othersOnStable) {
-      binaryPath = "/Applications/Zed.app/Contents/MacOS/zed";
+      binaryPath = "/Applications/Neo Zed.app/Contents/MacOS/zed";
     } else if (i != 0 && othersOnPreview) {
-      binaryPath = "/Applications/Zed Preview.app/Contents/MacOS/zed";
+      binaryPath = "/Applications/Neo Zed Preview.app/Contents/MacOS/zed";
     }
     spawn(binaryPath, i == 0 ? args : [], {
       stdio: "inherit",
       env: Object.assign({}, process.env, {
-        NEOZED_IMPERSONATE: users[i],
-        NEOZED_WINDOW_POSITION: position,
-        NEOZED_STATELESS: isStateful && i == 0 ? "" : "1",
-        NEOZED_ALWAYS_ACTIVE: "1",
-        NEOZED_SERVER_URL: "http://localhost:3000",
-        NEOZED_RPC_URL: "http://localhost:8080/rpc",
-        NEOZED_ADMIN_API_TOKEN: "internal-api-key-secret",
-        NEOZED_WINDOW_SIZE: size,
+        ZED_IMPERSONATE: users[i],
+        ZED_WINDOW_POSITION: position,
+        ZED_STATELESS: isStateful && i == 0 ? "" : "1",
+        ZED_ALWAYS_ACTIVE: "1",
+        ZED_SERVER_URL: "http://localhost:3000",
+        ZED_RPC_URL: "http://localhost:8080/rpc",
+        ZED_ADMIN_API_TOKEN: "internal-api-key-secret",
+        ZED_WINDOW_SIZE: size,
         ZED_CLIENT_CHECKSUM_SEED: "development-checksum-seed",
         RUST_LOG: process.env.RUST_LOG || "info",
       }),

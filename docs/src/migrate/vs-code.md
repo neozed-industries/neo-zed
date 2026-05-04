@@ -315,7 +315,7 @@ Learn how [Zed uses Zed](https://zed.dev/blog/zed-is-our-office) to plan work an
 
 ### Using AI in Zed
 
-If you’re used to GitHub Copilot in VS Code, you can do the same in Zed. You can also explore other agents through Zed Pro, or bring your own keys and connect without authentication. You can disable AI features entirely if you prefer.
+If you’re used to GitHub Copilot in VS Code, you can do the same in Zed. You can also explore other agents through Neo Zed Pro, or bring your own keys and connect without authentication. You can disable AI features entirely if you prefer.
 
 #### Configuring GitHub Copilot
 
@@ -330,7 +330,7 @@ Once signed in, just start typing. Zed will offer suggestions inline for you to 
 
 To use other AI models in Zed, you have several options:
 
-- Use Zed’s hosted models, with higher rate limits. Requires [authentication](https://zed.dev/docs/authentication) and subscription to [Zed Pro](https://zed.dev/docs/ai/subscription.html).
+- Use Neo Zed’s hosted models, with higher rate limits. Requires [authentication](https://zed.dev/docs/authentication) and subscription to [Neo Zed Pro](https://zed.dev/docs/ai/subscription.html).
 - Bring your own [API keys](https://zed.dev/docs/ai/llm-providers.html), no authentication needed
 - Use [external agents like Claude Agent](https://zed.dev/docs/ai/external-agents.html).
 

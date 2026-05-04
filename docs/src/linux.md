@@ -53,7 +53,7 @@ There are several third-party Zed packages for various Linux distributions and p
 - Parabola: [`zed`](https://www.parabola.nu/packages/extra/x86_64/zed/)
 - ALT Linux (Sisyphus): [`zed`](https://packages.altlinux.org/en/sisyphus/srpms/zed/)
 - AOSC OS: [`zed`](https://packages.aosc.io/packages/zed)
-- Flathub: [`dev.zed.Zed`](https://flathub.org/apps/dev.zed.Zed) (WARNING: [Sandboxing causes problems](https://github.com/flathub/dev.zed.Zed/pull/275))
+- Flathub: [`dev.neozed.NeoZed`](https://flathub.org/apps/dev.neozed.NeoZed) (WARNING: [Sandboxing causes problems](https://github.com/flathub/dev.neozed.NeoZed/pull/275))
 
 See [Repology](https://repology.org/project/zed-editor/versions) for a list of Zed packages in various repositories.
 
@@ -83,51 +83,51 @@ Download the `.tar.gz` file:
 - [zed-linux-aarch64.tar.gz](https://cloud.zed.dev/releases/stable/latest/download?asset=zed&arch=aarch64&os=linux&source=docs)
   ([preview](https://cloud.zed.dev/releases/preview/latest/download?asset=zed&arch=aarch64&os=linux&source=docs))
 
-Then ensure that the `zed` binary in the tarball is on your path. The easiest way is to unpack the tarball and create a symlink:
+Then ensure that the `neozed` binary in the tarball is on your path. The easiest way is to unpack the tarball and create a symlink:
 
 ```sh
 mkdir -p ~/.local
-# extract zed to ~/.local/zed.app/
+# extract Neo Zed to ~/.local/neozed.app/
 tar -xvf <path/to/download>.tar.gz -C ~/.local
-# link the zed binary to ~/.local/bin (or another directory in your $PATH)
-ln -sf ~/.local/zed.app/bin/zed ~/.local/bin/zed
+# link the neozed binary to ~/.local/bin (or another directory in your $PATH)
+ln -sf ~/.local/neozed.app/bin/neozed ~/.local/bin/neozed
 ```
 
 If you'd like integration with an XDG-compatible desktop environment, you will also need to install the `.desktop` file:
 
 ```sh
-install -D ~/.local/zed.app/share/applications/dev.zed.Zed.desktop -t ~/.local/share/applications
-sed -i "s|Icon=zed|Icon=$HOME/.local/zed.app/share/icons/hicolor/512x512/apps/zed.png|g" ~/.local/share/applications/dev.zed.Zed.desktop
-sed -i "s|Exec=zed|Exec=$HOME/.local/zed.app/bin/zed|g" ~/.local/share/applications/dev.zed.Zed.desktop
+install -D ~/.local/neozed.app/share/applications/dev.neozed.NeoZed.desktop -t ~/.local/share/applications
+sed -i "s|Icon=neozed|Icon=$HOME/.local/neozed.app/share/icons/hicolor/512x512/apps/neozed.png|g" ~/.local/share/applications/dev.neozed.NeoZed.desktop
+sed -i "s|Exec=neozed|Exec=$HOME/.local/neozed.app/bin/neozed|g" ~/.local/share/applications/dev.neozed.NeoZed.desktop
 ```
 
 ## Uninstalling Zed
 
 ### Standard Uninstall
 
-If Zed was installed using the default installation script, it can be uninstalled by supplying the `--uninstall` flag to the `zed` shell command
+If Neo Zed was installed using the default installation script, it can be uninstalled by supplying the `--uninstall` flag to the `neozed` shell command
 
 ```sh
-zed --uninstall
+neozed --uninstall
 ```
 
-If there are no errors, the shell will then prompt you whether you'd like to keep your preferences or delete them. After making a choice, you should see a message that Zed was successfully uninstalled.
+If there are no errors, the shell will then prompt you whether you'd like to keep your preferences or delete them. After making a choice, you should see a message that Neo Zed was successfully uninstalled.
 
-In the case that the `zed` shell command was not found in your PATH, you can try one of the following commands
+In the case that the `neozed` shell command was not found in your PATH, you can try one of the following commands
 
 ```sh
-$HOME/.local/bin/zed --uninstall
+$HOME/.local/bin/neozed --uninstall
 ```
 
 or
 
 ```sh
-$HOME/.local/zed.app/bin.zed --uninstall
+$HOME/.local/neozed.app/bin/neozed --uninstall
 ```
 
-The first case might fail if a symlink was not properly established between `$HOME/.local/bin/zed` and `$HOME/.local/zed.app/bin.neozed`. But the second case should work as long as Zed was installed to its default location.
+The first case might fail if a symlink was not properly established between `$HOME/.local/bin/neozed` and `$HOME/.local/neozed.app/bin/neozed`. But the second case should work as long as Neo Zed was installed to its default location.
 
-If Zed was installed to a different location, you must invoke the `zed` binary stored in that installation directory and pass the `--uninstall` flag to it in the same format as the previous commands.
+If Neo Zed was installed to a different location, you must invoke the `neozed` binary stored in that installation directory and pass the `--uninstall` flag to it in the same format as the previous commands.
 
 ### Package Manager
 
@@ -177,7 +177,7 @@ There are a few different ways to force Zed to use a specific GPU:
 
 ##### Option A
 
-You can use the `NEOZED_DEVICE_ID={device_id}` environment variable to specify the device ID of the GPU you wish to have Zed use.
+You can use the `ZED_DEVICE_ID={device_id}` environment variable to specify the device ID of the GPU you wish to have Zed use.
 
 You can obtain the device ID of your GPU by running `lspci -nn | grep VGA` which will output each GPU on one line like:
 
@@ -188,7 +188,7 @@ You can obtain the device ID of your GPU by running `lspci -nn | grep VGA` which
 where the device ID here is `2484`. This value is in hexadecimal, so to force Zed to use this specific GPU you would set the environment variable like so:
 
 ```
-NEOZED_DEVICE_ID=0x2484 zed
+ZED_DEVICE_ID=0x2484 zed
 ```
 
 Make sure to export the variable if you choose to define it globally in a `.bashrc` or similar.
@@ -219,7 +219,7 @@ Additionally, it is extremely beneficial to provide the contents of your Zed log
 
 ```sh
 truncate -s 0 ~/.local/share/zed/logs/Zed.log # Clear the log file
-NEOZED_LOG=wgpu=info zed .
+ZED_LOG=wgpu=info zed .
 cat ~/.local/share/zed/logs/Zed.log
 # copy the output
 ```
@@ -227,7 +227,7 @@ cat ~/.local/share/zed/logs/Zed.log
 Or, if you have the Zed cli setup, you can do
 
 ```sh
-NEOZED_LOG=wgpu=info /path/to/zed/cli --foreground .
+ZED_LOG=wgpu=info /path/to/zed/cli --foreground .
 # copy the output
 ```
 
@@ -387,12 +387,12 @@ Replace `192` with your desired DPI value. This affects the system globally and 
 
 ### Font rendering parameters
 
-On Linux, Zed reads `NEOZED_FONTS_GAMMA` and `NEOZED_FONTS_GRAYSCALE_ENHANCED_CONTRAST` environment variables for the values to use for font rendering.
+On Linux, Zed reads `ZED_FONTS_GAMMA` and `ZED_FONTS_GRAYSCALE_ENHANCED_CONTRAST` environment variables for the values to use for font rendering.
 
-`NEOZED_FONTS_GAMMA` corresponds to [getgamma](https://learn.microsoft.com/en-us/windows/win32/api/dwrite/nf-dwrite-idwriterenderingparams-getgamma) values.
+`ZED_FONTS_GAMMA` corresponds to [getgamma](https://learn.microsoft.com/en-us/windows/win32/api/dwrite/nf-dwrite-idwriterenderingparams-getgamma) values.
 Allowed range [1.0, 2.2], other values are clipped.
 Default: 1.8
 
-`NEOZED_FONTS_GRAYSCALE_ENHANCED_CONTRAST` corresponds to [getgrayscaleenhancedcontrast](https://learn.microsoft.com/en-us/windows/win32/api/dwrite_1/nf-dwrite_1-idwriterenderingparams1-getgrayscaleenhancedcontrast) values.
+`ZED_FONTS_GRAYSCALE_ENHANCED_CONTRAST` corresponds to [getgrayscaleenhancedcontrast](https://learn.microsoft.com/en-us/windows/win32/api/dwrite_1/nf-dwrite_1-idwriterenderingparams1-getgrayscaleenhancedcontrast) values.
 Allowed range: [0.0, ..), other values are clipped.
 Default: 1.0

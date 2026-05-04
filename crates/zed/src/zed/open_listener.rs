@@ -140,12 +140,6 @@ impl OpenRequest {
         }
 
         for url in request.urls {
-            let url = if let Some(path) = url.strip_prefix("zed://") {
-                format!("neozed://{path}")
-            } else {
-                url
-            };
-
             if let Some(server_name) = url.strip_prefix("neozed-cli://") {
                 this.kind = Some(OpenRequestKind::CliConnection(connect_to_cli(server_name)?));
             } else if let Some(action_index) = url.strip_prefix("neozed-dock-action://") {
@@ -1008,7 +1002,7 @@ mod tests {
         let request = cx.update(|cx| {
             OpenRequest::parse(
                 RawOpenRequest {
-                    urls: vec!["zed://agent".into()],
+                    urls: vec!["neozed://agent".into()],
                     ..Default::default()
                 },
                 cx,
@@ -1027,7 +1021,7 @@ mod tests {
     }
 
     fn agent_url_with_prompt(prompt: &str) -> String {
-        let mut serializer = url::form_urlencoded::Serializer::new("zed://agent?".to_string());
+        let mut serializer = url::form_urlencoded::Serializer::new("neozed://agent?".to_string());
         serializer.append_pair("prompt", prompt);
         serializer.finish()
     }
@@ -1096,7 +1090,7 @@ mod tests {
         let request = cx.update(|cx| {
             OpenRequest::parse(
                 RawOpenRequest {
-                    urls: vec![format!("zed://agent/shared/{session_id}")],
+                    urls: vec![format!("neozed://agent/shared/{session_id}")],
                     ..Default::default()
                 },
                 cx,
@@ -1121,7 +1115,7 @@ mod tests {
         let request = cx.update(|cx| {
             OpenRequest::parse(
                 RawOpenRequest {
-                    urls: vec!["zed://agent/shared/not-a-uuid".into()],
+                    urls: vec!["neozed://agent/shared/not-a-uuid".into()],
                     ..Default::default()
                 },
                 cx,
@@ -1140,7 +1134,7 @@ mod tests {
         let request = cx.update(|cx| {
             OpenRequest::parse(
                 RawOpenRequest {
-                    urls: vec!["zed://git/commit/abc123?repo=path/to/repo".into()],
+                    urls: vec!["neozed://git/commit/abc123?repo=path/to/repo".into()],
                     ..Default::default()
                 },
                 cx,
@@ -1161,7 +1155,7 @@ mod tests {
         let request = cx.update(|cx| {
             OpenRequest::parse(
                 RawOpenRequest {
-                    urls: vec!["zed://git/commit/def456?repo=path%20with%20spaces".into()],
+                    urls: vec!["neozed://git/commit/def456?repo=path%20with%20spaces".into()],
                     ..Default::default()
                 },
                 cx,
@@ -1182,7 +1176,7 @@ mod tests {
             assert!(
                 OpenRequest::parse(
                     RawOpenRequest {
-                        urls: vec!["zed://git/commit/abc123?repo=".into()],
+                        urls: vec!["neozed://git/commit/abc123?repo=".into()],
                         ..Default::default()
                     },
                     cx,
@@ -1197,7 +1191,7 @@ mod tests {
         let result = cx.update(|cx| {
             OpenRequest::parse(
                 RawOpenRequest {
-                    urls: vec!["zed://git/commit/abc123?foo=bar".into()],
+                    urls: vec!["neozed://git/commit/abc123?foo=bar".into()],
                     ..Default::default()
                 },
                 cx,
@@ -1555,7 +1549,8 @@ mod tests {
             OpenRequest::parse(
                 RawOpenRequest {
                     urls: vec![
-                        "zed://git/clone/?repo=https://github.com/zed-industries/zed.git".into(),
+                        "neozed://git/clone/?repo=https://github.com/zed-industries/zed.git"
+                            .into(),
                     ],
                     ..Default::default()
                 },
@@ -1580,7 +1575,8 @@ mod tests {
             OpenRequest::parse(
                 RawOpenRequest {
                     urls: vec![
-                        "zed://git/clone?repo=https://github.com/zed-industries/zed.git".into(),
+                        "neozed://git/clone?repo=https://github.com/zed-industries/zed.git"
+                            .into(),
                     ],
                     ..Default::default()
                 },
@@ -1605,7 +1601,7 @@ mod tests {
             OpenRequest::parse(
                 RawOpenRequest {
                     urls: vec![
-                        "zed://git/clone/?repo=https%3A%2F%2Fgithub.com%2Fzed-industries%2Fzed.git"
+                        "neozed://git/clone/?repo=https%3A%2F%2Fgithub.com%2Fzed-industries%2Fzed.git"
                             .into(),
                     ],
                     ..Default::default()

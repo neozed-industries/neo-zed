@@ -11,8 +11,8 @@
   // - "dark": Use the theme indicated by the "dark" field
   "theme": {
     "mode": "system",
-    "light": "NeoZed Light",
-    "dark": "NeoZed Dark",
+    "light": "Neo Zed Light",
+    "dark": "Neo Zed Dark",
   },
   "icon_theme": "Neo Zed (Default)",
   // The name of a base set of key bindings to use.
@@ -2471,7 +2471,7 @@
     "delay_ms": 1000,
   },
   // The server to connect to. If the environment variable
-  // NEOZED_SERVER_URL is set, it will override this setting.
+  // ZED_SERVER_URL is set, it will override this setting.
   "server_url": "https://zed.dev",
   // Settings overrides to use when using Neo Zed Preview.
   // Mostly useful for developers who are managing multiple instances of Neo Zed.

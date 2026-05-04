@@ -54,10 +54,7 @@ impl OpenUrlModal {
         }
 
         // Handle Neo Zed URLs internally.
-        if url.starts_with("neozed://")
-            || url.starts_with("zed://")
-            || url.starts_with("neozed-cli://")
-        {
+        if url.starts_with("neozed://") || url.starts_with("neozed-cli://") {
             OpenListener::global(cx).open(RawOpenRequest {
                 urls: vec![url],
                 ..Default::default()

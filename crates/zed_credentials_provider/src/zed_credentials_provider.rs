@@ -19,8 +19,8 @@ use release_channel::ReleaseChannel;
 ///
 /// Only works in development. Setting this environment variable in other
 /// release channels is a no-op.
-static NEOZED_DEVELOPMENT_USE_KEYCHAIN: LazyLock<bool> = LazyLock::new(|| {
-    std::env::var("NEOZED_DEVELOPMENT_USE_KEYCHAIN").is_ok_and(|value| !value.is_empty())
+static ZED_DEVELOPMENT_USE_KEYCHAIN: LazyLock<bool> = LazyLock::new(|| {
+    std::env::var("ZED_DEVELOPMENT_USE_KEYCHAIN").is_ok_and(|value| !value.is_empty())
 });
 
 pub struct ZedCredentialsProvider(pub Arc<dyn CredentialsProvider>);
@@ -49,73 +49,19 @@ fn new(cx: &App) -> Arc<dyn CredentialsProvider> {
             // credentials provider to avoid getting spammed by relentless
             // keychain access prompts.
             //
-            // However, if the `NEOZED_DEVELOPMENT_USE_KEYCHAIN` environment
+            // However, if the `ZED_DEVELOPMENT_USE_KEYCHAIN` environment
             // variable is set, we will use the actual keychain.
-            !*NEOZED_DEVELOPMENT_USE_KEYCHAIN
+            !*ZED_DEVELOPMENT_USE_KEYCHAIN
         }
         Some(ReleaseChannel::Nightly | ReleaseChannel::Preview | ReleaseChannel::Stable) | None => {
             false
         }
     };
 
-    let provider: Arc<dyn CredentialsProvider> = if use_development_provider {
+    if use_development_provider {
         Arc::new(DevelopmentCredentialsProvider::new())
     } else {
         Arc::new(KeychainCredentialsProvider)
-    };
-
-    Arc::new(NamespacedCredentialsProvider { provider })
-}
-
-const CREDENTIAL_KEY_PREFIX: &str = "neozed-credentials:";
-
-fn namespace_credential_key(key: &str) -> String {
-    format!("{CREDENTIAL_KEY_PREFIX}{key}")
-}
-
-struct NamespacedCredentialsProvider {
-    provider: Arc<dyn CredentialsProvider>,
-}
-
-impl CredentialsProvider for NamespacedCredentialsProvider {
-    fn read_credentials<'a>(
-        &'a self,
-        url: &'a str,
-        cx: &'a AsyncApp,
-    ) -> Pin<Box<dyn Future<Output = Result<Option<(String, Vec<u8>)>>> + 'a>> {
-        async move {
-            let namespaced_url = namespace_credential_key(url);
-            self.provider.read_credentials(&namespaced_url, cx).await
-        }
-        .boxed_local()
-    }
-
-    fn write_credentials<'a>(
-        &'a self,
-        url: &'a str,
-        username: &'a str,
-        password: &'a [u8],
-        cx: &'a AsyncApp,
-    ) -> Pin<Box<dyn Future<Output = Result<()>> + 'a>> {
-        async move {
-            let namespaced_url = namespace_credential_key(url);
-            self.provider
-                .write_credentials(&namespaced_url, username, password, cx)
-                .await
-        }
-        .boxed_local()
-    }
-
-    fn delete_credentials<'a>(
-        &'a self,
-        url: &'a str,
-        cx: &'a AsyncApp,
-    ) -> Pin<Box<dyn Future<Output = Result<()>> + 'a>> {
-        async move {
-            let namespaced_url = namespace_credential_key(url);
-            self.provider.delete_credentials(&namespaced_url, cx).await
-        }
-        .boxed_local()
     }
 }
 
@@ -231,26 +177,5 @@ impl CredentialsProvider for DevelopmentCredentialsProvider {
             self.save_credentials(&credentials)
         }
         .boxed_local()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn namespaces_cloud_server_credentials_without_rewriting_url() {
-        assert_eq!(
-            namespace_credential_key("https://zed.dev"),
-            "neozed-credentials:https://zed.dev"
-        );
-    }
-
-    #[test]
-    fn namespaces_provider_api_key_credentials() {
-        assert_eq!(
-            namespace_credential_key("https://api.openai.com/v1"),
-            "neozed-credentials:https://api.openai.com/v1"
-        );
     }
 }

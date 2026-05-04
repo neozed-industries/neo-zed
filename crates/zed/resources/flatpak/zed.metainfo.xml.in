@@ -53,7 +53,7 @@
 
     <screenshots>
         <screenshot type="default">
-            <caption>Neo Zed with a large project open, showing language server and git blame support</caption>
+            <caption>Neo Zed with a large project open, showing language server and gitblame support</caption>
             <image>https://zed.dev/img/flatpak/flatpak-1.png</image>
         </screenshot>
         <screenshot>
