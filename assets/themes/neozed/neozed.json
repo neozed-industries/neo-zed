@@ -4,7 +4,7 @@
   "author": "NeoZed",
   "themes": [
     {
-      "name": "NeoZed Dark",
+      "name": "Neo Zed Dark",
       "appearance": "dark",
       "style": {
         "accents": [
@@ -741,7 +741,7 @@
       }
     },
     {
-      "name": "NeoZed Light",
+      "name": "Neo Zed Light",
       "appearance": "light",
       "style": {
         "accents": [

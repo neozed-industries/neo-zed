@@ -11,7 +11,7 @@
   "buffer_font_size": 15,
   "theme": {
     "mode": "system",
-    "light": "NeoZed Light",
-    "dark": "NeoZed Dark",
+    "light": "Neo Zed Light",
+    "dark": "Neo Zed Dark",
   },
 }

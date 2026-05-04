@@ -57,7 +57,7 @@ if ($Help) {
 
 Push-Location -Path crates/zed
 $channel = Get-Content "RELEASE_CHANNEL"
-$env:NEOZED_RELEASE_CHANNEL = $channel
+$env:ZED_RELEASE_CHANNEL = $channel
 $env:RELEASE_CHANNEL = $channel
 Pop-Location
 
@@ -67,7 +67,7 @@ function CheckEnvironmentVariables {
     }
 
     $requiredVars = @(
-        'ZED_WORKSPACE', 'RELEASE_VERSION', 'NEOZED_RELEASE_CHANNEL',
+        'ZED_WORKSPACE', 'RELEASE_VERSION', 'ZED_RELEASE_CHANNEL',
         'AZURE_TENANT_ID', 'AZURE_CLIENT_ID', 'AZURE_CLIENT_SECRET',
         'ACCOUNT_NAME', 'CERT_PROFILE_NAME', 'ENDPOINT',
         'FILE_DIGEST', 'TIMESTAMP_DIGEST', 'TIMESTAMP_SERVER'
@@ -149,7 +149,7 @@ function ZipZedAndItsFriendsDebug {
         ".\$CargoOutDir\remote_server.pdb"
     )
 
-    Compress-Archive -Path $items -DestinationPath ".\$CargoOutDir\neozed-$env:RELEASE_VERSION-$env:NEOZED_RELEASE_CHANNEL.dbg.zip" -Force
+    Compress-Archive -Path $items -DestinationPath ".\$CargoOutDir\neozed-$env:RELEASE_VERSION-$env:ZED_RELEASE_CHANNEL.dbg.zip" -Force
 }
 
 
@@ -362,8 +362,8 @@ function BuildInstaller {
 
 ParseZedWorkspace
 $innoDir = "$env:ZED_WORKSPACE\inno\$Architecture"
-$debugArchive = "$CargoOutDir\neozed-$env:RELEASE_VERSION-$env:NEOZED_RELEASE_CHANNEL.dbg.zip"
-$debugStoreKey = "$env:NEOZED_RELEASE_CHANNEL/neozed-$env:RELEASE_VERSION-$env:NEOZED_RELEASE_CHANNEL.dbg.zip"
+$debugArchive = "$CargoOutDir\neozed-$env:RELEASE_VERSION-$env:ZED_RELEASE_CHANNEL.dbg.zip"
+$debugStoreKey = "$env:ZED_RELEASE_CHANNEL/neozed-$env:RELEASE_VERSION-$env:ZED_RELEASE_CHANNEL.dbg.zip"
 
 CheckEnvironmentVariables
 PrepareForBundle

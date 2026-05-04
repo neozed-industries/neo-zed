@@ -274,7 +274,7 @@ repl = { workspace = true, features = ["test-support"] }
 
 [package.metadata.bundle-dev]
 icon = ["resources/app-icon-dev@2x.png", "resources/app-icon-dev.png"]
-identifier = "dev.neozed.Dev"
+identifier = "dev.neozed.NeoZed-Dev"
 name = "Neo Zed Dev"
 osx_minimum_system_version = "10.15.7"
 osx_info_plist_exts = ["resources/info/*"]
@@ -282,7 +282,7 @@ osx_url_schemes = ["neozed"]
 
 [package.metadata.bundle-nightly]
 icon = ["resources/app-icon-nightly@2x.png", "resources/app-icon-nightly.png"]
-identifier = "dev.neozed.Nightly"
+identifier = "dev.neozed.NeoZed-Nightly"
 name = "Neo Zed Nightly"
 osx_minimum_system_version = "10.15.7"
 osx_info_plist_exts = ["resources/info/*"]
@@ -290,7 +290,7 @@ osx_url_schemes = ["neozed"]
 
 [package.metadata.bundle-preview]
 icon = ["resources/app-icon-preview@2x.png", "resources/app-icon-preview.png"]
-identifier = "dev.neozed.Preview"
+identifier = "dev.neozed.NeoZed-Preview"
 name = "Neo Zed Preview"
 osx_minimum_system_version = "10.15.7"
 osx_info_plist_exts = ["resources/info/*"]
@@ -298,7 +298,7 @@ osx_url_schemes = ["neozed"]
 
 [package.metadata.bundle]
 icon = ["resources/app-icon@2x.png", "resources/app-icon.png"]
-identifier = "dev.neozed"
+identifier = "dev.neozed.NeoZed"
 name = "Neo Zed"
 osx_minimum_system_version = "10.15.7"
 osx_info_plist_exts = ["resources/info/*"]

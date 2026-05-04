@@ -40,9 +40,9 @@ To completely remove all Zed configuration files and data:
 2. Press `Cmd + Shift + G` to open "Go to Folder"
 3. Delete the following directories if they exist:
    - `~/Library/Application Support/Neo Zed`
-   - `~/Library/Saved Application State/dev.neozed.savedState`
+   - `~/Library/Saved Application State/dev.neozed.NeoZed.savedState`
    - `~/Library/Logs/Neo\ Zed`
-   - `~/Library/Caches/dev.neozed`
+   - `~/Library/Caches/dev.neozed.NeoZed`
    - `~/Library/Caches/Neo\ Zed`
    - `~/.config/neozed`
    - `~/.local/state/Neo Zed`
@@ -62,13 +62,13 @@ You'll be prompted whether to keep or delete your preferences. After making a ch
 If the `neozed` command is not found in your PATH, try:
 
 ```sh
-$HOME/.local/bin/zed --uninstall
+$HOME/.local/bin/neozed --uninstall
 ```
 
 or:
 
 ```sh
-$HOME/.local/zed.app/bin/zed --uninstall
+$HOME/.local/neozed.app/bin/neozed --uninstall
 ```
 
 ### Package Manager
@@ -79,8 +79,8 @@ If you installed Zed using a package manager (such as Flatpak, Snap, or a distri
 
 If the uninstall command fails or Zed was installed to a custom location, you can manually remove:
 
-- Installation directory: `~/.local/zed.app` (or your custom installation path)
-- Binary symlink: `~/.local/bin/zed`
+- Installation directory: `~/.local/neozed.app` (or your custom installation path)
+- Binary symlink: `~/.local/bin/neozed`
 - Configuration and data: `~/.config/neozed`
 
 ## Windows

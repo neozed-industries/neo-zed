@@ -11,7 +11,7 @@ Settings for Zed's Agent Panel, including model selection, UI preferences, and t
 
 ### Default Model {#default-model}
 
-If you're using [Zed's hosted LLM service](./subscription.md), it sets `claude-sonnet-4-5` as the default model for agentic work (agent panel, inline assistant) and `gpt-5-nano` as the default "fast" model (thread summarization, git commit messages). If you're not subscribed or want to change these defaults, you can manually edit the `default_model` object in your settings:
+If you're using [Neo Zed's hosted LLM service](./subscription.md), it sets `claude-sonnet-4-5` as the default model for agentic work (agent panel, inline assistant) and `gpt-5-nano` as the default "fast" model (thread summarization, git commit messages). If you're not subscribed or want to change these defaults, you can manually edit the `default_model` object in your settings:
 
 ```json [settings]
 {

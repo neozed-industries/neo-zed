@@ -154,7 +154,7 @@ This creates a temporary file with the stdin content and opens it in Neo Zed.
 
 ## URL Handling
 
-The CLI can open `neozed://`, `zed://`, `http://`, and `https://` URLs:
+The CLI can open `neozed://`, `http://`, and `https://` URLs:
 
 ```sh
 neozed neozed://settings

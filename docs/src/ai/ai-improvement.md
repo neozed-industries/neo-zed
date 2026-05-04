@@ -3,7 +3,7 @@ title: AI Improvement and Data Collection - Zed
 description: Zed's opt-in approach to AI data collection for improving the agent panel and edit predictions.
 ---
 
-# Zed AI Features and Privacy
+# Neo Zed AI Features and Privacy
 
 ## Overview
 
@@ -16,17 +16,17 @@ AI features in Zed include:
 
 By default, Zed does not store your prompts or code context. This data is sent to your selected AI provider (e.g., Anthropic, OpenAI, Google, or xAI) to generate responses, then discarded. Zed will not use your data to evaluate or improve AI features unless you explicitly share it (see [AI Feedback with Ratings](#ai-feedback-with-ratings)) or you opt in to edit prediction training data collection (see [Edit Predictions](#edit-predictions)).
 
-Zed is model-agnostic by design, and none of this changes based on which provider you choose. You can use your own API keys or Zed's hosted models without any data being retained.
+Zed is model-agnostic by design, and none of this changes based on which provider you choose. You can use your own API keys or Neo Zed's hosted models without any data being retained.
 
 ### Data Retention and Training
 
 Zed's Agent Panel can be used via:
 
-- [Zed's hosted models](./subscription.md)
-- [connecting a non-Zed AI service via API key](./llm-providers.md)
+- [Neo Zed's hosted models](./subscription.md)
+- [connecting a non-Neo Zed AI service via API key](./llm-providers.md)
 - using an [external agent](./external-agents.md) via ACP
 
-When using Zed's hosted models, we require assurances from our service providers that your user content won't be used for training models.
+When using Neo Zed's hosted models, we require assurances from our service providers that your user content won't be used for training models.
 
 | Provider  | No Training Guarantee                                   | Zero-Data Retention (ZDR)                                                                                                                     |
 | --------- | ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -40,7 +40,7 @@ You should reference your agreement with each service provider to understand wha
 
 ### AI Feedback with Ratings
 
-You can provide feedback on Zed's AI features by rating specific AI responses in Zed and sharing details related to those conversations with Zed. Each share is opt-in, and sharing once will not cause future content or data to be shared again.
+You can provide feedback on Neo Zed's AI features by rating specific AI responses in Zed and sharing details related to those conversations with Zed. Each share is opt-in, and sharing once will not cause future content or data to be shared again.
 
 > **Rating = Data Sharing:** When you rate a response, your entire conversation thread is sent to Zed. This includes messages, AI responses, and thread metadata.
 > **_If you don't want data persisted on Zed's servers, don't rate_**. We will not collect data for improving our AI features without you explicitly rating responses.
@@ -56,7 +56,7 @@ For conversations you have explicitly shared with us via rating, Zed may store:
 
 If you do not rate responses, Zed will not store Customer Data (code, conversations, responses) related to your usage of the AI features.
 
-Telemetry related to Zed's AI features is collected. This includes metadata such as the AI feature being used and high-level interactions with the feature to understand performance (e.g., Agent response time, edit acceptance/rejection in the Agent panel or edit completions). You can read more in Zed's [telemetry](../telemetry.md) documentation.
+Telemetry related to Neo Zed's AI features is collected. This includes metadata such as the AI feature being used and high-level interactions with the feature to understand performance (e.g., Agent response time, edit acceptance/rejection in the Agent panel or edit completions). You can read more in Zed's [telemetry](../telemetry.md) documentation.
 
 Collected data is stored in Snowflake, a private database. We periodically review this data to refine the agent's system prompt and tool use. All data is anonymized and stripped of sensitive information (access tokens, user IDs, email addresses).
 

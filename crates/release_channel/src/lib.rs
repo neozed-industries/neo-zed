@@ -10,7 +10,7 @@ use semver::Version;
 /// stable | dev | nightly | preview
 pub static RELEASE_CHANNEL_NAME: LazyLock<String> = LazyLock::new(|| {
     if cfg!(debug_assertions) {
-        env::var("NEOZED_RELEASE_CHANNEL")
+        env::var("ZED_RELEASE_CHANNEL")
             .unwrap_or_else(|_| include_str!("../../zed/RELEASE_CHANNEL").trim().to_string())
     } else {
         include_str!("../../zed/RELEASE_CHANNEL").trim().to_string()
@@ -85,8 +85,8 @@ impl AppVersion {
         build_id: Option<&str>,
         commit_sha: Option<AppCommitSha>,
     ) -> Version {
-        let mut version: Version = if let Ok(from_env) = env::var("NEOZED_APP_VERSION") {
-            from_env.parse().expect("invalid NEOZED_APP_VERSION")
+        let mut version: Version = if let Ok(from_env) = env::var("ZED_APP_VERSION") {
+            from_env.parse().expect("invalid ZED_APP_VERSION")
         } else {
             pkg_version.parse().expect("invalid version in Cargo.toml")
         };
@@ -203,10 +203,10 @@ impl ReleaseChannel {
     /// This also has to match the bundle identifier for Neo Zed on macOS.
     pub fn app_id(&self) -> &'static str {
         match self {
-            ReleaseChannel::Dev => "dev.neozed.Dev",
-            ReleaseChannel::Nightly => "dev.neozed.Nightly",
-            ReleaseChannel::Preview => "dev.neozed.Preview",
-            ReleaseChannel::Stable => "dev.neozed",
+            ReleaseChannel::Dev => "dev.neozed.NeoZed-Dev",
+            ReleaseChannel::Nightly => "dev.neozed.NeoZed-Nightly",
+            ReleaseChannel::Preview => "dev.neozed.NeoZed-Preview",
+            ReleaseChannel::Stable => "dev.neozed.NeoZed",
         }
     }
 

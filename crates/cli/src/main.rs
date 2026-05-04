@@ -27,9 +27,8 @@ use walkdir::WalkDir;
 
 use std::io::IsTerminal;
 
-const URL_PREFIX: [&str; 6] = [
+const URL_PREFIX: [&str; 5] = [
     "neozed://",
-    "zed://",
     "http://",
     "https://",
     "file://",
@@ -109,7 +108,7 @@ struct Args {
     #[arg(long)]
     foreground: bool,
     /// Custom path to Neo Zed.app or the Neo Zed binary
-    #[arg(long = "neozed", alias = "zed")]
+    #[arg(long = "neozed")]
     zed: Option<PathBuf>,
     /// Run Neo Zed in dev-server mode
     #[arg(long)]
@@ -990,8 +989,8 @@ mod flatpak {
     use std::process::Command;
     use std::{env, process};
 
-    const EXTRA_LIB_ENV_NAME: &str = "NEOZED_FLATPAK_LIB_PATH";
-    const NO_ESCAPE_ENV_NAME: &str = "NEOZED_FLATPAK_NO_ESCAPE";
+    const EXTRA_LIB_ENV_NAME: &str = "ZED_FLATPAK_LIB_PATH";
+    const NO_ESCAPE_ENV_NAME: &str = "ZED_FLATPAK_NO_ESCAPE";
 
     /// Adds bundled libraries to LD_LIBRARY_PATH if running under flatpak
     pub fn ld_extra_libs() {
@@ -1014,7 +1013,7 @@ mod flatpak {
             let mut args = vec!["/usr/bin/flatpak-spawn".into(), "--host".into()];
             args.append(&mut get_xdg_env_args());
             args.push(
-                "--env=NEOZED_UPDATE_EXPLANATION=Please use flatpak to update Neo Zed".into(),
+                "--env=ZED_UPDATE_EXPLANATION=Please use flatpak to update Neo Zed".into(),
             );
             args.push(
                 format!(
@@ -1028,7 +1027,7 @@ mod flatpak {
             let mut is_app_location_set = false;
             for arg in &env::args_os().collect::<Vec<_>>()[1..] {
                 args.push(arg.clone());
-                is_app_location_set |= arg == "--neozed" || arg == "--zed";
+                is_app_location_set |= arg == "--neozed";
             }
 
             if !is_app_location_set {
@@ -1044,13 +1043,13 @@ mod flatpak {
 
     pub fn set_bin_if_no_escape(mut args: super::Args) -> super::Args {
         if env::var(NO_ESCAPE_ENV_NAME).is_ok()
-            && env::var("FLATPAK_ID").is_ok_and(|id| id.starts_with("dev.neozed"))
+            && env::var("FLATPAK_ID").is_ok_and(|id| id.starts_with("dev.neozed.NeoZed"))
             && args.zed.is_none()
         {
             args.zed = Some("/app/libexec/zed-editor".into());
             unsafe {
                 env::set_var(
-                    "NEOZED_UPDATE_EXPLANATION",
+                    "ZED_UPDATE_EXPLANATION",
                     "Please use flatpak to update Neo Zed",
                 )
             };
@@ -1064,7 +1063,7 @@ mod flatpak {
         }
 
         if let Ok(flatpak_id) = env::var("FLATPAK_ID") {
-            if !flatpak_id.starts_with("dev.neozed") {
+            if !flatpak_id.starts_with("dev.neozed.NeoZed") {
                 return None;
             }
 
@@ -1205,10 +1204,10 @@ mod windows {
                 let cli = std::env::current_exe()?;
                 let dir = cli.parent().context("no parent path for cli")?;
 
-                // ../NeoZed.exe is the standard app path, lib/zed is for MSYS2, ./zed.exe is for
+                // ../NeoZed.exe is the standard app path, lib/neozed is for MSYS2, ./zed.exe is for
                 // development builds.
                 let possible_locations =
-                    ["../NeoZed.exe", "../lib/zed/zed-editor.exe", "./zed.exe"];
+                    ["../NeoZed.exe", "../lib/neozed/neozed-editor.exe", "./zed.exe"];
                 possible_locations
                     .iter()
                     .find_map(|p| dir.join(p).canonicalize().ok().filter(|path| path != &cli))

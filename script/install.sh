@@ -79,8 +79,8 @@ main() {
 }
 
 linux() {
-    if [ -n "${NEOZED_BUNDLE_PATH:-}" ]; then
-        cp "$NEOZED_BUNDLE_PATH" "$temp/neozed-linux-$arch.tar.gz"
+    if [ -n "${ZED_BUNDLE_PATH:-}" ]; then
+        cp "$ZED_BUNDLE_PATH" "$temp/neozed-linux-$arch.tar.gz"
     else
         echo "Downloading Neo Zed version: $NEOZED_VERSION"
         curl "https://cloud.zed.dev/releases/$channel/$NEOZED_VERSION/download?asset=zed&arch=$arch&os=linux&source=install.sh" > "$temp/neozed-linux-$arch.tar.gz"
@@ -94,20 +94,20 @@ linux() {
     appid=""
     case "$channel" in
       stable)
-        appid="dev.neozed"
+        appid="dev.neozed.NeoZed"
         ;;
       nightly)
-        appid="dev.neozed.Nightly"
+        appid="dev.neozed.NeoZed-Nightly"
         ;;
       preview)
-        appid="dev.neozed.Preview"
+        appid="dev.neozed.NeoZed-Preview"
         ;;
       dev)
-        appid="dev.neozed.Dev"
+        appid="dev.neozed.NeoZed-Dev"
         ;;
       *)
         echo "Unknown release channel: ${channel}. Using stable app ID."
-        appid="dev.neozed"
+        appid="dev.neozed.NeoZed"
         ;;
     esac
 

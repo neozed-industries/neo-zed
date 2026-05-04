@@ -111,7 +111,7 @@ TBD: Get this working
 
 ### REditorSupport/languageserver Configuration
 
-You can configure the [R languageserver settings](https://github.com/REditorSupport/languageserver#settings) via Zed Project Settings `.neozed/settings.json` or Zed User Settings `~/.config/neozed/settings.json`:
+You can configure the [R languageserver settings](https://github.com/REditorSupport/languageserver#settings) via Neo Zed Project Settings `.neozed/settings.json` or Neo Zed User Settings `~/.config/neozed/settings.json`:
 
 For example to disable Lintr linting and suppress code snippet suggestions (both enabled by default):
 

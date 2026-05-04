@@ -58,24 +58,24 @@ linux() {
     db_suffix="stable"
     case "$channel" in
       stable)
-        appid="dev.neozed"
+        appid="dev.neozed.NeoZed"
         db_suffix="stable"
         ;;
       nightly)
-        appid="dev.neozed.Nightly"
+        appid="dev.neozed.NeoZed-Nightly"
         db_suffix="nightly"
         ;;
       preview)
-        appid="dev.neozed.Preview"
+        appid="dev.neozed.NeoZed-Preview"
         db_suffix="preview"
         ;;
       dev)
-        appid="dev.neozed.Dev"
+        appid="dev.neozed.NeoZed-Dev"
         db_suffix="dev"
         ;;
       *)
         echo "Unknown release channel: ${channel}. Using stable app ID."
-        appid="dev.neozed"
+        appid="dev.neozed.NeoZed"
         db_suffix="stable"
         ;;
     esac
@@ -107,22 +107,22 @@ linux() {
 macos() {
     app="Neo Zed.app"
     db_suffix="stable"
-    app_id="dev.neozed"
+    app_id="dev.neozed.NeoZed"
     case "$channel" in
       nightly)
         app="Neo Zed Nightly.app"
         db_suffix="nightly"
-        app_id="dev.neozed.Nightly"
+        app_id="dev.neozed.NeoZed-Nightly"
         ;;
       preview)
         app="Neo Zed Preview.app"
         db_suffix="preview"
-        app_id="dev.neozed.Preview"
+        app_id="dev.neozed.NeoZed-Preview"
         ;;
       dev)
         app="Neo Zed Dev.app"
         db_suffix="dev"
-        app_id="dev.neozed.Dev"
+        app_id="dev.neozed.NeoZed-Dev"
         ;;
     esac
 

@@ -62,7 +62,7 @@ For the full list of event types, see the `Event` enum in [telemetry_events.rs](
 
 When using Zed's hosted services, we collect metadata for rate limiting and billing (e.g., token usage). Zed does not store your prompts or code unless you explicitly share them via feedback ratings.
 
-For details on AI data handling, see [Zed AI Features and Privacy](./ai/ai-improvement.md).
+For details on AI data handling, see [Neo Zed AI Features and Privacy](./ai/ai-improvement.md).
 
 ## Concerns and Questions
 

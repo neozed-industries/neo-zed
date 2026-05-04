@@ -264,7 +264,7 @@ fn main() {
         Ok(path) => askpass::set_askpass_program(path),
         Err(err) => {
             eprintln!("Error: {}", err);
-            if std::option_env!("NEOZED_BUNDLE").is_some() {
+            if std::option_env!("ZED_BUNDLE").is_some() {
                 process::exit(1);
             }
         }
@@ -390,7 +390,7 @@ fn main() {
 
     let git_hosting_provider_registry = Arc::new(GitHostingProviderRegistry::new());
     let git_binary_path =
-        if cfg!(target_os = "macos") && option_env!("NEOZED_BUNDLE").as_deref() == Some("true") {
+        if cfg!(target_os = "macos") && option_env!("ZED_BUNDLE").as_deref() == Some("true") {
             app.path_for_auxiliary_executable("git")
                 .context("could not find git binary path")
                 .log_err()
@@ -1736,7 +1736,6 @@ fn parse_url_arg(arg: &str, cx: &App) -> String {
         Err(_) => {
             if arg.starts_with("file://")
                 || arg.starts_with("neozed://")
-                || arg.starts_with("zed://")
                 || arg.starts_with("neozed-cli://")
                 || arg.starts_with("ssh://")
                 || parse_zed_link(arg, cx).is_some()

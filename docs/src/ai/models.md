@@ -1,6 +1,6 @@
 ---
 title: AI Models and Pricing - Zed
-description: AI models available via Zed Pro including Claude, GPT-5.4, Gemini 3.1 Pro, and Grok. Pricing, context windows, and tool call support.
+description: AI models available via Neo Zed Pro including Claude, GPT-5.4, Gemini 3.1 Pro, and Grok. Pricing, context windows, and tool call support.
 ---
 
 # Models
@@ -74,7 +74,7 @@ Zed's plans offer hosted versions of major LLMs with higher rate limits than dir
 
 ## Recent Model Retirements
 
-As of February 19, 2026, Zed Pro serves newer model versions in place of the retired models below:
+As of February 19, 2026, Neo Zed Pro serves newer model versions in place of the retired models below:
 
 - Claude Opus 4.1 → Claude Opus 4.5, Claude Opus 4.6, or Claude Opus 4.7
 - Claude Sonnet 4 → Claude Sonnet 4.5 or Claude Sonnet 4.6

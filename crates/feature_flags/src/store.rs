@@ -6,7 +6,7 @@ use fs::Fs;
 use gpui::{App, BorrowAppContext, Subscription};
 use settings::{Settings, SettingsStore, update_settings_file};
 
-use crate::{FeatureFlag, FeatureFlagValue, FeatureFlagsSettings, NEOZED_DISABLE_STAFF};
+use crate::{FeatureFlag, FeatureFlagValue, FeatureFlagsSettings, ZED_DISABLE_STAFF};
 
 pub struct FeatureFlagDescriptor {
     pub name: &'static str,
@@ -164,7 +164,7 @@ impl FeatureFlagStore {
 
         // Staff default: resolve to the enabled variant.
         if (cfg!(debug_assertions) || self.staff)
-            && !*NEOZED_DISABLE_STAFF
+            && !*ZED_DISABLE_STAFF
             && T::enabled_for_staff()
         {
             return Some(T::Value::on_variant());
@@ -210,7 +210,7 @@ impl FeatureFlagStore {
         }
 
         if (cfg!(debug_assertions) || self.staff)
-            && !*NEOZED_DISABLE_STAFF
+            && !*ZED_DISABLE_STAFF
             && (descriptor.enabled_for_staff)()
         {
             return on_variant_key;
@@ -235,7 +235,7 @@ impl FeatureFlagStore {
         if T::enabled_for_all() {
             return true;
         }
-        cfg!(debug_assertions) && T::enabled_for_staff() && !*NEOZED_DISABLE_STAFF
+        cfg!(debug_assertions) && T::enabled_for_staff() && !*ZED_DISABLE_STAFF
     }
 }
 

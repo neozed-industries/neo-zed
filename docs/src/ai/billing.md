@@ -1,6 +1,6 @@
 ---
-title: Billing - Zed AI
-description: Manage Zed AI billing, payment methods, invoices, threshold billing, and sales tax information.
+title: Billing - Neo Zed AI
+description: Manage Neo Zed AI billing, payment methods, invoices, threshold billing, and sales tax information.
 ---
 
 # Billing
@@ -17,11 +17,11 @@ This page embeds data from Orb, our invoicing and metering partner.
 
 ## Billing Cycles {#billing-cycles}
 
-Zed is billed on a monthly basis based on the date you initially subscribe. You'll receive _at least_ one invoice from Zed each month you're subscribed to Zed Pro, and more than one if you use more than $10 in incremental token spend within the month.
+Neo Zed is billed on a monthly basis based on the date you initially subscribe. You'll receive _at least_ one invoice from Neo Zed each month you're subscribed to Neo Zed Pro, and more than one if you use more than $10 in incremental token spend within the month.
 
 ## Threshold Billing {#threshold-billing}
 
-Zed utilizes threshold billing to ensure timely collection of owed monies and prevent abuse. Every time your usage of Zed's hosted models crosses a $10 spend threshold, a new invoice is generated, and the threshold resets to $0.
+Neo Zed utilizes threshold billing to ensure timely collection of owed monies and prevent abuse. Every time your usage of Neo Zed's hosted models crosses a $10 spend threshold, a new invoice is generated, and the threshold resets to $0.
 
 For example,
 

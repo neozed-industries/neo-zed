@@ -135,9 +135,9 @@ You can also do this at any time with an ongoing thread via the "Agent Options" 
 
 ## Changing Models {#changing-models}
 
-After you've configured your LLM providers—either via [a custom API key](./llm-providers.md) or through [Zed's hosted models](./models.md)—you can switch between their models by clicking on the model selector on the message editor or by using the {#kb agent::ToggleModelSelector} keybinding.
+After you've configured your LLM providers—either via [a custom API key](./llm-providers.md) or through [Neo Zed's hosted models](./models.md)—you can switch between their models by clicking on the model selector on the message editor or by using the {#kb agent::ToggleModelSelector} keybinding.
 
-> The same model can be offered via multiple providers - for example, Claude Sonnet 4.5 is available via Zed Pro, OpenRouter, Anthropic directly, and more.
+> The same model can be offered via multiple providers - for example, Claude Sonnet 4.5 is available via Neo Zed Pro, OpenRouter, Anthropic directly, and more.
 > Make sure you've selected the correct model **_provider_** for the model you'd like to use, delineated by the logo to the left of the model in the model selector.
 
 ### Favoriting Models
@@ -212,7 +212,7 @@ Tool calling needs to be individually supported by each model and model provider
 Therefore, despite the presence of built-in tools, some models may not have the ability to pick them up.
 You should see a "No tools" label if you select a model that falls into this case.
 
-All [Zed's hosted models](./models.md) support tool calling out-of-the-box.
+All [Neo Zed's hosted models](./models.md) support tool calling out-of-the-box.
 
 ### MCP Servers {#mcp-servers}
 
