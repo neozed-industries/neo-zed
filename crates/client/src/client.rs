@@ -1829,10 +1829,8 @@ pub fn parse_zed_link(link: &str, cx: &App) -> Option<ZedLink> {
         .strip_prefix(server_url)
         .and_then(|result| result.strip_prefix('/'))
         .or_else(|| {
-            [ZED_URL_SCHEME, "zed"].into_iter().find_map(|scheme| {
-                link.strip_prefix(scheme)
-                    .and_then(|result| result.strip_prefix("://"))
-            })
+            link.strip_prefix(ZED_URL_SCHEME)
+                .and_then(|result| result.strip_prefix("://"))
         })?;
 
     let mut parts = path.split('/');
