@@ -38,7 +38,6 @@ DerivedData/
 Packages
 xcuserdata/
 crates/docs_preprocessor/actions.json
-graphify-out
 
 # Don't commit any secrets to the repo.
 .env

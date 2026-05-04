@@ -1,12 +1,5 @@
 [
   {
-    "label": "graphify",
-    "command": "graphify update && graphify watch",
-    "args": [],
-    "allow_concurrent_runs": true,
-    "use_new_terminal": false,
-  },
-  {
     "label": "clippy",
     "command": "./script/clippy",
     "args": [],
