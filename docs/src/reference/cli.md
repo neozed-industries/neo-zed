@@ -9,7 +9,7 @@ Use Neo Zed's command-line interface (CLI) to open files and directories, integr
 
 ## Installation
 
-**macOS:** Run the `cli: install` command from the command palette ({#kb command_palette::Toggle}) to install the `neozed` CLI to `/usr/local/bin/neozed`.
+**macOS:** Run the {#action cli::InstallCliBinary} command from the command palette ({#kb command_palette::Toggle}) to install the `neozed` CLI to `/usr/local/bin/neozed`.
 
 **Linux:** The CLI is included with Neo Zed packages. The binary name may vary by distribution.
 
