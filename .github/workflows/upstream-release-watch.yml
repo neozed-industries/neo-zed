@@ -2,7 +2,7 @@ name: upstream-release-watch
 
 on:
   schedule:
-    - cron: "0 15 * * MON"
+    - cron: "0 15 * * *"
   workflow_dispatch:
 
 permissions:

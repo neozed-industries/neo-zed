@@ -2,8 +2,15 @@
 set -euo pipefail
 
 UPSTREAM_REMOTE_URL="${UPSTREAM_REMOTE_URL:-https://github.com/zed-industries/zed.git}"
-LAST_REVIEWED_UPSTREAM_TAG="${LAST_REVIEWED_UPSTREAM_TAG:-v1.0.0}"
 REPOSITORY="${NEOZED_REPOSITORY:-${GITHUB_REPOSITORY:-}}"
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+STATE_FILE="$SCRIPT_DIR/upstream-reviewed-tag"
+if [[ -f "$STATE_FILE" ]]; then
+    LAST_REVIEWED_UPSTREAM_TAG="$(tr -d '[:space:]' < "$STATE_FILE")"
+else
+    LAST_REVIEWED_UPSTREAM_TAG="${LAST_REVIEWED_UPSTREAM_TAG:-v1.0.0}"
+fi
 DRY_RUN="${DRY_RUN:-false}"
 
 if ! command -v gh >/dev/null; then
@@ -44,6 +51,25 @@ if [[ "$latest_stable_tag" == "$LAST_REVIEWED_UPSTREAM_TAG" ]]; then
     exit 0
 fi
 
+# Parse major.minor from both tags to determine upgrade scope
+last_ver="${LAST_REVIEWED_UPSTREAM_TAG#v}"
+latest_ver="${latest_stable_tag#v}"
+last_major="${last_ver%%.*}"
+last_minor_rest="${last_ver#*.}"
+last_minor="${last_minor_rest%%.*}"
+latest_major="${latest_ver%%.*}"
+latest_minor_rest="${latest_ver#*.}"
+latest_minor="${latest_minor_rest%%.*}"
+
+new_stable_branch="stable/v${latest_major}.${latest_minor}"
+old_stable_branch="stable/v${last_major}.${last_minor}"
+
+if [[ "$last_major" == "$latest_major" && "$last_minor" == "$latest_minor" ]]; then
+    upgrade_type="patch"
+else
+    upgrade_type="minor"
+fi
+
 last_commit="$(git -C "$tmpdir/upstream-zed" rev-parse "$LAST_REVIEWED_UPSTREAM_TAG^{}")"
 latest_commit="$(git -C "$tmpdir/upstream-zed" rev-parse "$latest_stable_tag^{}")"
 release_url="https://github.com/zed-industries/zed/releases/tag/$latest_stable_tag"
@@ -75,9 +101,21 @@ if [[ -z "$candidate_commits" ]]; then
     candidate_commits="- No non-merge commits found in range."
 fi
 
+if [[ "$upgrade_type" == "patch" ]]; then
+    upgrade_badge="**Patch release** — same minor line (${LAST_REVIEWED_UPSTREAM_TAG} → ${latest_stable_tag})"
+    stable_note="Active stable branch: \`${new_stable_branch}\` (unchanged)"
+    scope_note="Take all upstream commits. Apply them to both \`${new_stable_branch}\` (upstream mirror, no NeoZed changes) and \`main\` (upstream + NeoZed changes). These are already upstream-vetted stable commits."
+else
+    upgrade_badge="**Minor version upgrade** — new minor line (${LAST_REVIEWED_UPSTREAM_TAG} → ${latest_stable_tag})"
+    stable_note="New stable branch to create: \`${new_stable_branch}\` — old branch \`${old_stable_branch}\` should be deleted. Upstream never patches an old minor once a new one exists, so it is a permanent dead end."
+    scope_note="\`${new_stable_branch}\` is created clean from the upstream tag. \`main\` is updated by cherry-picking all upstream commits from \`${LAST_REVIEWED_UPSTREAM_TAG}\` to \`${latest_stable_tag}\` — same as a patch but larger. NeoZed-specific commits already on \`main\` stay as-is; resolve any conflicts in favor of keeping NeoZed customizations while taking upstream functional changes."
+fi
+
 body_file="$tmpdir/issue.md"
 cat > "$body_file" <<EOF
 ## Upstream Release
+
+${upgrade_badge}
 
 - Zed tag: \`$latest_stable_tag\`
 - Release: $release_url
@@ -89,25 +127,33 @@ cat > "$body_file" <<EOF
 - Zed tag: \`$LAST_REVIEWED_UPSTREAM_TAG\`
 - Upstream commit: \`$last_commit\`
 
-## Candidate Commits
+## Stable Branch
 
-Classify each candidate as \`take\`, \`skip\`, or \`needs manual review\`.
+${stable_note}
+
+${scope_note}
+
+## Commits in Range
+
+All commits below are already upstream-vetted stable commits and should be taken in full.
 
 $candidate_commits
 
-## Review Rules
+## Rules
 
-- Do not merge upstream branches.
-- Do not auto-cherry-pick the full release.
-- Cherry-pick accepted commits into \`main\` first.
-- Backport to stable only when the change is a serious bug, crash, security, data-loss, or build/release fix.
-- Record the final take/skip/manual-review decisions in this issue or the linked PR.
+- Take all commits — do not cherry-pick selectively.
+- Do not merge upstream branches directly; cherry-pick the range onto the target branches.
+- Leave upstream commit messages unchanged.
+- On \`main\`, resolve conflicts in favor of keeping NeoZed customizations while taking upstream functional changes.
+- NeoZed maintains exactly one active stable branch. On a minor upgrade, the old stable branch is marked inactive; deletion requires explicit human approval.
 
 ## Required Verification
 
-- [ ] Candidate classification completed
-- [ ] Accepted commits verified on \`main\`
-- [ ] Stable backports, if any, verified on the stable branch
+- [ ] All commits applied to \`${new_stable_branch}\`
+- [ ] All commits applied to \`main\`
+- [ ] Conflicts on \`main\` resolved, NeoZed customizations preserved
+- [ ] \`script/neozed/upstream-reviewed-tag\` updated to \`$latest_stable_tag\` and merged
+- [ ] (Minor only) \`${old_stable_branch}\` deleted
 EOF
 
 label_args=()
@@ -120,13 +166,73 @@ for label in "neozed:upstream-review" "state:needs triage"; do
 done
 
 if [[ "$DRY_RUN" == "true" ]]; then
-    echo "Would create issue in $REPOSITORY: Review upstream Zed $latest_stable_tag"
+    echo "Would create issue in $REPOSITORY: Review upstream Zed $latest_stable_tag ($upgrade_type)"
     echo "Issue body written to $body_file"
+    echo "Would post @codex comment after issue creation"
     exit 0
 fi
 
-gh issue create \
-    --repo "$REPOSITORY" \
-    --title "Review upstream Zed $latest_stable_tag" \
-    --body-file "$body_file" \
-    "${label_args[@]}"
+issue_url="$(
+    gh issue create \
+        --repo "$REPOSITORY" \
+        --title "Review upstream Zed $latest_stable_tag" \
+        --body-file "$body_file" \
+        "${label_args[@]}"
+)"
+
+echo "Created issue: $issue_url"
+
+# Build the @codex comment based on upgrade type
+comment_file="$tmpdir/comment.md"
+
+if [[ "$upgrade_type" == "patch" ]]; then
+    cat > "$comment_file" <<EOF
+@codex Please handle this upstream patch review.
+
+**Scope:** ${LAST_REVIEWED_UPSTREAM_TAG} → ${latest_stable_tag} (patch, same minor line)
+**Active stable branch:** \`${new_stable_branch}\`
+
+### Branching model
+\`${new_stable_branch}\` is a clean upstream mirror — upstream commits only, no NeoZed changes. \`main\` = same upstream commits + NeoZed-specific changes on top. Every upstream commit goes to both branches.
+
+### Steps
+
+1. **Cherry-pick all commits** from \`${LAST_REVIEWED_UPSTREAM_TAG}\` to \`${latest_stable_tag}\` onto \`${new_stable_branch}\` in a PR titled \`Sync upstream Zed ${latest_stable_tag} to ${new_stable_branch}\`. Take all commits — they are already upstream-vetted stable commits. Leave commit messages unchanged.
+2. **Cherry-pick the same commits onto \`main\`** in a separate PR titled \`Merge upstream Zed ${latest_stable_tag}\`. Resolve any conflicts in favor of keeping NeoZed customizations while taking upstream functional changes.
+3. **Update baseline** — include a one-line change to \`script/neozed/upstream-reviewed-tag\` setting its content to \`${latest_stable_tag}\` in the \`main\` PR.
+4. **Close this issue** once both PRs are merged.
+EOF
+else
+    cat > "$comment_file" <<EOF
+@codex Please handle this upstream minor version upgrade.
+
+**Scope:** ${LAST_REVIEWED_UPSTREAM_TAG} → ${latest_stable_tag} (minor version bump — larger range, same process as patch)
+**New stable branch to create:** \`${new_stable_branch}\`
+**Old stable branch to delete:** \`${old_stable_branch}\` — upstream never patches an old minor once a new one exists, so this branch is a permanent dead end.
+
+### Branching model
+\`${new_stable_branch}\` is a clean upstream mirror — upstream commits only, no NeoZed changes. \`main\` = same upstream commits + NeoZed-specific changes on top. NeoZed-specific commits already on \`main\` stay there as-is — you are adding upstream's new commits around them.
+
+### Steps
+
+1. **Create and push \`${new_stable_branch}\`** directly from the upstream tag — no PR needed for this step, it is a clean snapshot with no diff:
+   \`\`\`
+   git fetch upstream --tags
+   git checkout -b ${new_stable_branch} ${latest_stable_tag}
+   git push origin ${new_stable_branch}
+   \`\`\`
+
+2. **Cherry-pick all commits** from \`${LAST_REVIEWED_UPSTREAM_TAG}\` to \`${latest_stable_tag}\` onto \`main\` in a PR titled \`Merge upstream Zed ${latest_stable_tag}\`. Same process as a patch cherry-pick but over a larger range. Take all commits. Resolve any conflicts in favor of keeping NeoZed customizations (identity, branding, \`assets/settings/default.json\`, \`script/neozed/\`) while taking upstream functional changes.
+
+3. **Update baseline** — include a one-line change to \`script/neozed/upstream-reviewed-tag\` setting its content to \`${latest_stable_tag}\` in the \`main\` PR.
+
+4. **Delete \`${old_stable_branch}\`** — upstream never patches an old minor once a new one ships, so this branch is a permanent dead end. Run: \`git push origin --delete ${old_stable_branch}\`
+
+5. **Close this issue** once the \`main\` PR is merged.
+
+If the conflict surface is too large to resolve in one pass, open a draft PR and leave a comment describing the blockers.
+EOF
+fi
+
+gh issue comment "$issue_url" --body-file "$comment_file"
+echo "Posted @codex task comment on $issue_url"

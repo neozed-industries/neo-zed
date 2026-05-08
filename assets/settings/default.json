@@ -1616,9 +1616,9 @@
       "**/*.crt",
       "**/.dev.vars",
       "**/secrets.yml",
-      "**/.neozed/settings.json", // zed project settings
-      "/**/zed/settings.json", // zed user settings
-      "/**/zed/keymap.json",
+      "**/.neozed/settings.json", // NeoZed project settings
+      "/**/neozed/settings.json", // NeoZed user settings
+      "/**/neozed/keymap.json",
     ],
     // When to show edit predictions previews in buffer.
     // This setting takes two possible values:
@@ -1953,7 +1953,7 @@
     "JSONC": [
       "**/.neozed/*.json",
       "**/.vscode/**/*.json",
-      "**/{zed,Zed}/{settings,keymap,tasks,debug}.json",
+      "**/{neozed,NeoZed}/{settings,keymap,tasks,debug}.json",
       "tsconfig*.json",
     ],
     "Markdown": [".rules", ".cursorrules", ".windsurfrules", ".clinerules"],
