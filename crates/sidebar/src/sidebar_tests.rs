@@ -6,7 +6,7 @@ use agent_ui::{
     test_support::{
         active_session_id, active_thread_id, open_thread_with_connection, send_message,
     },
-    thread_metadata_store::{ThreadMetadata, WorktreePaths},
+    thread_metadata_store::{ThreadAttentionKind, ThreadMetadata, WorktreePaths},
 };
 use chrono::DateTime;
 use fs::{FakeFs, Fs};
@@ -372,6 +372,30 @@ fn save_thread_metadata(
     cx.run_until_parked();
 }
 
+fn save_thread_metadata_for_inbox_badge(
+    session_id: acp::SessionId,
+    project: &Entity<project::Project>,
+    cx: &mut TestAppContext,
+) -> ThreadId {
+    save_thread_metadata(
+        session_id.clone(),
+        Some("Inbox badge thread".into()),
+        Utc::now(),
+        Some(Utc::now()),
+        None,
+        project,
+        cx,
+    );
+
+    cx.read(|cx| {
+        ThreadMetadataStore::global(cx)
+            .read(cx)
+            .entry_by_session(&session_id)
+            .map(|thread| thread.thread_id)
+            .expect("saved thread metadata should be present")
+    })
+}
+
 fn save_thread_metadata_with_main_paths(
     session_id: &str,
     title: &str,
@@ -598,6 +622,49 @@ async fn test_restore_serialized_archive_view_does_not_panic(cx: &mut TestAppCon
             "expected sidebar view to be Archive after restore, got ThreadList"
         );
     });
+}
+
+#[gpui::test]
+async fn test_inbox_button_toggles_like_history(cx: &mut TestAppContext) {
+    let project = init_test_project_with_agent_panel("/my-project", cx).await;
+    let (multi_workspace, cx) =
+        cx.add_window_view(|window, cx| MultiWorkspace::test_new(project.clone(), window, cx));
+    let (sidebar, _panel) = setup_sidebar_with_agent_panel(&multi_workspace, cx);
+    cx.update(|_window, cx| {
+        AgentRegistryStore::init_test_global(cx, vec![]);
+    });
+
+    sidebar.update_in(cx, |sidebar, window, cx| {
+        sidebar.toggle_inbox(&ToggleThreadInbox, window, cx);
+        assert!(matches!(sidebar.view, SidebarView::Inbox(_)));
+        sidebar.toggle_inbox(&ToggleThreadInbox, window, cx);
+        assert!(matches!(sidebar.view, SidebarView::ThreadList));
+        sidebar.toggle_archive(&ToggleThreadHistory, window, cx);
+        assert!(matches!(sidebar.view, SidebarView::Archive(_)));
+        sidebar.toggle_inbox(&ToggleThreadInbox, window, cx);
+        assert!(matches!(sidebar.view, SidebarView::Inbox(_)));
+    });
+}
+
+#[gpui::test]
+async fn test_inbox_badge_counts_persisted_attention(cx: &mut TestAppContext) {
+    let project = init_test_project_with_agent_panel("/my-project", cx).await;
+    let (multi_workspace, cx) =
+        cx.add_window_view(|window, cx| MultiWorkspace::test_new(project.clone(), window, cx));
+    let (sidebar, _panel) = setup_sidebar_with_agent_panel(&multi_workspace, cx);
+    let session_id = acp::SessionId::new(Arc::from("session-inbox-badge"));
+    let thread_id = save_thread_metadata_for_inbox_badge(session_id, &project, cx);
+
+    cx.update(|_window, cx| {
+        ThreadMetadataStore::global(cx).update(cx, |store, cx| {
+            store.mark_attention(thread_id, ThreadAttentionKind::Completed, None, cx);
+        });
+    });
+
+    assert_eq!(
+        sidebar.read_with(cx, |sidebar, cx| sidebar.inbox_badge_count(cx)),
+        1
+    );
 }
 
 #[gpui::test]

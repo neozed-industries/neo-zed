@@ -32,6 +32,7 @@ pub mod thread_metadata_store;
 pub mod thread_worktree_archive;
 
 pub mod threads_archive_view;
+pub mod threads_inbox_view;
 mod ui;
 
 use std::rc::Rc;
@@ -75,6 +76,7 @@ pub use thread_import::{
     AcpThreadImportOnboarding, CrossChannelImportOnboarding, ThreadImportModal,
     channels_with_threads, import_threads_from_other_channels,
 };
+pub use threads_inbox_view::{ThreadsInboxView, ThreadsInboxViewEvent};
 use zed_actions;
 pub use zed_actions::{CreateWorktree, NewWorktreeBranchTarget, SwitchWorktree};
 

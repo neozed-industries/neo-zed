@@ -11,6 +11,7 @@ use agent_ui::thread_worktree_archive;
 use agent_ui::threads_archive_view::{
     ThreadsArchiveView, ThreadsArchiveViewEvent, format_history_entry_timestamp,
 };
+use agent_ui::threads_inbox_view::{ThreadsInboxView, ThreadsInboxViewEvent};
 use agent_ui::{
     AcpThreadImportOnboarding, Agent, AgentPanel, AgentPanelEvent, ArchiveSelectedThread,
     CrossChannelImportOnboarding, DEFAULT_THREAD_TITLE, NewThread, ThreadId, ThreadImportModal,
@@ -44,9 +45,10 @@ use std::rc::Rc;
 use std::sync::Arc;
 use theme::ActiveTheme;
 use ui::{
-    AgentThreadStatus, CommonAnimationExt, ContextMenu, Divider, GradientFade, HighlightedLabel,
-    KeyBinding, PopoverMenu, PopoverMenuHandle, ScrollAxes, Scrollbars, Tab, ThreadItem,
-    ThreadItemWorktreeInfo, TintColor, Tooltip, WithScrollbar, prelude::*, render_modifiers,
+    AgentThreadStatus, CommonAnimationExt, ContextMenu, CountBadge, Divider, GradientFade,
+    HighlightedLabel, KeyBinding, PopoverMenu, PopoverMenuHandle, ScrollAxes, Scrollbars, Tab,
+    ThreadItem, ThreadItemWorktreeInfo, TintColor, Tooltip, WithScrollbar, prelude::*,
+    render_modifiers,
 };
 use util::ResultExt as _;
 use util::path_list::PathList;
@@ -74,6 +76,8 @@ gpui::actions!(
         NewThreadInGroup,
         /// Toggles between the thread list and the thread history.
         ToggleThreadHistory,
+        /// Toggles between the thread list and the attention inbox.
+        ToggleThreadInbox,
     ]
 );
 
@@ -95,6 +99,7 @@ enum SerializedSidebarView {
     ThreadList,
     #[serde(alias = "Archive")]
     History,
+    Inbox,
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -110,6 +115,7 @@ enum SidebarView {
     #[default]
     ThreadList,
     Archive(Entity<ThreadsArchiveView>),
+    Inbox(Entity<ThreadsInboxView>),
 }
 
 enum ArchiveWorktreeOutcome {
@@ -2195,9 +2201,11 @@ impl Sidebar {
         dispatch_context.add("menu");
 
         let is_archived_search_focused = matches!(&self.view, SidebarView::Archive(archive) if archive.read(cx).is_filter_editor_focused(window, cx));
+        let is_inbox_search_focused = matches!(&self.view, SidebarView::Inbox(inbox) if inbox.read(cx).is_filter_editor_focused(window, cx));
 
         let identifier = if self.filter_editor.focus_handle(cx).is_focused(window)
             || is_archived_search_focused
+            || is_inbox_search_focused
         {
             "searching"
         } else {
@@ -2217,6 +2225,11 @@ impl Sidebar {
             let has_selection = archive.read(cx).has_selection();
             if !has_selection {
                 archive.update(cx, |view, cx| view.focus_filter_editor(window, cx));
+            }
+        } else if let SidebarView::Inbox(inbox) = &self.view {
+            let has_selection = inbox.read(cx).has_selection();
+            if !has_selection {
+                inbox.update(cx, |view, cx| view.focus_filter_editor(window, cx));
             }
         } else if self.selection.is_none() {
             self.filter_editor.focus_handle(cx).focus(window, cx);
@@ -2259,6 +2272,11 @@ impl Sidebar {
         self.selection = None;
         if let SidebarView::Archive(archive) = &self.view {
             archive.update(cx, |view, cx| {
+                view.clear_selection();
+                view.focus_filter_editor(window, cx);
+            });
+        } else if let SidebarView::Inbox(inbox) = &self.view {
+            inbox.update(cx, |view, cx| {
                 view.clear_selection();
                 view.focus_filter_editor(window, cx);
             });
@@ -4556,6 +4574,8 @@ impl Sidebar {
 
     fn render_sidebar_bottom_bar(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let is_archive = matches!(self.view, SidebarView::Archive(..));
+        let is_inbox = matches!(self.view, SidebarView::Inbox(..));
+        let inbox_count = self.inbox_badge_count(cx);
         let on_right = self.side(cx) == SidebarSide::Right;
 
         h_flex()
@@ -4581,8 +4601,38 @@ impl Sidebar {
                         this.toggle_archive(&ToggleThreadHistory, window, cx);
                     })),
             )
+            .child(
+                div()
+                    .relative()
+                    .child(
+                        IconButton::new("inbox", IconName::Bell)
+                            .icon_size(IconSize::Small)
+                            .toggle_state(is_inbox)
+                            .tooltip(move |_, cx| {
+                                let label = if is_inbox {
+                                    "Hide Attention Inbox"
+                                } else {
+                                    "Show Attention Inbox"
+                                };
+                                Tooltip::for_action(label, &ToggleThreadInbox, cx)
+                            })
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.toggle_inbox(&ToggleThreadInbox, window, cx);
+                            })),
+                    )
+                    .when(inbox_count > 0, |this| {
+                        this.child(CountBadge::new(inbox_count))
+                    }),
+            )
             .child(div().flex_1())
             .child(self.render_recent_projects_button(cx))
+    }
+
+    fn inbox_badge_count(&self, cx: &App) -> usize {
+        ThreadMetadataStore::global(cx)
+            .read(cx)
+            .attention_entries()
+            .count()
     }
 
     fn active_workspace(&self, cx: &App) -> Option<Entity<Workspace>> {
@@ -4715,7 +4765,7 @@ impl Sidebar {
         cx: &mut Context<Self>,
     ) {
         match &self.view {
-            SidebarView::ThreadList => {
+            SidebarView::ThreadList | SidebarView::Inbox(_) => {
                 let side = match self.side(cx) {
                     SidebarSide::Left => "left",
                     SidebarSide::Right => "right",
@@ -4724,6 +4774,13 @@ impl Sidebar {
                 self.show_archive(window, cx);
             }
             SidebarView::Archive(_) => self.show_thread_list(window, cx),
+        }
+    }
+
+    fn toggle_inbox(&mut self, _: &ToggleThreadInbox, window: &mut Window, cx: &mut Context<Self>) {
+        match &self.view {
+            SidebarView::ThreadList | SidebarView::Archive(_) => self.show_inbox(window, cx),
+            SidebarView::Inbox(_) => self.show_thread_list(window, cx),
         }
     }
 
@@ -4777,9 +4834,34 @@ impl Sidebar {
             },
         );
 
+        self._subscriptions.clear();
         self._subscriptions.push(subscription);
         self.view = SidebarView::Archive(archive_view.clone());
         archive_view.update(cx, |view, cx| view.focus_filter_editor(window, cx));
+        self.serialize(cx);
+        cx.notify();
+    }
+
+    fn show_inbox(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let inbox_view = cx.new(|cx| ThreadsInboxView::new(window, cx));
+
+        let subscription = cx.subscribe_in(
+            &inbox_view,
+            window,
+            |this, _, event: &ThreadsInboxViewEvent, window, cx| match event {
+                ThreadsInboxViewEvent::Close => {
+                    this.show_thread_list(window, cx);
+                }
+                ThreadsInboxViewEvent::Activate { thread } => {
+                    this.open_thread_from_archive(thread.clone(), window, cx);
+                }
+            },
+        );
+
+        self._subscriptions.clear();
+        self._subscriptions.push(subscription);
+        self.view = SidebarView::Inbox(inbox_view.clone());
+        inbox_view.update(cx, |view, cx| view.focus_filter_editor(window, cx));
         self.serialize(cx);
         cx.notify();
     }
@@ -4904,6 +4986,7 @@ impl WorkspaceSidebar for Sidebar {
             active_view: match self.view {
                 SidebarView::ThreadList => SerializedSidebarView::ThreadList,
                 SidebarView::Archive(_) => SerializedSidebarView::History,
+                SidebarView::Inbox(_) => SerializedSidebarView::Inbox,
             },
         };
         serde_json::to_string(&serialized).ok()
@@ -4919,10 +5002,18 @@ impl WorkspaceSidebar for Sidebar {
             if let Some(width) = serialized.width {
                 self.width = px(width).clamp(MIN_WIDTH, MAX_WIDTH);
             }
-            if serialized.active_view == SerializedSidebarView::History {
-                cx.defer_in(window, |this, window, cx| {
-                    this.show_archive(window, cx);
-                });
+            match serialized.active_view {
+                SerializedSidebarView::History => {
+                    cx.defer_in(window, |this, window, cx| {
+                        this.show_archive(window, cx);
+                    });
+                }
+                SerializedSidebarView::Inbox => {
+                    cx.defer_in(window, |this, window, cx| {
+                        this.show_inbox(window, cx);
+                    });
+                }
+                SerializedSidebarView::ThreadList => {}
             }
         }
         cx.notify();
@@ -4971,6 +5062,7 @@ impl Render for Sidebar {
             .on_action(cx.listener(Self::archive_selected_thread))
             .on_action(cx.listener(Self::new_thread_in_group))
             .on_action(cx.listener(Self::toggle_archive))
+            .on_action(cx.listener(Self::toggle_inbox))
             .on_action(cx.listener(Self::focus_sidebar_filter))
             .on_action(cx.listener(Self::on_toggle_thread_switcher))
             .on_action(cx.listener(Self::on_next_project))
@@ -5021,6 +5113,7 @@ impl Render for Sidebar {
                         }
                     }),
                 SidebarView::Archive(archive_view) => this.child(archive_view.clone()),
+                SidebarView::Inbox(inbox_view) => this.child(inbox_view.clone()),
             })
             .map(|this| {
                 let show_acp = self.should_render_acp_import_onboarding(cx);
