@@ -86,7 +86,6 @@ pub struct InboxAttentionItem {
     pub kind: InboxAttentionKind,
     pub summary: Option<SharedString>,
     pub timestamp: DateTime<Utc>,
-    pub hidden_because_active: bool,
 }
 
 pub enum ThreadsInboxViewEvent {
@@ -148,7 +147,6 @@ impl ThreadsInboxView {
 
         cx.on_focus_out(&focus_handle, window, |this: &mut Self, _, _window, cx| {
             this.selection = None;
-            this.hovered_index = None;
             cx.notify();
         })
         .detach();
@@ -447,29 +445,28 @@ impl ThreadsInboxView {
             })
             .with_handle(self.filter_menu_handle.clone())
             .menu(move |window, cx| {
-                Some(ContextMenu::build(window, cx, {
-                    let this = this.clone();
-                    move |menu, _window, _cx| {
-                        InboxFilter::all().into_iter().fold(
-                            menu.header("Filter"),
-                            |menu, filter| {
-                                let this = this.clone();
-                                menu.toggleable_entry(
-                                    filter.label(),
-                                    selected_filter == filter,
-                                    inbox_filter_toggle_position(),
-                                    None,
+                let this = this.clone();
+                Some(ContextMenu::build(window, cx, move |menu, _window, _cx| {
+                    InboxFilter::all()
+                        .into_iter()
+                        .fold(menu.header("Filter"), |menu, filter| {
+                            menu.toggleable_entry(
+                                filter.label(),
+                                selected_filter == filter,
+                                IconPosition::Start,
+                                None,
+                                {
+                                    let this = this.clone();
                                     move |_window, cx| {
                                         this.update(cx, |view, cx| {
                                             view.inbox_filter = filter;
                                             view.update_items(cx);
                                         })
                                         .ok();
-                                    },
-                                )
-                            },
-                        )
-                    }
+                                    }
+                                },
+                            )
+                        })
                 }))
             })
     }
@@ -500,12 +497,15 @@ impl ThreadsInboxView {
                 this.bg(cx.theme().colors().element_hover)
             })
             .on_hover(cx.listener(move |this, is_hovered: &bool, _window, cx| {
-                if *is_hovered {
-                    this.hovered_index = Some(index);
-                } else if this.hovered_index == Some(index) {
-                    this.hovered_index = None;
+                let previously_hovered = this.hovered_index;
+                this.hovered_index = if *is_hovered {
+                    Some(index)
+                } else {
+                    previously_hovered.filter(|&hovered_index| hovered_index != index)
+                };
+                if this.hovered_index != previously_hovered {
+                    cx.notify();
                 }
-                cx.notify();
             }))
             .on_click(cx.listener(move |this, _, _window, cx| {
                 this.activate_item_at(index, cx);
@@ -606,10 +606,6 @@ impl Render for ThreadsInboxView {
     }
 }
 
-fn inbox_filter_toggle_position() -> IconPosition {
-    IconPosition::Start
-}
-
 fn inbox_search_text(item: &InboxAttentionItem) -> String {
     let summary = item
         .summary
@@ -650,10 +646,5 @@ mod tests {
         assert!(InboxFilter::Interrupted.matches(InboxAttentionKind::Interrupted));
         assert!(InboxFilter::Errors.matches(InboxAttentionKind::Error));
         assert!(!InboxFilter::Errors.matches(InboxAttentionKind::Interrupted));
-    }
-
-    #[test]
-    fn inbox_filter_toggle_position_matches_sidebar_menu_conventions() {
-        assert_eq!(inbox_filter_toggle_position(), IconPosition::Start);
     }
 }

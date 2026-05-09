@@ -4780,7 +4780,6 @@ impl Sidebar {
                         kind: InboxAttentionKind::from(attention.kind),
                         summary: attention.summary.clone(),
                         timestamp: attention.at,
-                        hidden_because_active: false,
                     },
                 );
             }
@@ -4878,7 +4877,6 @@ impl Sidebar {
                 thread: metadata,
                 kind: InboxAttentionKind::Permission,
                 summary: None,
-                hidden_because_active,
             },
         );
     }
