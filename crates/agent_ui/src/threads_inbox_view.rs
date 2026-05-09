@@ -424,7 +424,7 @@ impl ThreadsInboxView {
                                 menu.toggleable_entry(
                                     filter.label(),
                                     selected_filter == filter,
-                                    IconPosition::End,
+                                    inbox_filter_toggle_position(),
                                     None,
                                     move |_window, cx| {
                                         this.update(cx, |view, cx| {
@@ -556,6 +556,10 @@ impl Render for ThreadsInboxView {
     }
 }
 
+fn inbox_filter_toggle_position() -> IconPosition {
+    IconPosition::Start
+}
+
 fn inbox_search_text(item: &InboxAttentionItem) -> String {
     let summary = item
         .summary
@@ -596,5 +600,10 @@ mod tests {
         assert!(InboxFilter::Interrupted.matches(InboxAttentionKind::Interrupted));
         assert!(InboxFilter::Errors.matches(InboxAttentionKind::Error));
         assert!(!InboxFilter::Errors.matches(InboxAttentionKind::Interrupted));
+    }
+
+    #[test]
+    fn inbox_filter_toggle_position_matches_sidebar_menu_conventions() {
+        assert_eq!(inbox_filter_toggle_position(), IconPosition::Start);
     }
 }
