@@ -10,8 +10,8 @@ use menu::{Confirm, SelectNext, SelectPrevious};
 use settings::Settings as _;
 use theme::ActiveTheme;
 use ui::{
-    Divider, KeyBinding, Label, LabelSize, ScrollAxes, Scrollbars, Tab, Tooltip, WithScrollbar,
-    prelude::*, utils::platform_title_bar_height,
+    ContextMenu, Divider, KeyBinding, Label, LabelSize, PopoverMenu, PopoverMenuHandle, ScrollAxes,
+    Scrollbars, Tab, Tooltip, WithScrollbar, prelude::*, utils::platform_title_bar_height,
 };
 use workspace::CloseWindow;
 use zed_actions::agents_sidebar::FocusSidebarFilter;
@@ -44,6 +44,47 @@ impl From<ThreadAttentionKind> for InboxAttentionKind {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum InboxFilter {
+    All,
+    Permission,
+    Completed,
+    Interrupted,
+    Errors,
+}
+
+impl InboxFilter {
+    fn all() -> [Self; 5] {
+        [
+            Self::All,
+            Self::Permission,
+            Self::Completed,
+            Self::Interrupted,
+            Self::Errors,
+        ]
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::All => "All",
+            Self::Permission => "Permission Requests",
+            Self::Completed => "Completed",
+            Self::Interrupted => "Interrupted",
+            Self::Errors => "Errors",
+        }
+    }
+
+    fn matches(self, kind: InboxAttentionKind) -> bool {
+        match self {
+            Self::All => true,
+            Self::Permission => kind == InboxAttentionKind::Permission,
+            Self::Completed => kind == InboxAttentionKind::Completed,
+            Self::Interrupted => kind == InboxAttentionKind::Interrupted,
+            Self::Errors => kind == InboxAttentionKind::Error,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct InboxAttentionItem {
     pub thread: ThreadMetadata,
@@ -67,6 +108,8 @@ pub struct ThreadsInboxView {
     items: Vec<InboxListItem>,
     selection: Option<usize>,
     filter_editor: Entity<Editor>,
+    inbox_filter: InboxFilter,
+    filter_menu_handle: PopoverMenuHandle<ContextMenu>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -112,6 +155,8 @@ impl ThreadsInboxView {
             items: Vec::new(),
             selection: None,
             filter_editor,
+            inbox_filter: InboxFilter::All,
+            filter_menu_handle: PopoverMenuHandle::default(),
             _subscriptions: vec![filter_editor_subscription],
         };
         this.update_items(cx);
@@ -152,6 +197,7 @@ impl ThreadsInboxView {
 
         self.items = items
             .into_iter()
+            .filter(|item| self.inbox_filter.matches(item.kind))
             .filter(|item| inbox_search_text(item).contains(&query))
             .map(|item| InboxListItem::Entry { item })
             .collect();
@@ -316,11 +362,17 @@ impl ThreadsInboxView {
     }
 
     fn render_toolbar(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let item_count = self.source_items.len();
-        let count_text = if item_count == 1 {
+        let total_count = self.source_items.len();
+        let visible_count = self.items.len();
+        let total_count_text = if total_count == 1 {
             "1 item".to_string()
         } else {
-            format!("{item_count} items")
+            format!("{total_count} items")
+        };
+        let count_text = if self.inbox_filter == InboxFilter::All {
+            total_count_text
+        } else {
+            format!("{visible_count} of {total_count_text}")
         };
 
         h_flex()
@@ -333,10 +385,60 @@ impl ThreadsInboxView {
             .border_color(cx.theme().colors().border)
             .child(Label::new("Inbox").size(LabelSize::Small))
             .child(
-                Label::new(count_text)
-                    .size(LabelSize::XSmall)
-                    .color(Color::Muted),
+                h_flex()
+                    .gap_1()
+                    .child(
+                        Label::new(count_text)
+                            .size(LabelSize::XSmall)
+                            .color(Color::Muted),
+                    )
+                    .child(self.render_filter_menu(cx)),
             )
+    }
+
+    fn render_filter_menu(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let this = cx.weak_entity();
+        let selected_filter = self.inbox_filter;
+
+        PopoverMenu::new("inbox-filter-menu")
+            .trigger_with_tooltip(
+                IconButton::new("inbox-filter-menu-button", IconName::Sliders)
+                    .icon_size(IconSize::Small)
+                    .toggle_state(selected_filter != InboxFilter::All),
+                Tooltip::text("Filter Inbox"),
+            )
+            .anchor(gpui::Anchor::TopRight)
+            .offset(gpui::Point {
+                x: px(0.0),
+                y: px(2.0),
+            })
+            .with_handle(self.filter_menu_handle.clone())
+            .menu(move |window, cx| {
+                Some(ContextMenu::build(window, cx, {
+                    let this = this.clone();
+                    move |menu, _window, _cx| {
+                        InboxFilter::all().into_iter().fold(
+                            menu.header("Filter"),
+                            |menu, filter| {
+                                let this = this.clone();
+                                menu.toggleable_entry(
+                                    filter.label(),
+                                    selected_filter == filter,
+                                    IconPosition::End,
+                                    None,
+                                    move |_window, cx| {
+                                        this.update(cx, |view, cx| {
+                                            view.inbox_filter = filter;
+                                            view.update_items(cx);
+                                        })
+                                        .ok();
+                                    },
+                                )
+                            },
+                        )
+                    }
+                }))
+            })
     }
 
     fn render_list_entry(
@@ -479,4 +581,20 @@ fn attention_reason(kind: InboxAttentionKind) -> &'static str {
 
 fn format_history_entry_timestamp(timestamp: chrono::DateTime<chrono::Utc>) -> SharedString {
     timestamp.format("%b %-d, %-I:%M %p").to_string().into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn inbox_filter_matches_expected_attention_kinds() {
+        assert!(InboxFilter::All.matches(InboxAttentionKind::Permission));
+        assert!(InboxFilter::Permission.matches(InboxAttentionKind::Permission));
+        assert!(!InboxFilter::Permission.matches(InboxAttentionKind::Completed));
+        assert!(InboxFilter::Completed.matches(InboxAttentionKind::Completed));
+        assert!(InboxFilter::Interrupted.matches(InboxAttentionKind::Interrupted));
+        assert!(InboxFilter::Errors.matches(InboxAttentionKind::Error));
+        assert!(!InboxFilter::Errors.matches(InboxAttentionKind::Interrupted));
+    }
 }
