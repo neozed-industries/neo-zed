@@ -441,6 +441,16 @@ fn focus_sidebar(sidebar: &Entity<Sidebar>, cx: &mut gpui::VisualTestContext) {
     cx.run_until_parked();
 }
 
+fn focus_inbox(sidebar: &Entity<Sidebar>, cx: &mut gpui::VisualTestContext) {
+    sidebar.update_in(cx, |sidebar, window, cx| {
+        let SidebarView::Inbox(inbox) = &sidebar.view else {
+            panic!("expected inbox");
+        };
+        inbox.update(cx, |_, cx| cx.focus_self(window));
+    });
+    cx.run_until_parked();
+}
+
 fn request_test_tool_authorization(
     thread: &Entity<AcpThread>,
     tool_call_id: &str,
@@ -849,20 +859,109 @@ async fn test_persisted_inbox_item_clears_after_successful_open(cx: &mut TestApp
 
     sidebar.update_in(cx, |sidebar, window, cx| {
         sidebar.show_inbox(window, cx);
-        let SidebarView::Inbox(inbox) = &sidebar.view else {
-            panic!("expected inbox");
-        };
-        inbox.update(cx, |inbox, cx| {
-            inbox.select_next(&SelectNext, window, cx);
-            inbox.confirm(&Confirm, window, cx);
-        });
     });
+    focus_inbox(&sidebar, cx);
+    cx.dispatch_action(SelectNext);
+    cx.dispatch_action(Confirm);
     cx.run_until_parked();
 
     assert!(cx.read(|cx| {
         ThreadMetadataStore::global(cx)
             .read(cx)
             .entry(thread_id)
+            .and_then(|thread| thread.attention.as_ref())
+            .is_none()
+    }));
+}
+
+#[gpui::test]
+async fn test_open_inbox_refreshes_when_metadata_store_attention_changes(cx: &mut TestAppContext) {
+    let project = init_test_project_with_agent_panel("/my-project", cx).await;
+    let (multi_workspace, cx) =
+        cx.add_window_view(|window, cx| MultiWorkspace::test_new(project.clone(), window, cx));
+    let (sidebar, _panel) = setup_sidebar_with_agent_panel(&multi_workspace, cx);
+    let session_id = acp::SessionId::new(Arc::from("session-inbox-observe"));
+    let thread_id = save_thread_metadata_for_inbox_badge(session_id, &project, cx);
+
+    sidebar.update_in(cx, |sidebar, window, cx| {
+        sidebar.show_inbox(window, cx);
+    });
+
+    cx.update(|_window, cx| {
+        ThreadMetadataStore::global(cx).update(cx, |store, cx| {
+            store.mark_attention(thread_id, ThreadAttentionKind::Completed, None, cx);
+        });
+    });
+    cx.run_until_parked();
+
+    focus_inbox(&sidebar, cx);
+    cx.dispatch_action(SelectNext);
+    cx.dispatch_action(Confirm);
+    cx.run_until_parked();
+
+    assert!(cx.read(|cx| {
+        ThreadMetadataStore::global(cx)
+            .read(cx)
+            .entry(thread_id)
+            .and_then(|thread| thread.attention.as_ref())
+            .is_none()
+    }));
+}
+
+#[gpui::test]
+async fn test_inbox_select_first_and_last_actions(cx: &mut TestAppContext) {
+    let project = init_test_project_with_agent_panel("/my-project", cx).await;
+    let (multi_workspace, cx) =
+        cx.add_window_view(|window, cx| MultiWorkspace::test_new(project.clone(), window, cx));
+    let (sidebar, _panel) = setup_sidebar_with_agent_panel(&multi_workspace, cx);
+    let older_session_id = acp::SessionId::new(Arc::from("session-inbox-older"));
+    let newer_session_id = acp::SessionId::new(Arc::from("session-inbox-newer"));
+    let older_thread_id = save_thread_metadata_for_inbox_badge(older_session_id, &project, cx);
+    let newer_thread_id = save_thread_metadata_for_inbox_badge(newer_session_id, &project, cx);
+
+    cx.update(|_window, cx| {
+        ThreadMetadataStore::global(cx).update(cx, |store, cx| {
+            store.mark_attention(older_thread_id, ThreadAttentionKind::Completed, None, cx);
+            store.mark_attention(newer_thread_id, ThreadAttentionKind::Error, None, cx);
+        });
+    });
+
+    sidebar.update_in(cx, |sidebar, window, cx| {
+        sidebar.show_inbox(window, cx);
+    });
+    focus_inbox(&sidebar, cx);
+    cx.dispatch_action(SelectLast);
+    cx.dispatch_action(Confirm);
+    cx.run_until_parked();
+
+    cx.read(|cx| {
+        let store = ThreadMetadataStore::global(cx).read(cx);
+        assert!(
+            store
+                .entry(older_thread_id)
+                .and_then(|thread| thread.attention.as_ref())
+                .is_none()
+        );
+        assert!(
+            store
+                .entry(newer_thread_id)
+                .and_then(|thread| thread.attention.as_ref())
+                .is_some()
+        );
+    });
+
+    sidebar.update_in(cx, |sidebar, window, cx| {
+        sidebar.show_inbox(window, cx);
+    });
+    focus_inbox(&sidebar, cx);
+    cx.dispatch_action(SelectFirst);
+    cx.dispatch_action(Confirm);
+    cx.run_until_parked();
+
+    assert!(cx.read(|cx| {
+        ThreadMetadataStore::global(cx)
+            .read(cx)
+            .entry(newer_thread_id)
             .and_then(|thread| thread.attention.as_ref())
             .is_none()
     }));

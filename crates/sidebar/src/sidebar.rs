@@ -5046,7 +5046,14 @@ impl Sidebar {
 
     fn toggle_inbox(&mut self, _: &ToggleThreadInbox, window: &mut Window, cx: &mut Context<Self>) {
         match &self.view {
-            SidebarView::ThreadList | SidebarView::Archive(_) => self.show_inbox(window, cx),
+            SidebarView::ThreadList | SidebarView::Archive(_) => {
+                let side = match self.side(cx) {
+                    SidebarSide::Left => "left",
+                    SidebarSide::Right => "right",
+                };
+                telemetry::event!("Attention Inbox Viewed", side = side);
+                self.show_inbox(window, cx);
+            }
             SidebarView::Inbox(_) => self.show_thread_list(window, cx),
         }
     }
@@ -5118,6 +5125,9 @@ impl Sidebar {
             |this, _, event: &ThreadsInboxViewEvent, window, cx| match event {
                 ThreadsInboxViewEvent::Close => {
                     this.show_thread_list(window, cx);
+                }
+                ThreadsInboxViewEvent::RefreshItems => {
+                    this.refresh_inbox_view(cx);
                 }
                 ThreadsInboxViewEvent::Activate { thread } => {
                     this.open_thread_from_inbox(thread.clone(), window, cx);

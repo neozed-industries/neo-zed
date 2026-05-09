@@ -6,7 +6,7 @@ use gpui::{
     AnyElement, App, Context, Entity, EventEmitter, FocusHandle, Focusable, ListState, Render,
     SharedString, Subscription, Window, list, prelude::*, px,
 };
-use menu::{Confirm, SelectNext, SelectPrevious};
+use menu::{Confirm, SelectFirst, SelectLast, SelectNext, SelectPrevious};
 use settings::Settings as _;
 use theme::ActiveTheme;
 use ui::{
@@ -19,12 +19,7 @@ use zed_actions::editor::{MoveDown, MoveUp};
 
 use agent_settings::AgentSettings;
 
-use crate::thread_metadata_store::{ThreadAttentionKind, ThreadMetadata};
-
-#[derive(Clone)]
-enum InboxListItem {
-    Entry { item: InboxAttentionItem },
-}
+use crate::thread_metadata_store::{ThreadAttentionKind, ThreadMetadata, ThreadMetadataStore};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum InboxAttentionKind {
@@ -96,6 +91,7 @@ pub struct InboxAttentionItem {
 
 pub enum ThreadsInboxViewEvent {
     Close,
+    RefreshItems,
     Activate { thread: ThreadMetadata },
 }
 
@@ -105,8 +101,9 @@ pub struct ThreadsInboxView {
     focus_handle: FocusHandle,
     list_state: ListState,
     source_items: Vec<InboxAttentionItem>,
-    items: Vec<InboxListItem>,
+    items: Vec<InboxAttentionItem>,
     selection: Option<usize>,
+    hovered_index: Option<usize>,
     filter_editor: Entity<Editor>,
     inbox_filter: InboxFilter,
     filter_menu_handle: PopoverMenuHandle<ContextMenu>,
@@ -142,8 +139,16 @@ impl ThreadsInboxView {
         )
         .detach();
 
+        let thread_metadata_store_subscription = cx.observe(
+            &ThreadMetadataStore::global(cx),
+            |_this: &mut Self, _, cx| {
+                cx.emit(ThreadsInboxViewEvent::RefreshItems);
+            },
+        );
+
         cx.on_focus_out(&focus_handle, window, |this: &mut Self, _, _window, cx| {
             this.selection = None;
+            this.hovered_index = None;
             cx.notify();
         })
         .detach();
@@ -154,10 +159,14 @@ impl ThreadsInboxView {
             source_items: Vec::new(),
             items: Vec::new(),
             selection: None,
+            hovered_index: None,
             filter_editor,
             inbox_filter: InboxFilter::All,
             filter_menu_handle: PopoverMenuHandle::default(),
-            _subscriptions: vec![filter_editor_subscription],
+            _subscriptions: vec![
+                filter_editor_subscription,
+                thread_metadata_store_subscription,
+            ],
         };
         this.update_items(cx);
         this
@@ -195,21 +204,25 @@ impl ThreadsInboxView {
         let mut items = self.source_items.clone();
         items.sort_by_key(|item| Reverse(item.timestamp));
 
+        let saved_scroll = self.list_state.logical_scroll_top();
+
         self.items = items
             .into_iter()
             .filter(|item| self.inbox_filter.matches(item.kind))
             .filter(|item| inbox_search_text(item).contains(&query))
-            .map(|item| InboxListItem::Entry { item })
             .collect();
         self.selection = self
             .selection
             .filter(|selection| *selection < self.items.len());
-        self.list_state
-            .splice(0..self.list_state.item_count(), self.items.len());
+        self.hovered_index = self
+            .hovered_index
+            .filter(|hovered_index| *hovered_index < self.items.len());
+        self.list_state.reset(self.items.len());
+        self.list_state.scroll_to(saved_scroll);
         cx.notify();
     }
 
-    pub fn select_next(&mut self, _: &SelectNext, _window: &mut Window, cx: &mut Context<Self>) {
+    fn select_next(&mut self, _: &SelectNext, _window: &mut Window, cx: &mut Context<Self>) {
         let next = self.selection.map_or(0, |selection| selection + 1);
         if next < self.items.len() {
             self.selection = Some(next);
@@ -255,16 +268,36 @@ impl ThreadsInboxView {
         }
     }
 
-    pub fn confirm(&mut self, _: &Confirm, _window: &mut Window, cx: &mut Context<Self>) {
+    fn select_first(&mut self, _: &SelectFirst, _window: &mut Window, cx: &mut Context<Self>) {
+        if !self.items.is_empty() {
+            self.selection = Some(0);
+            self.list_state.scroll_to_reveal_item(0);
+            cx.notify();
+        }
+    }
+
+    fn select_last(&mut self, _: &SelectLast, _window: &mut Window, cx: &mut Context<Self>) {
+        let last = self.items.len().checked_sub(1);
+        if let Some(last) = last {
+            self.selection = Some(last);
+            self.list_state.scroll_to_reveal_item(last);
+            cx.notify();
+        }
+    }
+
+    fn confirm(&mut self, _: &Confirm, _window: &mut Window, cx: &mut Context<Self>) {
         let Some(selection) = self.selection else {
             return;
         };
-        let Some(InboxListItem::Entry { item }) = self.items.get(selection) else {
-            return;
-        };
-        cx.emit(ThreadsInboxViewEvent::Activate {
-            thread: item.thread.clone(),
-        });
+        self.activate_item_at(selection, cx);
+    }
+
+    fn activate_item_at(&mut self, index: usize, cx: &mut Context<Self>) {
+        if let Some(item) = self.items.get(index) {
+            cx.emit(ThreadsInboxViewEvent::Activate {
+                thread: item.thread.clone(),
+            });
+        }
     }
 
     fn reset_filter_editor_text(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -447,10 +480,11 @@ impl ThreadsInboxView {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let Some(InboxListItem::Entry { item }) = self.items.get(index) else {
+        let Some(item) = self.items.get(index) else {
             return div().into_any_element();
         };
         let is_selected = self.selection == Some(index);
+        let is_hovered = self.hovered_index == Some(index);
 
         v_flex()
             .id(("inbox-entry", index))
@@ -462,6 +496,20 @@ impl ThreadsInboxView {
             .when(is_selected, |this| {
                 this.bg(cx.theme().colors().element_selected)
             })
+            .when(!is_selected && is_hovered, |this| {
+                this.bg(cx.theme().colors().element_hover)
+            })
+            .on_hover(cx.listener(move |this, is_hovered: &bool, _window, cx| {
+                if *is_hovered {
+                    this.hovered_index = Some(index);
+                } else if this.hovered_index == Some(index) {
+                    this.hovered_index = None;
+                }
+                cx.notify();
+            }))
+            .on_click(cx.listener(move |this, _, _window, cx| {
+                this.activate_item_at(index, cx);
+            }))
             .child(
                 h_flex()
                     .justify_between()
@@ -472,7 +520,7 @@ impl ThreadsInboxView {
                             .color(Color::Muted),
                     )
                     .child(
-                        Label::new(format_history_entry_timestamp(item.timestamp))
+                        Label::new(format_inbox_timestamp(item.timestamp))
                             .size(LabelSize::XSmall)
                             .color(Color::Muted),
                     ),
@@ -548,6 +596,8 @@ impl Render for ThreadsInboxView {
             .on_action(cx.listener(Self::select_previous))
             .on_action(cx.listener(Self::editor_move_down))
             .on_action(cx.listener(Self::editor_move_up))
+            .on_action(cx.listener(Self::select_first))
+            .on_action(cx.listener(Self::select_last))
             .on_action(cx.listener(Self::confirm))
             .size_full()
             .child(self.render_header(window, cx))
@@ -583,7 +633,7 @@ fn attention_reason(kind: InboxAttentionKind) -> &'static str {
     }
 }
 
-fn format_history_entry_timestamp(timestamp: chrono::DateTime<chrono::Utc>) -> SharedString {
+fn format_inbox_timestamp(timestamp: chrono::DateTime<chrono::Utc>) -> SharedString {
     timestamp.format("%b %-d, %-I:%M %p").to_string().into()
 }
 
