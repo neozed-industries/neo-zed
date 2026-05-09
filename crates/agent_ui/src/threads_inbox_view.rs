@@ -447,26 +447,24 @@ impl ThreadsInboxView {
             .menu(move |window, cx| {
                 let this = this.clone();
                 Some(ContextMenu::build(window, cx, move |menu, _window, _cx| {
-                    InboxFilter::all()
-                        .into_iter()
-                        .fold(menu.header("Filter"), |menu, filter| {
-                            menu.toggleable_entry(
-                                filter.label(),
-                                selected_filter == filter,
-                                IconPosition::Start,
-                                None,
-                                {
-                                    let this = this.clone();
-                                    move |_window, cx| {
-                                        this.update(cx, |view, cx| {
-                                            view.inbox_filter = filter;
-                                            view.update_items(cx);
-                                        })
-                                        .ok();
-                                    }
-                                },
-                            )
-                        })
+                    InboxFilter::all().into_iter().fold(menu, |menu, filter| {
+                        menu.toggleable_entry(
+                            filter.label(),
+                            selected_filter == filter,
+                            IconPosition::Start,
+                            None,
+                            {
+                                let this = this.clone();
+                                move |_window, cx| {
+                                    this.update(cx, |view, cx| {
+                                        view.inbox_filter = filter;
+                                        view.update_items(cx);
+                                    })
+                                    .ok();
+                                }
+                            },
+                        )
+                    })
                 }))
             })
     }
