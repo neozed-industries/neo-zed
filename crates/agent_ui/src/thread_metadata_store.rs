@@ -610,6 +610,8 @@ impl ThreadMetadataStore {
         self.entries().filter(|t| t.archived)
     }
 
+    /// Returns threads with persisted attention in arbitrary cache order.
+    /// Callers that display entries should sort the result.
     pub fn attention_entries(&self) -> impl Iterator<Item = &ThreadMetadata> + '_ {
         self.entries().filter(|thread| thread.attention.is_some())
     }
@@ -1776,6 +1778,7 @@ impl Column for ThreadMetadata {
             .map(serde_json::from_str::<RemoteConnectionOptions>)
             .transpose()
             .context("deserialize thread metadata remote connection")?;
+        let thread_id = ThreadId(thread_id_uuid);
 
         let attention_kind = match attention_kind.as_deref() {
             Some("completed") => Some(ThreadAttentionKind::Completed),
@@ -1792,6 +1795,12 @@ impl Column for ThreadMetadata {
             .map(DateTime::parse_from_rfc3339)
             .transpose()?
             .map(|datetime| datetime.with_timezone(&Utc));
+        if attention_kind.is_some() && attention_at.is_none() {
+            log::warn!(
+                "thread {:?} has attention_kind but missing attention_at; dropping attention",
+                thread_id
+            );
+        }
         let attention = attention_kind
             .zip(attention_at)
             .map(|(kind, at)| ThreadAttention {
@@ -1813,8 +1822,6 @@ impl Column for ThreadMetadata {
 
         let worktree_paths = WorktreePaths::from_path_lists(main_worktree_paths, folder_paths)
             .unwrap_or_else(|_| WorktreePaths::default());
-
-        let thread_id = ThreadId(thread_id_uuid);
 
         Ok((
             ThreadMetadata {

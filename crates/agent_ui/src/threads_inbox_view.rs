@@ -19,7 +19,7 @@ use zed_actions::editor::{MoveDown, MoveUp};
 
 use agent_settings::AgentSettings;
 
-use crate::thread_metadata_store::{ThreadAttentionKind, ThreadMetadata, ThreadMetadataStore};
+use crate::thread_metadata_store::{ThreadAttentionKind, ThreadMetadata};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum InboxAttentionKind {
@@ -89,8 +89,6 @@ pub struct InboxAttentionItem {
 }
 
 pub enum ThreadsInboxViewEvent {
-    Close,
-    RefreshItems,
     Activate { thread: ThreadMetadata },
 }
 
@@ -138,13 +136,6 @@ impl ThreadsInboxView {
         )
         .detach();
 
-        let thread_metadata_store_subscription = cx.observe(
-            &ThreadMetadataStore::global(cx),
-            |_this: &mut Self, _, cx| {
-                cx.emit(ThreadsInboxViewEvent::RefreshItems);
-            },
-        );
-
         cx.on_focus_out(&focus_handle, window, |this: &mut Self, _, _window, cx| {
             this.selection = None;
             cx.notify();
@@ -161,10 +152,7 @@ impl ThreadsInboxView {
             filter_editor,
             inbox_filter: InboxFilter::All,
             filter_menu_handle: PopoverMenuHandle::default(),
-            _subscriptions: vec![
-                filter_editor_subscription,
-                thread_metadata_store_subscription,
-            ],
+            _subscriptions: vec![filter_editor_subscription],
         };
         this.update_items(cx);
         this
@@ -623,10 +611,12 @@ fn attention_reason(kind: InboxAttentionKind) -> &'static str {
         InboxAttentionKind::Permission => "Waiting for permission",
         InboxAttentionKind::Completed => "Completed in background",
         InboxAttentionKind::Error => "Stopped with error",
-        InboxAttentionKind::Interrupted => "Interrupted",
+        InboxAttentionKind::Interrupted => "Interrupted in background",
     }
 }
 
+// Inbox items are action prompts, so an absolute time is more useful here than
+// the archive's compact relative timestamp.
 fn format_inbox_timestamp(timestamp: chrono::DateTime<chrono::Utc>) -> SharedString {
     timestamp.format("%b %-d, %-I:%M %p").to_string().into()
 }

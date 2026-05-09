@@ -12,12 +12,10 @@ use agent_ui::thread_worktree_archive;
 use agent_ui::threads_archive_view::{
     ThreadsArchiveView, ThreadsArchiveViewEvent, format_history_entry_timestamp,
 };
-use agent_ui::threads_inbox_view::{
-    InboxAttentionItem, InboxAttentionKind, ThreadsInboxView, ThreadsInboxViewEvent,
-};
 use agent_ui::{
     AcpThreadImportOnboarding, Agent, AgentPanel, AgentPanelEvent, ArchiveSelectedThread,
-    CrossChannelImportOnboarding, DEFAULT_THREAD_TITLE, NewThread, ThreadId, ThreadImportModal,
+    CrossChannelImportOnboarding, DEFAULT_THREAD_TITLE, InboxAttentionItem, InboxAttentionKind,
+    NewThread, ThreadId, ThreadImportModal, ThreadsInboxView, ThreadsInboxViewEvent,
     channels_with_threads, import_threads_from_other_channels,
 };
 use chrono::{DateTime, Utc};
@@ -531,6 +529,7 @@ pub struct Sidebar {
     _thread_switcher_subscriptions: Vec<gpui::Subscription>,
     pending_thread_activation: Option<agent_ui::ThreadId>,
     view: SidebarView,
+    inbox_badge_count: usize,
     restoring_tasks: HashMap<agent_ui::ThreadId, Task<()>>,
     recent_projects_popover_handle: PopoverMenuHandle<SidebarRecentProjects>,
     project_header_menu_handles: HashMap<usize, PopoverMenuHandle<ContextMenu>>,
@@ -626,6 +625,7 @@ impl Sidebar {
             _thread_switcher_subscriptions: Vec::new(),
             pending_thread_activation: None,
             view: SidebarView::default(),
+            inbox_badge_count: 0,
             restoring_tasks: HashMap::new(),
             recent_projects_popover_handle: PopoverMenuHandle::default(),
             project_header_menu_handles: HashMap::new(),
@@ -1497,7 +1497,7 @@ impl Sidebar {
 
         self.list_state.reset(self.contents.entries.len());
         self.list_state.scroll_to(scroll_position);
-        self.refresh_inbox_view(cx);
+        self.refresh_inbox_state(cx);
 
         if had_notifications != self.has_notifications(cx) {
             multi_workspace.update(cx, |_, cx| {
@@ -4707,7 +4707,7 @@ impl Sidebar {
     fn render_sidebar_bottom_bar(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let is_archive = matches!(self.view, SidebarView::Archive(..));
         let is_inbox = matches!(self.view, SidebarView::Inbox(..));
-        let inbox_count = self.inbox_badge_count(cx);
+        let inbox_count = self.inbox_badge_count();
         let on_right = self.side(cx) == SidebarSide::Right;
 
         h_flex()
@@ -4760,8 +4760,8 @@ impl Sidebar {
             .child(self.render_recent_projects_button(cx))
     }
 
-    fn inbox_badge_count(&self, cx: &App) -> usize {
-        self.build_inbox_items(true, cx).len()
+    fn inbox_badge_count(&self) -> usize {
+        self.inbox_badge_count
     }
 
     fn build_inbox_items(&self, include_hidden: bool, cx: &App) -> Vec<InboxAttentionItem> {
@@ -4881,13 +4881,37 @@ impl Sidebar {
         );
     }
 
-    fn refresh_inbox_view(&mut self, cx: &mut Context<Self>) {
+    fn refresh_inbox_state(&mut self, cx: &mut Context<Self>) {
+        let all_items = self.build_inbox_items(true, cx);
+        self.inbox_badge_count = all_items.len();
+
+        let visible_items = all_items
+            .into_iter()
+            .filter(|item| !self.inbox_item_hidden_because_active(item))
+            .collect::<Vec<_>>();
+
         if let SidebarView::Inbox(inbox_view) = &self.view {
-            let items = self.build_inbox_items(false, cx);
             inbox_view.update(cx, |view, cx| {
-                view.set_items(items, cx);
+                view.set_items(visible_items, cx);
             });
         }
+    }
+
+    fn inbox_item_hidden_because_active(&self, item: &InboxAttentionItem) -> bool {
+        if item.kind != InboxAttentionKind::Permission {
+            return false;
+        }
+
+        self.active_entry.as_ref().is_some_and(|active| {
+            active.thread_id == item.thread.thread_id
+                || active
+                    .session_id
+                    .as_ref()
+                    .zip(item.thread.session_id.as_ref())
+                    .is_some_and(|(active_session, thread_session)| {
+                        active_session == thread_session
+                    })
+        })
     }
 
     #[cfg(test)]
@@ -5115,18 +5139,14 @@ impl Sidebar {
     }
 
     fn show_inbox(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // Unlike history, the inbox is global sidebar state and does not need
+        // an active agent panel to construct its view.
         let inbox_view = cx.new(|cx| ThreadsInboxView::new(window, cx));
 
         let subscription = cx.subscribe_in(
             &inbox_view,
             window,
             |this, _, event: &ThreadsInboxViewEvent, window, cx| match event {
-                ThreadsInboxViewEvent::Close => {
-                    this.show_thread_list(window, cx);
-                }
-                ThreadsInboxViewEvent::RefreshItems => {
-                    this.refresh_inbox_view(cx);
-                }
                 ThreadsInboxViewEvent::Activate { thread } => {
                     this.open_thread_from_inbox(thread.clone(), window, cx);
                 }
@@ -5136,7 +5156,7 @@ impl Sidebar {
         self._subscriptions.clear();
         self._subscriptions.push(subscription);
         self.view = SidebarView::Inbox(inbox_view.clone());
-        self.refresh_inbox_view(cx);
+        self.refresh_inbox_state(cx);
         inbox_view.update(cx, |view, cx| view.focus_filter_editor(window, cx));
         self.serialize(cx);
         cx.notify();

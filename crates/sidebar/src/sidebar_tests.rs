@@ -17,6 +17,7 @@ use settings::SettingsStore;
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
+    time::Duration,
 };
 use util::{path_list::PathList, rel_path::rel_path};
 
@@ -670,9 +671,10 @@ async fn test_inbox_badge_counts_persisted_attention(cx: &mut TestAppContext) {
             store.mark_attention(thread_id, ThreadAttentionKind::Completed, None, cx);
         });
     });
+    cx.run_until_parked();
 
     assert_eq!(
-        sidebar.read_with(cx, |sidebar, cx| sidebar.inbox_badge_count(cx)),
+        sidebar.read_with(cx, |sidebar, _cx| sidebar.inbox_badge_count()),
         1
     );
 }
@@ -810,7 +812,7 @@ async fn test_permission_badge_includes_hidden_active_thread(cx: &mut TestAppCon
             .expect("saved thread metadata should be present")
     });
 
-    sidebar.update_in(cx, |sidebar, _window, _cx| {
+    sidebar.update_in(cx, |sidebar, _window, cx| {
         sidebar.active_entry = Some(ActiveEntry {
             thread_id,
             session_id: Some(session_id),
@@ -829,10 +831,11 @@ async fn test_permission_badge_includes_hidden_active_thread(cx: &mut TestAppCon
             worktrees: Vec::new(),
             diff_stats: DiffStats::default(),
         })];
+        sidebar.refresh_inbox_state(cx);
     });
 
     assert_eq!(
-        sidebar.read_with(cx, |sidebar, cx| sidebar.inbox_badge_count(cx)),
+        sidebar.read_with(cx, |sidebar, _cx| sidebar.inbox_badge_count()),
         1
     );
     assert!(
@@ -922,6 +925,11 @@ async fn test_inbox_select_first_and_last_actions(cx: &mut TestAppContext) {
     cx.update(|_window, cx| {
         ThreadMetadataStore::global(cx).update(cx, |store, cx| {
             store.mark_attention(older_thread_id, ThreadAttentionKind::Completed, None, cx);
+        });
+    });
+    cx.background_executor.timer(Duration::from_millis(1)).await;
+    cx.update(|_window, cx| {
+        ThreadMetadataStore::global(cx).update(cx, |store, cx| {
             store.mark_attention(newer_thread_id, ThreadAttentionKind::Error, None, cx);
         });
     });
