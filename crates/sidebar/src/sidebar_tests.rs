@@ -667,6 +667,74 @@ async fn test_inbox_badge_counts_persisted_attention(cx: &mut TestAppContext) {
     );
 }
 
+#[test]
+fn test_inbox_attention_status_transition_rules() {
+    assert_eq!(
+        attention_kind_for_status_transition(
+            Some(&AgentThreadStatus::Running),
+            AgentThreadStatus::Completed,
+            false,
+        ),
+        Some(ThreadAttentionKind::Completed)
+    );
+    assert_eq!(
+        attention_kind_for_status_transition(
+            Some(&AgentThreadStatus::WaitingForConfirmation),
+            AgentThreadStatus::Error,
+            false,
+        ),
+        Some(ThreadAttentionKind::Error)
+    );
+    assert_eq!(
+        attention_kind_for_status_transition(
+            Some(&AgentThreadStatus::Running),
+            AgentThreadStatus::Completed,
+            true,
+        ),
+        None
+    );
+    assert_eq!(
+        attention_kind_for_status_transition(None, AgentThreadStatus::Completed, false),
+        None
+    );
+}
+
+#[gpui::test]
+async fn test_inbox_status_update_marks_persisted_attention(cx: &mut TestAppContext) {
+    let project = init_test_project_with_agent_panel("/my-project", cx).await;
+    let (multi_workspace, cx) =
+        cx.add_window_view(|window, cx| MultiWorkspace::test_new(project.clone(), window, cx));
+    let (sidebar, _panel) = setup_sidebar_with_agent_panel(&multi_workspace, cx);
+    let session_id = acp::SessionId::new(Arc::from("session-inbox-status-update"));
+    let thread_id = save_thread_metadata_for_inbox_badge(session_id, &project, cx);
+
+    sidebar.update(cx, |sidebar, cx| {
+        sidebar.record_thread_attention_status_updates(
+            vec![ThreadAttentionStatusUpdate {
+                thread_id,
+                last_known_status: LastKnownThreadStatus::Completed,
+                attention_kind: Some(ThreadAttentionKind::Completed),
+            }],
+            cx,
+        );
+    });
+
+    let (last_known_status, attention_kind) = cx.read(|cx| {
+        let store = ThreadMetadataStore::global(cx);
+        let thread = store
+            .read(cx)
+            .entry(thread_id)
+            .cloned()
+            .expect("saved thread metadata should be present");
+        (
+            thread.last_known_status,
+            thread.attention.map(|attention| attention.kind),
+        )
+    });
+    assert_eq!(last_known_status, Some(LastKnownThreadStatus::Completed));
+    assert_eq!(attention_kind, Some(ThreadAttentionKind::Completed));
+}
+
 #[gpui::test]
 async fn test_permission_attention_overrides_persisted_attention(cx: &mut TestAppContext) {
     let project = init_test_project_with_agent_panel("/my-project", cx).await;

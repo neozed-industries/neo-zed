@@ -5,7 +5,8 @@ use action_log::DiffStats;
 use agent_client_protocol::schema as acp;
 use agent_settings::AgentSettings;
 use agent_ui::thread_metadata_store::{
-    ThreadMetadata, ThreadMetadataStore, WorktreePaths, worktree_info_from_thread_paths,
+    LastKnownThreadStatus, ThreadAttentionKind, ThreadMetadata, ThreadMetadataStore, WorktreePaths,
+    worktree_info_from_thread_paths,
 };
 use agent_ui::thread_worktree_archive;
 use agent_ui::threads_archive_view::{
@@ -172,6 +173,13 @@ struct ActiveThreadInfo {
     diff_stats: DiffStats,
 }
 
+#[derive(Clone, Copy)]
+struct ThreadAttentionStatusUpdate {
+    thread_id: ThreadId,
+    last_known_status: LastKnownThreadStatus,
+    attention_kind: Option<ThreadAttentionKind>,
+}
+
 #[derive(Clone)]
 enum ThreadEntryWorkspace {
     Open(Entity<Workspace>),
@@ -226,6 +234,39 @@ impl ThreadEntry {
         self.is_background = info.is_background;
         self.is_title_generating = info.is_title_generating;
         self.diff_stats = info.diff_stats;
+    }
+}
+
+fn last_known_status_for_thread(status: AgentThreadStatus) -> LastKnownThreadStatus {
+    match status {
+        AgentThreadStatus::Running => LastKnownThreadStatus::Running,
+        AgentThreadStatus::WaitingForConfirmation => LastKnownThreadStatus::WaitingForConfirmation,
+        AgentThreadStatus::Completed => LastKnownThreadStatus::Completed,
+        AgentThreadStatus::Error => LastKnownThreadStatus::Error,
+    }
+}
+
+fn attention_kind_for_status_transition(
+    previous: Option<&AgentThreadStatus>,
+    current: AgentThreadStatus,
+    is_active_thread: bool,
+) -> Option<ThreadAttentionKind> {
+    if is_active_thread {
+        return None;
+    }
+
+    let was_in_progress = matches!(
+        previous,
+        Some(AgentThreadStatus::Running | AgentThreadStatus::WaitingForConfirmation)
+    );
+    if !was_in_progress {
+        return None;
+    }
+
+    match current {
+        AgentThreadStatus::Completed => Some(ThreadAttentionKind::Completed),
+        AgentThreadStatus::Error => Some(ThreadAttentionKind::Error),
+        AgentThreadStatus::Running | AgentThreadStatus::WaitingForConfirmation => None,
     }
 }
 
@@ -988,9 +1029,9 @@ impl Sidebar {
     ///     - If you have no threads, and two workspaces for the worktree and the main workspace, make sure at least one is shown
     /// - Should always show every thread, associated with each workspace in the multiworkspace
     /// - After every build_contents, our "active" state should exactly match the current workspace's, current agent panel's current thread.
-    fn rebuild_contents(&mut self, cx: &App) {
+    fn rebuild_contents(&mut self, cx: &App) -> Vec<ThreadAttentionStatusUpdate> {
         let Some(multi_workspace) = self.multi_workspace.upgrade() else {
-            return;
+            return Vec::new();
         };
         let mw = multi_workspace.read(cx);
         let workspaces: Vec<_> = mw.workspaces().cloned().collect();
@@ -1022,6 +1063,7 @@ impl Sidebar {
         let mut current_thread_ids: HashSet<agent_ui::ThreadId> = HashSet::new();
         let mut project_header_indices: Vec<usize> = Vec::new();
         let mut seen_thread_ids: HashSet<agent_ui::ThreadId> = HashSet::new();
+        let mut attention_status_updates = Vec::new();
 
         let has_open_projects = workspaces
             .iter()
@@ -1285,6 +1327,18 @@ impl Sidebar {
                         notified_threads.insert(thread.metadata.thread_id);
                     }
 
+                    if thread.is_live {
+                        attention_status_updates.push(ThreadAttentionStatusUpdate {
+                            thread_id: thread.metadata.thread_id,
+                            last_known_status: last_known_status_for_thread(thread.status),
+                            attention_kind: attention_kind_for_status_transition(
+                                session_id.as_ref().and_then(|sid| old_statuses.get(sid)),
+                                thread.status,
+                                is_active_thread,
+                            ),
+                        });
+                    }
+
                     if is_active_thread && !thread.is_background {
                         notified_threads.remove(&thread.metadata.thread_id);
                     }
@@ -1296,12 +1350,23 @@ impl Sidebar {
                     b_time.cmp(&a_time)
                 });
             } else {
+                let store = ThreadMetadataStore::global(cx).read(cx);
                 for info in live_infos {
                     if info.status == AgentThreadStatus::Running {
                         has_running_threads = true;
                     }
                     if info.status == AgentThreadStatus::WaitingForConfirmation {
                         waiting_thread_count += 1;
+                    }
+                    if let Some(thread) = store
+                        .entry(info.thread_id)
+                        .or_else(|| store.entry_by_session(&info.session_id))
+                    {
+                        attention_status_updates.push(ThreadAttentionStatusUpdate {
+                            thread_id: thread.thread_id,
+                            last_known_status: last_known_status_for_thread(info.status),
+                            attention_kind: None,
+                        });
                     }
                 }
             }
@@ -1412,6 +1477,7 @@ impl Sidebar {
             project_header_indices,
             has_open_projects,
         };
+        attention_status_updates
     }
 
     /// Rebuilds the sidebar's visible entries from already-cached state.
@@ -1426,7 +1492,8 @@ impl Sidebar {
         let had_notifications = self.has_notifications(cx);
         let scroll_position = self.list_state.logical_scroll_top();
 
-        self.rebuild_contents(cx);
+        let attention_status_updates = self.rebuild_contents(cx);
+        self.record_thread_attention_status_updates(attention_status_updates, cx);
 
         self.list_state.reset(self.contents.entries.len());
         self.list_state.scroll_to(scroll_position);
@@ -1439,6 +1506,32 @@ impl Sidebar {
         }
 
         cx.notify();
+    }
+
+    fn record_thread_attention_status_updates(
+        &mut self,
+        updates: Vec<ThreadAttentionStatusUpdate>,
+        cx: &mut Context<Self>,
+    ) {
+        if updates.is_empty() {
+            return;
+        }
+
+        ThreadMetadataStore::global(cx).update(cx, |store, cx| {
+            for update in updates {
+                if store
+                    .entry(update.thread_id)
+                    .and_then(|thread| thread.last_known_status)
+                    != Some(update.last_known_status)
+                {
+                    store.update_last_known_status(update.thread_id, update.last_known_status, cx);
+                }
+
+                if let Some(attention_kind) = update.attention_kind {
+                    store.mark_attention(update.thread_id, attention_kind, None, cx);
+                }
+            }
+        });
     }
 
     fn select_first_entry(&mut self) {
