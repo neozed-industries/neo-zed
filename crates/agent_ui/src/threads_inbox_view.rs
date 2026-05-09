@@ -148,6 +148,7 @@ pub struct ThreadsInboxView {
     hovered_index: Option<usize>,
     expanded_thread_ids: HashSet<ThreadId>,
     permission_selections: HashMap<acp::ToolCallId, PermissionSelection>,
+    permission_dropdown_handle: PopoverMenuHandle<ContextMenu>,
     filter_editor: Entity<Editor>,
     inbox_filters: HashSet<InboxFilter>,
     filter_menu_handle: PopoverMenuHandle<ContextMenu>,
@@ -198,6 +199,7 @@ impl ThreadsInboxView {
             hovered_index: None,
             expanded_thread_ids: HashSet::default(),
             permission_selections: HashMap::default(),
+            permission_dropdown_handle: PopoverMenuHandle::default(),
             filter_editor,
             inbox_filters: HashSet::default(),
             filter_menu_handle: PopoverMenuHandle::default(),
@@ -725,7 +727,7 @@ impl ThreadsInboxView {
                 is_first: false,
                 show_key_bindings: false,
                 focus_handle: self.focus_handle.clone(),
-                dropdown_handle: PopoverMenuHandle::default(),
+                dropdown_handle: self.permission_dropdown_handle.clone(),
                 border_color: cx.theme().colors().border,
                 callbacks: PermissionControlsCallbacks {
                     authorize: Rc::new(

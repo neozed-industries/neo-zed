@@ -245,6 +245,15 @@ fn last_known_status_for_thread(status: AgentThreadStatus) -> LastKnownThreadSta
     }
 }
 
+fn agent_thread_status_from_last_known(status: LastKnownThreadStatus) -> AgentThreadStatus {
+    match status {
+        LastKnownThreadStatus::Running => AgentThreadStatus::Running,
+        LastKnownThreadStatus::WaitingForConfirmation => AgentThreadStatus::WaitingForConfirmation,
+        LastKnownThreadStatus::Completed => AgentThreadStatus::Completed,
+        LastKnownThreadStatus::Error => AgentThreadStatus::Error,
+    }
+}
+
 fn attention_kind_for_status_transition(
     previous: Option<&AgentThreadStatus>,
     current: AgentThreadStatus,
@@ -1398,10 +1407,21 @@ impl Sidebar {
                         .entry(info.thread_id)
                         .or_else(|| store.entry_by_session(&info.session_id))
                     {
+                        let is_active_thread = self
+                            .active_entry
+                            .as_ref()
+                            .is_some_and(|entry| entry.is_active_thread(&thread.thread_id));
+                        let previous_status = thread
+                            .last_known_status
+                            .map(agent_thread_status_from_last_known);
                         attention_status_updates.push(ThreadAttentionStatusUpdate {
                             thread_id: thread.thread_id,
                             last_known_status: last_known_status_for_thread(info.status),
-                            attention_kind: None,
+                            attention_kind: attention_kind_for_status_transition(
+                                previous_status.as_ref(),
+                                info.status,
+                                is_active_thread,
+                            ),
                         });
                     }
                 }

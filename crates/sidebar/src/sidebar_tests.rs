@@ -776,6 +776,63 @@ async fn test_inbox_status_update_marks_persisted_attention(cx: &mut TestAppCont
 }
 
 #[gpui::test]
+async fn test_collapsed_group_status_update_marks_persisted_attention(cx: &mut TestAppContext) {
+    let project = init_test_project_with_agent_panel("/my-project", cx).await;
+    let (multi_workspace, cx) =
+        cx.add_window_view(|window, cx| MultiWorkspace::test_new(project.clone(), window, cx));
+    let (sidebar, panel) = setup_sidebar_with_agent_panel(&multi_workspace, cx);
+
+    let connection = StubAgentConnection::new();
+    open_thread_with_connection(&panel, connection.clone(), cx);
+    send_message(&panel, cx);
+    let session_id = active_session_id(&panel, cx);
+    save_test_thread_metadata(&session_id, &project, cx).await;
+
+    let thread_id = cx.read(|cx| {
+        ThreadMetadataStore::global(cx)
+            .read(cx)
+            .entry_by_session(&session_id)
+            .map(|thread| thread.thread_id)
+            .expect("saved thread metadata should be present")
+    });
+
+    cx.update(|_window, cx| {
+        ThreadMetadataStore::global(cx).update(cx, |store, cx| {
+            store.update_last_known_status(thread_id, LastKnownThreadStatus::Running, cx);
+        });
+    });
+
+    open_thread_with_connection(&panel, StubAgentConnection::new(), cx);
+
+    let project_group_key = project.read_with(cx, |project, cx| project.project_group_key(cx));
+    sidebar.update_in(cx, |sidebar, window, cx| {
+        sidebar.toggle_collapse(&project_group_key, window, cx);
+    });
+
+    connection.end_turn(session_id, acp::StopReason::EndTurn);
+    cx.run_until_parked();
+
+    sidebar.update_in(cx, |sidebar, _window, cx| {
+        sidebar.update_entries(cx);
+    });
+    cx.run_until_parked();
+
+    let (last_known_status, attention_kind) = cx.read(|cx| {
+        let store = ThreadMetadataStore::global(cx).read(cx);
+        let thread = store
+            .entry(thread_id)
+            .expect("saved thread metadata should be present");
+        (
+            thread.last_known_status,
+            thread.attention.as_ref().map(|attention| attention.kind),
+        )
+    });
+
+    assert_eq!(last_known_status, Some(LastKnownThreadStatus::Completed));
+    assert_eq!(attention_kind, Some(ThreadAttentionKind::Completed));
+}
+
+#[gpui::test]
 async fn test_permission_attention_overrides_persisted_attention(cx: &mut TestAppContext) {
     let project = init_test_project_with_agent_panel("/my-project", cx).await;
     let (multi_workspace, cx) =
