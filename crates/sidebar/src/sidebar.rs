@@ -2745,6 +2745,26 @@ impl Sidebar {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.open_thread_from_archive_inner(metadata, None, window, cx);
+    }
+
+    fn open_thread_from_inbox(
+        &mut self,
+        metadata: ThreadMetadata,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let thread_id = metadata.thread_id;
+        self.open_thread_from_archive_inner(metadata, Some(thread_id), window, cx);
+    }
+
+    fn open_thread_from_archive_inner(
+        &mut self,
+        metadata: ThreadMetadata,
+        clear_attention_on_success: Option<ThreadId>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let thread_id = metadata.thread_id;
         let weak_archive_view = match &self.view {
             SidebarView::Archive(view) => Some(view.downgrade()),
@@ -2776,6 +2796,11 @@ impl Sidebar {
                     );
                     self.open_workspace_and_activate_thread(metadata, path_list, &key, window, cx);
                 }
+            }
+            if let Some(thread_id) = clear_attention_on_success {
+                ThreadMetadataStore::global(cx).update(cx, |store, cx| {
+                    store.clear_attention(thread_id, cx);
+                });
             }
             self.show_thread_list(window, cx);
             return;
@@ -2830,6 +2855,11 @@ impl Sidebar {
                             this.open_workspace_and_activate_thread(
                                 metadata, path_list, &key, window, cx,
                             );
+                        }
+                        if let Some(thread_id) = clear_attention_on_success {
+                            ThreadMetadataStore::global(cx).update(cx, |store, cx| {
+                                store.clear_attention(thread_id, cx);
+                            });
                         }
                         this.show_thread_list(window, cx);
                     })?;
@@ -2920,6 +2950,11 @@ impl Sidebar {
                                 window,
                                 cx,
                             );
+                            if let Some(thread_id) = clear_attention_on_success {
+                                ThreadMetadataStore::global(cx).update(cx, |store, cx| {
+                                    store.clear_attention(thread_id, cx);
+                                });
+                            }
                             this.show_thread_list(window, cx);
                         })?;
                     }
@@ -4853,7 +4888,7 @@ impl Sidebar {
                     this.show_thread_list(window, cx);
                 }
                 ThreadsInboxViewEvent::Activate { thread } => {
-                    this.open_thread_from_archive(thread.clone(), window, cx);
+                    this.open_thread_from_inbox(thread.clone(), window, cx);
                 }
             },
         );

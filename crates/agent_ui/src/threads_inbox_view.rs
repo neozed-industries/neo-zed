@@ -135,7 +135,7 @@ impl ThreadsInboxView {
         cx.notify();
     }
 
-    fn select_next(&mut self, _: &SelectNext, _window: &mut Window, cx: &mut Context<Self>) {
+    pub fn select_next(&mut self, _: &SelectNext, _window: &mut Window, cx: &mut Context<Self>) {
         let next = self.selection.map_or(0, |selection| selection + 1);
         if next < self.items.len() {
             self.selection = Some(next);
@@ -181,7 +181,7 @@ impl ThreadsInboxView {
         }
     }
 
-    fn confirm(&mut self, _: &Confirm, _window: &mut Window, cx: &mut Context<Self>) {
+    pub fn confirm(&mut self, _: &Confirm, _window: &mut Window, cx: &mut Context<Self>) {
         let Some(selection) = self.selection else {
             return;
         };

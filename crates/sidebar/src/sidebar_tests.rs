@@ -668,6 +668,42 @@ async fn test_inbox_badge_counts_persisted_attention(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+async fn test_persisted_inbox_item_clears_after_successful_open(cx: &mut TestAppContext) {
+    let project = init_test_project_with_agent_panel("/my-project", cx).await;
+    let (multi_workspace, cx) =
+        cx.add_window_view(|window, cx| MultiWorkspace::test_new(project.clone(), window, cx));
+    let (sidebar, _panel) = setup_sidebar_with_agent_panel(&multi_workspace, cx);
+    let session_id = acp::SessionId::new(Arc::from("session-inbox-clear"));
+    let thread_id = save_thread_metadata_for_inbox_badge(session_id, &project, cx);
+
+    cx.update(|_window, cx| {
+        ThreadMetadataStore::global(cx).update(cx, |store, cx| {
+            store.mark_attention(thread_id, ThreadAttentionKind::Completed, None, cx);
+        });
+    });
+
+    sidebar.update_in(cx, |sidebar, window, cx| {
+        sidebar.show_inbox(window, cx);
+        let SidebarView::Inbox(inbox) = &sidebar.view else {
+            panic!("expected inbox");
+        };
+        inbox.update(cx, |inbox, cx| {
+            inbox.select_next(&SelectNext, window, cx);
+            inbox.confirm(&Confirm, window, cx);
+        });
+    });
+    cx.run_until_parked();
+
+    assert!(cx.read(|cx| {
+        ThreadMetadataStore::global(cx)
+            .read(cx)
+            .entry(thread_id)
+            .and_then(|thread| thread.attention.as_ref())
+            .is_none()
+    }));
+}
+
+#[gpui::test]
 async fn test_entities_released_on_window_close(cx: &mut TestAppContext) {
     let project = init_test_project("/my-project", cx).await;
     let (multi_workspace, cx) =
