@@ -1,12 +1,20 @@
-use std::{cmp::Reverse, collections::HashSet};
+use std::{
+    cmp::Reverse,
+    collections::{HashMap, HashSet},
+    rc::Rc,
+};
 
+use acp_thread::{PermissionOptions, SelectedPermissionOutcome};
+use agent_client_protocol::schema as acp;
 use chrono::{DateTime, Utc};
 use editor::Editor;
 use gpui::{
     AnyElement, App, Context, Entity, EventEmitter, FocusHandle, Focusable, ListState, MouseButton,
     Render, SharedString, Subscription, Window, list, prelude::*, px,
 };
-use menu::{Confirm, SelectFirst, SelectLast, SelectNext, SelectPrevious};
+use menu::{
+    Confirm, SelectChild, SelectFirst, SelectLast, SelectNext, SelectParent, SelectPrevious,
+};
 use settings::Settings as _;
 use theme::ActiveTheme;
 use ui::{
@@ -21,6 +29,13 @@ use zed_actions::editor::{MoveDown, MoveUp};
 use agent_settings::AgentSettings;
 
 use crate::thread_metadata_store::{ThreadAttentionKind, ThreadId, ThreadMetadata};
+use crate::{
+    conversation_view::{
+        PermissionControlsCallbacks, PermissionControlsParams, PermissionSelection,
+        render_permission_controls,
+    },
+    threads_archive_view::format_history_entry_timestamp,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum InboxAttentionKind {
@@ -40,7 +55,7 @@ impl From<ThreadAttentionKind> for InboxAttentionKind {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum InboxFilter {
     All,
     Permission,
@@ -60,6 +75,15 @@ impl InboxFilter {
         ]
     }
 
+    fn kinds() -> [Self; 4] {
+        [
+            Self::Permission,
+            Self::Completed,
+            Self::Interrupted,
+            Self::Errors,
+        ]
+    }
+
     fn label(self) -> &'static str {
         match self {
             Self::All => "All",
@@ -70,7 +94,7 @@ impl InboxFilter {
         }
     }
 
-    fn matches(self, kind: InboxAttentionKind) -> bool {
+    fn matches_kind(self, kind: InboxAttentionKind) -> bool {
         match self {
             Self::All => true,
             Self::Permission => kind == InboxAttentionKind::Permission,
@@ -81,16 +105,36 @@ impl InboxFilter {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct InboxAttentionItem {
     pub thread: ThreadMetadata,
     pub kind: InboxAttentionKind,
     pub summary: Option<SharedString>,
     pub timestamp: DateTime<Utc>,
+    pub context: Option<SharedString>,
+    pub agent_name: Option<SharedString>,
+    pub agent_icon: IconName,
+    pub agent_icon_from_external_svg: Option<SharedString>,
+    pub permission: Option<InboxPermissionItem>,
+}
+
+#[derive(Clone, Debug)]
+pub struct InboxPermissionItem {
+    pub session_id: acp::SessionId,
+    pub tool_call_id: acp::ToolCallId,
+    pub options: PermissionOptions,
+    pub summary: Option<SharedString>,
 }
 
 pub enum ThreadsInboxViewEvent {
-    Activate { thread: ThreadMetadata },
+    Activate {
+        thread: ThreadMetadata,
+    },
+    PermissionOutcome {
+        session_id: acp::SessionId,
+        tool_call_id: acp::ToolCallId,
+        outcome: SelectedPermissionOutcome,
+    },
 }
 
 impl EventEmitter<ThreadsInboxViewEvent> for ThreadsInboxView {}
@@ -103,8 +147,9 @@ pub struct ThreadsInboxView {
     selection: Option<usize>,
     hovered_index: Option<usize>,
     expanded_thread_ids: HashSet<ThreadId>,
+    permission_selections: HashMap<acp::ToolCallId, PermissionSelection>,
     filter_editor: Entity<Editor>,
-    inbox_filter: InboxFilter,
+    inbox_filters: HashSet<InboxFilter>,
     filter_menu_handle: PopoverMenuHandle<ContextMenu>,
     _subscriptions: Vec<Subscription>,
 }
@@ -152,8 +197,9 @@ impl ThreadsInboxView {
             selection: None,
             hovered_index: None,
             expanded_thread_ids: HashSet::default(),
+            permission_selections: HashMap::default(),
             filter_editor,
-            inbox_filter: InboxFilter::All,
+            inbox_filters: HashSet::default(),
             filter_menu_handle: PopoverMenuHandle::default(),
             _subscriptions: vec![filter_editor_subscription],
         };
@@ -197,7 +243,7 @@ impl ThreadsInboxView {
 
         self.items = items
             .into_iter()
-            .filter(|item| self.inbox_filter.matches(item.kind))
+            .filter(|item| inbox_filters_match(&self.inbox_filters, item.kind))
             .filter(|item| inbox_search_text(item).contains(&query))
             .collect();
         self.selection = self
@@ -209,6 +255,13 @@ impl ThreadsInboxView {
         self.expanded_thread_ids.retain(|thread_id| {
             self.items.iter().any(|item| {
                 item.kind == InboxAttentionKind::Permission && item.thread.thread_id == *thread_id
+            })
+        });
+        self.permission_selections.retain(|tool_call_id, _| {
+            self.items.iter().any(|item| {
+                item.permission
+                    .as_ref()
+                    .is_some_and(|permission| permission.tool_call_id == *tool_call_id)
             })
         });
         self.list_state.reset(self.items.len());
@@ -286,6 +339,32 @@ impl ThreadsInboxView {
         self.activate_item_at(selection, cx);
     }
 
+    fn select_child(&mut self, _: &SelectChild, _window: &mut Window, cx: &mut Context<Self>) {
+        let Some(selection) = self.selection else {
+            return;
+        };
+        let Some(item) = self.items.get(selection) else {
+            return;
+        };
+        if item.kind == InboxAttentionKind::Permission
+            && self.expanded_thread_ids.insert(item.thread.thread_id)
+        {
+            cx.notify();
+        }
+    }
+
+    fn select_parent(&mut self, _: &SelectParent, _window: &mut Window, cx: &mut Context<Self>) {
+        let Some(selection) = self.selection else {
+            return;
+        };
+        let Some(item) = self.items.get(selection) else {
+            return;
+        };
+        if self.expanded_thread_ids.remove(&item.thread.thread_id) {
+            cx.notify();
+        }
+    }
+
     fn toggle_permission_expanded(&mut self, index: usize, cx: &mut Context<Self>) {
         let item = self
             .items
@@ -302,6 +381,19 @@ impl ThreadsInboxView {
                 thread: item.thread.clone(),
             });
         }
+    }
+
+    fn emit_permission_outcome(
+        &mut self,
+        permission: InboxPermissionItem,
+        outcome: SelectedPermissionOutcome,
+        cx: &mut Context<Self>,
+    ) {
+        cx.emit(ThreadsInboxViewEvent::PermissionOutcome {
+            session_id: permission.session_id,
+            tool_call_id: permission.tool_call_id,
+            outcome,
+        });
     }
 
     fn reset_filter_editor_text(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -401,16 +493,9 @@ impl ThreadsInboxView {
     fn render_toolbar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let total_count = self.source_items.len();
         let visible_count = self.items.len();
-        let total_count_text = if total_count == 1 {
-            "1 item".to_string()
-        } else {
-            format!("{total_count} items")
-        };
-        let count_text = if self.inbox_filter == InboxFilter::All {
-            total_count_text
-        } else {
-            format!("{visible_count} of {total_count_text}")
-        };
+        let is_filtered =
+            !self.inbox_filters.is_empty() || !self.filter_editor.read(cx).text(cx).is_empty();
+        let count_text = inbox_count_text(visible_count, total_count, is_filtered);
 
         h_flex()
             .mt_px()
@@ -435,13 +520,13 @@ impl ThreadsInboxView {
 
     fn render_filter_menu(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let this = cx.weak_entity();
-        let selected_filter = self.inbox_filter;
+        let selected_filters = self.inbox_filters.clone();
 
         PopoverMenu::new("inbox-filter-menu")
             .trigger_with_tooltip(
                 IconButton::new("inbox-filter-menu-button", IconName::Sliders)
                     .icon_size(IconSize::Small)
-                    .toggle_state(selected_filter != InboxFilter::All),
+                    .toggle_state(!selected_filters.is_empty()),
                 Tooltip::text("Filter Inbox"),
             )
             .anchor(gpui::Anchor::TopRight)
@@ -452,18 +537,24 @@ impl ThreadsInboxView {
             .with_handle(self.filter_menu_handle.clone())
             .menu(move |window, cx| {
                 let this = this.clone();
+                let selected_filters = selected_filters.clone();
                 Some(ContextMenu::build(window, cx, move |menu, _window, _cx| {
                     InboxFilter::all().into_iter().fold(menu, |menu, filter| {
+                        let is_selected = if filter == InboxFilter::All {
+                            selected_filters.is_empty()
+                        } else {
+                            selected_filters.contains(&filter)
+                        };
                         menu.toggleable_entry(
                             filter.label(),
-                            selected_filter == filter,
+                            is_selected,
                             IconPosition::Start,
                             None,
                             {
                                 let this = this.clone();
                                 move |_window, cx| {
                                     this.update(cx, |view, cx| {
-                                        view.inbox_filter = filter;
+                                        toggle_inbox_filter(&mut view.inbox_filters, filter);
                                         view.update_items(cx);
                                     })
                                     .ok();
@@ -478,7 +569,7 @@ impl ThreadsInboxView {
     fn render_list_entry(
         &mut self,
         index: usize,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let Some(item) = self.items.get(index) else {
@@ -531,7 +622,7 @@ impl ThreadsInboxView {
                             .items_center()
                             .gap_1()
                             .child(
-                                Label::new(format_inbox_timestamp(item.timestamp))
+                                Label::new(format_history_entry_timestamp(item.timestamp))
                                     .size(LabelSize::XSmall)
                                     .color(Color::Muted),
                             )
@@ -561,7 +652,7 @@ impl ThreadsInboxView {
                     .size(LabelSize::Small)
                     .truncate(),
             )
-            .when_some(item.summary.clone(), |this, summary| {
+            .when_some(row_summary(item), |this, summary| {
                 this.child(
                     Label::new(summary)
                         .size(LabelSize::XSmall)
@@ -569,7 +660,145 @@ impl ThreadsInboxView {
                         .truncate(),
                 )
             })
+            .child(
+                h_flex()
+                    .gap_1()
+                    .min_w_0()
+                    .child(
+                        Icon::new(item.agent_icon)
+                            .size(IconSize::XSmall)
+                            .color(Color::Muted),
+                    )
+                    .when_some(item.agent_name.clone(), |this, agent_name| {
+                        this.child(
+                            Label::new(agent_name)
+                                .size(LabelSize::XSmall)
+                                .color(Color::Muted)
+                                .truncate(),
+                        )
+                    })
+                    .when_some(item.context.clone(), |this, context| {
+                        this.child(
+                            Label::new(context)
+                                .size(LabelSize::XSmall)
+                                .color(Color::Muted)
+                                .truncate(),
+                        )
+                    }),
+            )
+            .when(is_expanded, |this| {
+                this.child(self.render_permission_controls(
+                    item.permission.clone(),
+                    index,
+                    window,
+                    cx,
+                ))
+            })
             .into_any_element()
+    }
+
+    fn render_permission_controls(
+        &self,
+        permission: Option<InboxPermissionItem>,
+        index: usize,
+        _window: &Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let Some(permission) = permission else {
+            return Label::new("Open thread to respond")
+                .size(LabelSize::XSmall)
+                .color(Color::Muted)
+                .into_any_element();
+        };
+
+        let selection = self
+            .permission_selections
+            .get(&permission.tool_call_id)
+            .cloned();
+        render_permission_controls(
+            PermissionControlsParams {
+                session_id: permission.session_id.clone(),
+                tool_call_id: permission.tool_call_id.clone(),
+                options: permission.options,
+                selection,
+                entry_ix: index,
+                is_first: false,
+                show_key_bindings: false,
+                focus_handle: self.focus_handle.clone(),
+                dropdown_handle: PopoverMenuHandle::default(),
+                border_color: cx.theme().colors().border,
+                callbacks: PermissionControlsCallbacks {
+                    authorize: Rc::new(
+                        |this: &mut Self, session_id, tool_call_id, outcome, _window, cx| {
+                            let Some(permission) = this
+                                .items
+                                .iter()
+                                .filter_map(|item| item.permission.clone())
+                                .find(|permission| {
+                                    permission.session_id == session_id
+                                        && permission.tool_call_id == tool_call_id
+                                })
+                            else {
+                                return;
+                            };
+                            this.emit_permission_outcome(permission, outcome, cx);
+                        },
+                    ),
+                    set_selection: Rc::new(|this, tool_call_id, selection, cx| {
+                        this.permission_selections.insert(tool_call_id, selection);
+                        cx.notify();
+                    }),
+                    get_selection: Rc::new(|this, tool_call_id| {
+                        this.permission_selections.get(tool_call_id).cloned()
+                    }),
+                },
+            },
+            cx,
+        )
+        .into_any_element()
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn expand_selected_permission_row_for_test(&mut self, cx: &mut Context<Self>) {
+        let index = self.selection.or_else(|| {
+            self.items
+                .iter()
+                .position(|item| item.kind == InboxAttentionKind::Permission)
+        });
+        let Some(index) = index else {
+            return;
+        };
+        self.selection = Some(index);
+        let item = self
+            .items
+            .get(index)
+            .map(|item| (item.thread.thread_id, item.kind));
+        if let Some((thread_id, InboxAttentionKind::Permission)) = item {
+            self.expanded_thread_ids.insert(thread_id);
+            cx.notify();
+        }
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn select_first_permission_option_for_test(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(index) = self.selection else {
+            return;
+        };
+        let Some(permission) = self
+            .items
+            .get(index)
+            .and_then(|item| item.permission.clone())
+        else {
+            return;
+        };
+        let Some(outcome) = first_permission_outcome(&permission.options) else {
+            return;
+        };
+        self.emit_permission_outcome(permission, outcome, cx);
     }
 }
 
@@ -585,20 +814,27 @@ impl Render for ThreadsInboxView {
         let has_query = !self.filter_editor.read(cx).text(cx).is_empty();
 
         let content = if is_empty {
-            let message = if has_query {
-                "No inbox items match your search"
-            } else {
-                "All caught up"
-            };
             v_flex()
                 .flex_1()
                 .justify_center()
                 .items_center()
+                .gap_1()
                 .child(
-                    Label::new(message)
-                        .size(LabelSize::Small)
-                        .color(Color::Muted),
+                    Label::new(if has_query {
+                        "No inbox items match your search"
+                    } else {
+                        "All caught up"
+                    })
+                    .size(LabelSize::Small)
+                    .color(Color::Muted),
                 )
+                .when(!has_query, |this| {
+                    this.child(
+                        Label::new("No threads need attention")
+                            .size(LabelSize::XSmall)
+                            .color(Color::Muted),
+                    )
+                })
                 .into_any_element()
         } else {
             v_flex()
@@ -629,10 +865,12 @@ impl Render for ThreadsInboxView {
             .on_action(cx.listener(Self::editor_move_up))
             .on_action(cx.listener(Self::select_first))
             .on_action(cx.listener(Self::select_last))
+            .on_action(cx.listener(Self::select_child))
+            .on_action(cx.listener(Self::select_parent))
             .on_action(cx.listener(Self::confirm))
             .size_full()
             .child(self.render_header(window, cx))
-            .when(!has_query, |this| this.child(self.render_toolbar(cx)))
+            .child(self.render_toolbar(cx))
             .child(content)
     }
 }
@@ -643,12 +881,68 @@ fn inbox_search_text(item: &InboxAttentionItem) -> String {
         .as_ref()
         .map(|summary| summary.as_ref())
         .unwrap_or_default();
+    let permission_summary = item
+        .permission
+        .as_ref()
+        .and_then(|permission| permission.summary.as_ref())
+        .map(|summary| summary.as_ref())
+        .unwrap_or_default();
+    let context = item
+        .context
+        .as_ref()
+        .map(|context| context.as_ref())
+        .unwrap_or_default();
+    let agent_name = item
+        .agent_name
+        .as_ref()
+        .map(|agent_name| agent_name.as_ref())
+        .unwrap_or_default();
     format!(
-        "{} {} {summary}",
+        "{} {} {summary} {permission_summary} {context} {agent_name}",
         item.thread.display_title(),
         attention_reason(item.kind)
     )
     .to_lowercase()
+}
+
+fn inbox_count_text(visible_count: usize, total_count: usize, is_filtered: bool) -> String {
+    let total_count_text = if total_count == 1 {
+        "1 item".to_string()
+    } else {
+        format!("{total_count} items")
+    };
+    if is_filtered {
+        format!("{visible_count} of {total_count_text}")
+    } else {
+        total_count_text
+    }
+}
+
+fn inbox_filters_match(filters: &HashSet<InboxFilter>, kind: InboxAttentionKind) -> bool {
+    filters.is_empty() || filters.iter().any(|filter| filter.matches_kind(kind))
+}
+
+fn toggle_inbox_filter(filters: &mut HashSet<InboxFilter>, filter: InboxFilter) {
+    if filter == InboxFilter::All {
+        filters.clear();
+        return;
+    }
+
+    if !filters.insert(filter) {
+        filters.remove(&filter);
+    }
+
+    if InboxFilter::kinds()
+        .into_iter()
+        .all(|filter| filters.contains(&filter))
+    {
+        filters.clear();
+    }
+}
+
+#[cfg(any(test, feature = "test-support"))]
+fn first_permission_outcome(options: &PermissionOptions) -> Option<SelectedPermissionOutcome> {
+    crate::conversation_view::resolve_outcome_from_selection(options, None, true)
 }
 
 fn toggle_expanded_permission_thread_id(
@@ -669,17 +963,22 @@ fn toggle_expanded_permission_thread_id(
 
 fn attention_reason(kind: InboxAttentionKind) -> &'static str {
     match kind {
-        InboxAttentionKind::Permission => "Waiting for permission",
+        InboxAttentionKind::Permission => "Permission needed",
         InboxAttentionKind::Completed => "Completed in background",
         InboxAttentionKind::Error => "Stopped with error",
-        InboxAttentionKind::Interrupted => "Interrupted in background",
+        InboxAttentionKind::Interrupted => "Interrupted",
     }
 }
 
-// Inbox items are action prompts, so an absolute time is more useful here than
-// the archive's compact relative timestamp.
-fn format_inbox_timestamp(timestamp: chrono::DateTime<chrono::Utc>) -> SharedString {
-    timestamp.format("%b %-d, %-I:%M %p").to_string().into()
+fn row_summary(item: &InboxAttentionItem) -> Option<SharedString> {
+    match item.kind {
+        InboxAttentionKind::Permission => item
+            .permission
+            .as_ref()
+            .and_then(|permission| permission.summary.clone()),
+        InboxAttentionKind::Interrupted => Some("Open to continue".into()),
+        InboxAttentionKind::Error | InboxAttentionKind::Completed => item.summary.clone(),
+    }
 }
 
 #[cfg(test)]
@@ -693,13 +992,43 @@ mod tests {
 
     #[test]
     fn inbox_filter_matches_expected_attention_kinds() {
-        assert!(InboxFilter::All.matches(InboxAttentionKind::Permission));
-        assert!(InboxFilter::Permission.matches(InboxAttentionKind::Permission));
-        assert!(!InboxFilter::Permission.matches(InboxAttentionKind::Completed));
-        assert!(InboxFilter::Completed.matches(InboxAttentionKind::Completed));
-        assert!(InboxFilter::Interrupted.matches(InboxAttentionKind::Interrupted));
-        assert!(InboxFilter::Errors.matches(InboxAttentionKind::Error));
-        assert!(!InboxFilter::Errors.matches(InboxAttentionKind::Interrupted));
+        let mut filters = HashSet::default();
+        assert!(inbox_filters_match(
+            &filters,
+            InboxAttentionKind::Permission
+        ));
+
+        toggle_inbox_filter(&mut filters, InboxFilter::Permission);
+        toggle_inbox_filter(&mut filters, InboxFilter::Errors);
+        assert!(inbox_filters_match(
+            &filters,
+            InboxAttentionKind::Permission
+        ));
+        assert!(inbox_filters_match(&filters, InboxAttentionKind::Error));
+        assert!(!inbox_filters_match(
+            &filters,
+            InboxAttentionKind::Completed
+        ));
+
+        toggle_inbox_filter(&mut filters, InboxFilter::Permission);
+        assert!(!inbox_filters_match(
+            &filters,
+            InboxAttentionKind::Permission
+        ));
+        assert!(inbox_filters_match(&filters, InboxAttentionKind::Error));
+
+        toggle_inbox_filter(&mut filters, InboxFilter::All);
+        assert!(filters.is_empty());
+        assert!(inbox_filters_match(&filters, InboxAttentionKind::Completed));
+    }
+
+    #[test]
+    fn selecting_every_inbox_kind_returns_to_all_filter() {
+        let mut filters = HashSet::default();
+        for filter in InboxFilter::kinds() {
+            toggle_inbox_filter(&mut filters, filter);
+        }
+        assert!(filters.is_empty());
     }
 
     #[test]
@@ -727,6 +1056,50 @@ mod tests {
         assert!(expanded_thread_ids.is_empty());
     }
 
+    #[test]
+    fn inbox_search_matches_context_agent_and_permission_summary() {
+        let mut item = inbox_item(InboxAttentionKind::Permission);
+        item.context = Some("neo-zed".into());
+        item.agent_name = Some("Neozed Agent".into());
+        item.permission = Some(InboxPermissionItem {
+            session_id: acp::SessionId::new("session-search"),
+            tool_call_id: acp::ToolCallId::new("tool-search"),
+            options: PermissionOptions::Flat(vec![acp::PermissionOption::new(
+                acp::PermissionOptionId::new("allow-search"),
+                "Allow",
+                acp::PermissionOptionKind::AllowOnce,
+            )]),
+            summary: Some("Edit src/main.rs".into()),
+        });
+
+        let search_text = inbox_search_text(&item);
+        assert!(search_text.contains("permission needed"));
+        assert!(search_text.contains("neo-zed"));
+        assert!(search_text.contains("neozed agent"));
+        assert!(search_text.contains("edit src/main.rs"));
+    }
+
+    #[test]
+    fn inbox_count_text_mentions_visible_and_total_when_filtered() {
+        assert_eq!(inbox_count_text(3, 3, false), "3 items");
+        assert_eq!(inbox_count_text(1, 3, true), "1 of 3 items");
+        assert_eq!(inbox_count_text(1, 1, true), "1 of 1 item");
+    }
+
+    #[test]
+    fn inbox_reason_copy_matches_attention_spec() {
+        assert_eq!(
+            attention_reason(InboxAttentionKind::Permission),
+            "Permission needed"
+        );
+        assert_eq!(
+            attention_reason(InboxAttentionKind::Interrupted),
+            "Interrupted"
+        );
+        let item = inbox_item(InboxAttentionKind::Interrupted);
+        assert_eq!(row_summary(&item).as_deref(), Some("Open to continue"));
+    }
+
     fn inbox_item(kind: InboxAttentionKind) -> InboxAttentionItem {
         InboxAttentionItem {
             thread: ThreadMetadata {
@@ -746,6 +1119,11 @@ mod tests {
             kind,
             summary: None,
             timestamp: Utc::now(),
+            context: None,
+            agent_name: None,
+            agent_icon: IconName::ZedAgent,
+            agent_icon_from_external_svg: None,
+            permission: None,
         }
     }
 }

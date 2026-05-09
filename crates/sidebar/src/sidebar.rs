@@ -15,8 +15,8 @@ use agent_ui::threads_archive_view::{
 use agent_ui::{
     AcpThreadImportOnboarding, Agent, AgentPanel, AgentPanelEvent, ArchiveSelectedThread,
     CrossChannelImportOnboarding, DEFAULT_THREAD_TITLE, InboxAttentionItem, InboxAttentionKind,
-    NewThread, ThreadId, ThreadImportModal, ThreadsInboxView, ThreadsInboxViewEvent,
-    channels_with_threads, import_threads_from_other_channels,
+    InboxPermissionItem, NewThread, ThreadId, ThreadImportModal, ThreadsInboxView,
+    ThreadsInboxViewEvent, channels_with_threads, import_threads_from_other_channels,
 };
 use chrono::{DateTime, Utc};
 use editor::Editor;
@@ -31,7 +31,7 @@ use gpui::{
 use menu::{
     Cancel, Confirm, SelectChild, SelectFirst, SelectLast, SelectNext, SelectParent, SelectPrevious,
 };
-use project::{AgentId, AgentRegistryStore, Event as ProjectEvent, WorktreeId};
+use project::{AgentId, AgentRegistryStore, AgentServerStore, Event as ProjectEvent, WorktreeId};
 use recent_projects::sidebar_recent_projects::SidebarRecentProjects;
 use remote::{RemoteConnectionOptions, same_remote_connection_identity};
 use ui::utils::platform_title_bar_height;
@@ -164,6 +164,7 @@ struct ActiveThreadInfo {
     session_id: acp::SessionId,
     title: SharedString,
     status: AgentThreadStatus,
+    permission: Option<InboxPermissionItem>,
     icon: IconName,
     icon_from_external_svg: Option<SharedString>,
     is_background: bool,
@@ -487,6 +488,41 @@ fn apply_worktree_label_mode(
         }
     }
     worktrees
+}
+
+fn inbox_context_for_thread(metadata: &ThreadMetadata) -> Option<SharedString> {
+    let names = metadata
+        .folder_paths()
+        .paths()
+        .iter()
+        .filter_map(|path| path.file_name())
+        .map(|name| name.to_string_lossy().to_string())
+        .collect::<Vec<_>>();
+
+    if names.is_empty() {
+        None
+    } else {
+        Some(names.join(", ").into())
+    }
+}
+
+fn inbox_agent_display(
+    agent_id: &AgentId,
+    agent_server_store: Option<&Entity<AgentServerStore>>,
+    cx: &App,
+) -> (Option<SharedString>, IconName, Option<SharedString>) {
+    let agent_name = agent_server_store
+        .and_then(|store| store.read(cx).agent_display_name(agent_id))
+        .or_else(|| Some(agent_id.0.to_string().into()));
+    let agent = Agent::from(agent_id.clone());
+    let icon = match agent {
+        Agent::NativeAgent => IconName::ZedAgent,
+        Agent::Custom { .. } => IconName::Terminal,
+        _ => IconName::ZedAgent,
+    };
+    let icon_from_external_svg =
+        agent_server_store.and_then(|store| store.read(cx).agent_icon(agent_id));
+    (agent_name, icon, icon_from_external_svg)
 }
 
 /// Shows a [`RemoteConnectionModal`] on the given workspace and establishes
@@ -1513,9 +1549,15 @@ impl Sidebar {
         updates: Vec<ThreadAttentionStatusUpdate>,
         cx: &mut Context<Self>,
     ) {
-        if updates.is_empty() {
-            return;
-        }
+        let live_sessions = self
+            .contents
+            .entries
+            .iter()
+            .filter_map(|entry| match entry {
+                ListEntry::Thread(thread) if thread.is_live => thread.metadata.session_id.clone(),
+                _ => None,
+            })
+            .collect::<HashSet<_>>();
 
         ThreadMetadataStore::global(cx).update(cx, |store, cx| {
             for update in updates {
@@ -1531,6 +1573,8 @@ impl Sidebar {
                     store.mark_attention(update.thread_id, attention_kind, None, cx);
                 }
             }
+
+            store.mark_interrupted_threads_without_live_sessions(live_sessions, cx);
         });
     }
 
@@ -4766,6 +4810,18 @@ impl Sidebar {
 
     fn build_inbox_items(&self, include_hidden: bool, cx: &App) -> Vec<InboxAttentionItem> {
         let mut items_by_thread_id = HashMap::new();
+        let agent_server_store = self
+            .multi_workspace
+            .upgrade()
+            .and_then(|multi_workspace| multi_workspace.read(cx).workspaces().next().cloned())
+            .map(|workspace| {
+                workspace
+                    .read(cx)
+                    .project()
+                    .read(cx)
+                    .agent_server_store()
+                    .clone()
+            });
 
         {
             let store = ThreadMetadataStore::global(cx).read(cx);
@@ -4773,6 +4829,8 @@ impl Sidebar {
                 let Some(attention) = thread.attention.as_ref() else {
                     continue;
                 };
+                let (agent_name, agent_icon, agent_icon_from_external_svg) =
+                    inbox_agent_display(&thread.agent_id, agent_server_store.as_ref(), cx);
                 items_by_thread_id.insert(
                     thread.thread_id,
                     InboxAttentionItem {
@@ -4780,6 +4838,11 @@ impl Sidebar {
                         kind: InboxAttentionKind::from(attention.kind),
                         summary: attention.summary.clone(),
                         timestamp: attention.at,
+                        context: inbox_context_for_thread(thread),
+                        agent_name,
+                        agent_icon,
+                        agent_icon_from_external_svg,
+                        permission: None,
                     },
                 );
             }
@@ -4819,8 +4882,11 @@ impl Sidebar {
                 live_thread_ids.insert(metadata.thread_id);
                 self.insert_permission_inbox_item(
                     metadata,
+                    live_info.permission,
+                    agent_server_store.as_ref(),
                     include_hidden,
                     &mut items_by_thread_id,
+                    cx,
                 );
             }
         }
@@ -4838,8 +4904,11 @@ impl Sidebar {
 
             self.insert_permission_inbox_item(
                 thread.metadata.clone(),
+                None,
+                agent_server_store.as_ref(),
                 include_hidden,
                 &mut items_by_thread_id,
+                cx,
             );
         }
 
@@ -4851,8 +4920,11 @@ impl Sidebar {
     fn insert_permission_inbox_item(
         &self,
         metadata: ThreadMetadata,
+        permission: Option<InboxPermissionItem>,
+        agent_server_store: Option<&Entity<AgentServerStore>>,
         include_hidden: bool,
         items_by_thread_id: &mut HashMap<ThreadId, InboxAttentionItem>,
+        cx: &App,
     ) {
         let hidden_because_active = self.active_entry.as_ref().is_some_and(|active| {
             active.thread_id == metadata.thread_id
@@ -4870,6 +4942,9 @@ impl Sidebar {
             return;
         }
 
+        let (agent_name, agent_icon, agent_icon_from_external_svg) =
+            inbox_agent_display(&metadata.agent_id, agent_server_store, cx);
+        let context = inbox_context_for_thread(&metadata);
         items_by_thread_id.insert(
             metadata.thread_id,
             InboxAttentionItem {
@@ -4877,6 +4952,11 @@ impl Sidebar {
                 thread: metadata,
                 kind: InboxAttentionKind::Permission,
                 summary: None,
+                context,
+                agent_name,
+                agent_icon,
+                agent_icon_from_external_svg,
+                permission,
             },
         );
     }
@@ -5150,6 +5230,19 @@ impl Sidebar {
                 ThreadsInboxViewEvent::Activate { thread } => {
                     this.open_thread_from_inbox(thread.clone(), window, cx);
                 }
+                ThreadsInboxViewEvent::PermissionOutcome {
+                    session_id,
+                    tool_call_id,
+                    outcome,
+                } => {
+                    this.authorize_inbox_permission(
+                        session_id.clone(),
+                        tool_call_id.clone(),
+                        outcome.clone(),
+                        window,
+                        cx,
+                    );
+                }
             },
         );
 
@@ -5169,6 +5262,54 @@ impl Sidebar {
         handle.focus(window, cx);
         self.serialize(cx);
         cx.notify();
+    }
+
+    fn authorize_inbox_permission(
+        &mut self,
+        session_id: acp::SessionId,
+        tool_call_id: acp::ToolCallId,
+        outcome: acp_thread::SelectedPermissionOutcome,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let mut outcome = Some(outcome);
+        let Some(multi_workspace) = self.multi_workspace.upgrade() else {
+            self.refresh_inbox_state(cx);
+            return;
+        };
+        let workspaces = multi_workspace
+            .read(cx)
+            .workspaces()
+            .cloned()
+            .collect::<Vec<_>>();
+
+        for workspace in workspaces {
+            let Some(agent_panel) = workspace.read(cx).panel::<AgentPanel>(cx) else {
+                continue;
+            };
+            let conversation_views = agent_panel.read(cx).conversation_views();
+            for conversation_view in conversation_views {
+                let Some(thread_view) = conversation_view.read(cx).thread_view(&session_id) else {
+                    continue;
+                };
+                let outcome = outcome
+                    .take()
+                    .expect("permission outcome should only be consumed once");
+                thread_view.update(cx, |thread_view, cx| {
+                    thread_view.authorize_tool_call(
+                        session_id.clone(),
+                        tool_call_id.clone(),
+                        outcome,
+                        window,
+                        cx,
+                    );
+                });
+                self.refresh_inbox_state(cx);
+                return;
+            }
+        }
+
+        self.refresh_inbox_state(cx);
     }
 }
 
@@ -5445,6 +5586,17 @@ fn all_thread_infos_for_workspace(
             let has_pending_tool_call = conversation_view
                 .read(cx)
                 .root_thread_has_pending_tool_call(cx);
+            let permission = conversation_view
+                .read(cx)
+                .pending_tool_call_for_inbox(cx)
+                .map(
+                    |(session_id, tool_call_id, options, summary)| InboxPermissionItem {
+                        session_id,
+                        tool_call_id,
+                        options: options.clone(),
+                        summary: Some(summary),
+                    },
+                );
             let conversation_thread_id = conversation_view.read(cx).parent_id();
             let thread_view = conversation_view.read(cx).root_thread_view()?;
             let thread_view_ref = thread_view.read(cx);
@@ -5479,6 +5631,7 @@ fn all_thread_infos_for_workspace(
                 session_id,
                 title,
                 status,
+                permission,
                 icon,
                 icon_from_external_svg,
                 is_background,

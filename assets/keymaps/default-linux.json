@@ -388,6 +388,12 @@
     },
   },
   {
+    "context": "ThreadsInboxView",
+    "bindings": {
+      "space": "menu::SelectChild",
+    },
+  },
+  {
     "context": "RulesLibrary",
     "bindings": {
       "new": "rules_library::NewRule",

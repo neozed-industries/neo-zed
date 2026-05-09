@@ -481,6 +481,34 @@ fn request_test_tool_authorization(
     cx.run_until_parked();
 }
 
+fn request_test_tool_authorization_task(
+    thread: &Entity<AcpThread>,
+    tool_call_id: &str,
+    option_id: &str,
+    cx: &mut gpui::VisualTestContext,
+) -> Task<acp_thread::RequestPermissionOutcome> {
+    let tool_call_id = acp::ToolCallId::new(tool_call_id);
+    let label = format!("Tool {tool_call_id}");
+    let option_id = acp::PermissionOptionId::new(option_id);
+    cx.update(|_, cx| {
+        thread.update(cx, |thread, cx| {
+            thread
+                .request_tool_call_authorization(
+                    acp::ToolCall::new(tool_call_id, label)
+                        .kind(acp::ToolKind::Edit)
+                        .into(),
+                    PermissionOptions::Flat(vec![acp::PermissionOption::new(
+                        option_id,
+                        "Allow",
+                        acp::PermissionOptionKind::AllowOnce,
+                    )]),
+                    cx,
+                )
+                .unwrap()
+        })
+    })
+}
+
 fn format_linked_worktree_chips(worktrees: &[ThreadItemWorktreeInfo]) -> String {
     let mut seen = Vec::new();
     let mut chips = Vec::new();
@@ -843,6 +871,48 @@ async fn test_permission_badge_includes_hidden_active_thread(cx: &mut TestAppCon
             .read_with(cx, |sidebar, cx| sidebar.visible_inbox_items_for_test(cx))
             .is_empty()
     );
+}
+
+#[gpui::test]
+async fn test_expanded_permission_row_sends_selected_outcome(cx: &mut TestAppContext) {
+    let project = init_test_project_with_agent_panel("/my-project", cx).await;
+    let (multi_workspace, cx) =
+        cx.add_window_view(|window, cx| MultiWorkspace::test_new(project.clone(), window, cx));
+    let (sidebar, panel) = setup_sidebar_with_agent_panel(&multi_workspace, cx);
+
+    open_thread_with_connection(&panel, StubAgentConnection::new(), cx);
+    send_message(&panel, cx);
+    let session_id = active_session_id(&panel, cx);
+    save_test_thread_metadata(&session_id, &project, cx).await;
+
+    let thread = panel
+        .read_with(cx, |panel, cx| panel.active_agent_thread(cx))
+        .expect("expected active ACP thread");
+    let authorization_task =
+        request_test_tool_authorization_task(&thread, "inbox-tool-call", "allow-inbox", cx);
+    cx.run_until_parked();
+
+    sidebar.update_in(cx, |sidebar, window, cx| {
+        sidebar.active_entry = None;
+        sidebar.show_inbox(window, cx);
+        let SidebarView::Inbox(inbox) = &sidebar.view else {
+            panic!("expected inbox");
+        };
+        inbox.update(cx, |inbox, cx| {
+            inbox.expand_selected_permission_row_for_test(cx);
+            inbox.select_first_permission_option_for_test(window, cx);
+        });
+    });
+    cx.run_until_parked();
+
+    let acp_thread::RequestPermissionOutcome::Selected(outcome) = authorization_task.await else {
+        panic!("permission request should be authorized");
+    };
+    assert_eq!(
+        outcome.option_id,
+        acp::PermissionOptionId::new("allow-inbox")
+    );
+    assert_eq!(outcome.option_kind, acp::PermissionOptionKind::AllowOnce);
 }
 
 #[gpui::test]

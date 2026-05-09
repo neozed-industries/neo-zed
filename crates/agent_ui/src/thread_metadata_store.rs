@@ -748,6 +748,39 @@ impl ThreadMetadataStore {
         cx.notify();
     }
 
+    pub fn mark_interrupted_threads_without_live_sessions(
+        &mut self,
+        live_sessions: impl IntoIterator<Item = acp::SessionId>,
+        cx: &mut Context<Self>,
+    ) {
+        let live_sessions = live_sessions.into_iter().collect::<HashSet<_>>();
+        let thread_ids = self
+            .threads
+            .values()
+            .filter(|thread| thread.attention.is_none())
+            .filter(|thread| {
+                matches!(
+                    thread.last_known_status,
+                    Some(
+                        LastKnownThreadStatus::Running
+                            | LastKnownThreadStatus::WaitingForConfirmation
+                    )
+                )
+            })
+            .filter(|thread| {
+                thread
+                    .session_id
+                    .as_ref()
+                    .is_none_or(|session_id| !live_sessions.contains(session_id))
+            })
+            .map(|thread| thread.thread_id)
+            .collect::<Vec<_>>();
+
+        for thread_id in thread_ids {
+            self.mark_attention(thread_id, ThreadAttentionKind::Interrupted, None, cx);
+        }
+    }
+
     fn save_internal(&mut self, metadata: ThreadMetadata) {
         if metadata.session_id.is_none() {
             debug_panic!("cannot store thread metadata without a session_id");
@@ -2111,6 +2144,76 @@ mod tests {
 
         assert_eq!(attention.kind, ThreadAttentionKind::Interrupted);
         assert!(attention.summary.is_none());
+    }
+
+    #[gpui::test]
+    async fn test_orphaned_in_progress_thread_is_marked_interrupted(cx: &mut TestAppContext) {
+        cx.update(|cx| ThreadMetadataStore::init_global(cx));
+        cx.run_until_parked();
+        let thread_id = ThreadId::new();
+        let live_thread_id = ThreadId::new();
+        let session_id = acp::SessionId::new(Arc::from("session-orphaned-running"));
+        let live_session_id = acp::SessionId::new(Arc::from("session-live-running"));
+
+        cx.update(|cx| {
+            ThreadMetadataStore::global(cx).update(cx, |store, cx| {
+                store.save(
+                    ThreadMetadata {
+                        thread_id,
+                        session_id: Some(session_id.clone()),
+                        ..make_metadata(
+                            "session-orphaned-running",
+                            "Orphaned Running",
+                            Utc::now(),
+                            PathList::default(),
+                        )
+                    },
+                    cx,
+                );
+                store.save(
+                    ThreadMetadata {
+                        thread_id: live_thread_id,
+                        session_id: Some(live_session_id.clone()),
+                        ..make_metadata(
+                            "session-live-running",
+                            "Live Running",
+                            Utc::now(),
+                            PathList::default(),
+                        )
+                    },
+                    cx,
+                );
+                store.update_last_known_status(thread_id, LastKnownThreadStatus::Running, cx);
+                store.update_last_known_status(
+                    live_thread_id,
+                    LastKnownThreadStatus::WaitingForConfirmation,
+                    cx,
+                );
+                store.mark_interrupted_threads_without_live_sessions(
+                    HashSet::from_iter([live_session_id]),
+                    cx,
+                );
+            });
+        });
+        cx.run_until_parked();
+
+        cx.read(|cx| {
+            let store = ThreadMetadataStore::global(cx);
+            let store = store.read(cx);
+            assert_eq!(
+                store
+                    .entry(thread_id)
+                    .and_then(|thread| thread.attention.as_ref())
+                    .map(|attention| attention.kind),
+                Some(ThreadAttentionKind::Interrupted)
+            );
+            assert!(
+                store
+                    .entry(live_thread_id)
+                    .and_then(|thread| thread.attention.as_ref())
+                    .is_none()
+            );
+        });
     }
 
     #[gpui::test]

@@ -1,8 +1,8 @@
 use acp_thread::{
     AcpThread, AcpThreadEvent, AgentThreadEntry, AssistantMessage, AssistantMessageChunk,
-    AuthRequired, LoadError, MaxOutputTokensError, MentionUri, PermissionOptionChoice,
-    PermissionOptions, PermissionPattern, RetryStatus, SelectedPermissionOutcome, ThreadStatus,
-    ToolCall, ToolCallContent, ToolCallStatus, UserMessageId,
+    AuthRequired, LoadError, MaxOutputTokensError, MentionUri, PermissionOptions, RetryStatus,
+    SelectedPermissionOutcome, ThreadStatus, ToolCall, ToolCallContent, ToolCallStatus,
+    UserMessageId,
 };
 use acp_thread::{AgentConnection, Plan};
 use action_log::{ActionLog, ActionLogTelemetry, DiffStats};
@@ -101,7 +101,9 @@ use crate::{
 const STOPWATCH_THRESHOLD: Duration = Duration::from_secs(30);
 const TOKEN_THRESHOLD: u64 = 250;
 
+mod permission_controls;
 mod thread_view;
+pub(crate) use permission_controls::*;
 pub use thread_view::*;
 
 pub struct QueuedMessage {
@@ -335,6 +337,36 @@ impl Conversation {
         Some((result_session_id, tool_id.clone(), options))
     }
 
+    pub fn pending_tool_call_for_inbox<'a>(
+        &'a self,
+        session_id: &acp::SessionId,
+        cx: &'a App,
+    ) -> Option<(
+        acp::SessionId,
+        acp::ToolCallId,
+        &'a PermissionOptions,
+        SharedString,
+    )> {
+        let thread = self.threads.get(session_id)?;
+        let is_subagent = thread.read(cx).parent_session_id().is_some();
+        let (result_session_id, thread, tool_id) = if is_subagent {
+            let id = self.permission_requests.get(session_id)?.iter().next()?;
+            (session_id.clone(), thread, id)
+        } else {
+            let (id, tool_calls) = self.permission_requests.first()?;
+            let thread = self.threads.get(id)?;
+            let tool_id = tool_calls.iter().next()?;
+            (id.clone(), thread, tool_id)
+        };
+        let (_, tool_call) = thread.read(cx).tool_call(tool_id)?;
+
+        let ToolCallStatus::WaitingForConfirmation { options, .. } = &tool_call.status else {
+            return None;
+        };
+        let summary = tool_call.label.read(cx).source().to_string();
+        Some((result_session_id, tool_id.clone(), options, summary.into()))
+    }
+
     pub fn subagents_awaiting_permission(&self, cx: &App) -> Vec<(acp::SessionId, usize)> {
         self.permission_requests
             .iter()
@@ -371,7 +403,7 @@ impl Conversation {
         &mut self,
         session_id: acp::SessionId,
         tool_call_id: acp::ToolCallId,
-        selection: Option<&thread_view::PermissionSelection>,
+        selection: Option<&PermissionSelection>,
         is_allow: bool,
         cx: &mut Context<Self>,
     ) -> Option<()> {
@@ -420,43 +452,6 @@ impl Conversation {
 pub(crate) struct RootThreadUpdated;
 
 impl EventEmitter<RootThreadUpdated> for ConversationView {}
-
-fn resolve_outcome_from_selection(
-    options: &PermissionOptions,
-    selection: Option<&thread_view::PermissionSelection>,
-    is_allow: bool,
-) -> Option<SelectedPermissionOutcome> {
-    let choices = match options {
-        PermissionOptions::Dropdown(choices) => choices.as_slice(),
-        PermissionOptions::DropdownWithPatterns { choices, .. } => choices.as_slice(),
-        PermissionOptions::Flat(_) => {
-            let kind = if is_allow {
-                acp::PermissionOptionKind::AllowOnce
-            } else {
-                acp::PermissionOptionKind::RejectOnce
-            };
-            let option = options.first_option_of_kind(kind)?;
-            return Some(SelectedPermissionOutcome::new(
-                option.option_id.clone(),
-                option.kind,
-            ));
-        }
-    };
-
-    // When in per-command pattern mode, use the checked patterns.
-    if let Some(thread_view::PermissionSelection::SelectedPatterns(checked)) = selection {
-        if let Some(outcome) = options.build_outcome_for_checked_patterns(checked, is_allow) {
-            return Some(outcome);
-        }
-    }
-
-    // Use the selected granularity choice ("Always for terminal" or "Only this time").
-    let selected_index = selection
-        .and_then(|s| s.choice_index())
-        .unwrap_or_else(|| choices.len().saturating_sub(1));
-    let selected_choice = choices.get(selected_index).or(choices.last())?;
-    Some(selected_choice.build_outcome(is_allow))
-}
 
 fn affects_thread_metadata(event: &AcpThreadEvent) -> bool {
     match event {
@@ -531,6 +526,22 @@ impl ConversationView {
             .conversation
             .read(cx)
             .pending_tool_call(&session_id, cx)
+    }
+
+    pub fn pending_tool_call_for_inbox<'a>(
+        &'a self,
+        cx: &'a App,
+    ) -> Option<(
+        acp::SessionId,
+        acp::ToolCallId,
+        &'a PermissionOptions,
+        SharedString,
+    )> {
+        let session_id = self.active_thread()?.read(cx).session_id.clone();
+        self.as_connected()?
+            .conversation
+            .read(cx)
+            .pending_tool_call_for_inbox(&session_id, cx)
     }
 
     pub fn root_thread_has_pending_tool_call(&self, cx: &App) -> bool {
@@ -6742,7 +6753,7 @@ pub(crate) mod tests {
     fn resolve_outcome_from_selection_flat_ignores_selection() {
         let options = flat_allow_deny_options();
         // Flat options never consult the granularity choice, even if one is set.
-        let selection = thread_view::PermissionSelection::Choice(42);
+        let selection = PermissionSelection::Choice(42);
 
         let outcome =
             super::resolve_outcome_from_selection(&options, Some(&selection), true).unwrap();
@@ -6768,7 +6779,7 @@ pub(crate) mod tests {
         let options =
             ToolPermissionContext::new(TerminalTool::NAME, vec!["cargo build".to_string()])
                 .build_permission_options();
-        let selection = thread_view::PermissionSelection::Choice(0);
+        let selection = PermissionSelection::Choice(0);
 
         let outcome =
             super::resolve_outcome_from_selection(&options, Some(&selection), true).unwrap();
@@ -6783,7 +6794,7 @@ pub(crate) mod tests {
         let options =
             ToolPermissionContext::new(TerminalTool::NAME, vec!["cargo build".to_string()])
                 .build_permission_options();
-        let selection = thread_view::PermissionSelection::Choice(999);
+        let selection = PermissionSelection::Choice(999);
 
         let outcome =
             super::resolve_outcome_from_selection(&options, Some(&selection), true).unwrap();
@@ -6808,7 +6819,7 @@ pub(crate) mod tests {
         // Pattern mode with zero checked patterns: `build_outcome_for_checked_patterns`
         // returns None, so we fall through to `choice_index()` (which is None for
         // `SelectedPatterns`) and default to `choices.last()`.
-        let selection = thread_view::PermissionSelection::SelectedPatterns(vec![]);
+        let selection = PermissionSelection::SelectedPatterns(vec![]);
 
         let outcome =
             super::resolve_outcome_from_selection(&options, Some(&selection), true).unwrap();
@@ -6828,7 +6839,7 @@ pub(crate) mod tests {
             options,
             PermissionOptions::DropdownWithPatterns { .. }
         ));
-        let selection = thread_view::PermissionSelection::SelectedPatterns(vec![0]);
+        let selection = PermissionSelection::SelectedPatterns(vec![0]);
 
         let outcome =
             super::resolve_outcome_from_selection(&options, Some(&selection), true).unwrap();

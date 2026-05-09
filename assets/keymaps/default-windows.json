@@ -391,6 +391,12 @@
     },
   },
   {
+    "context": "ThreadsInboxView",
+    "bindings": {
+      "space": "menu::SelectChild",
+    },
+  },
+  {
     "context": "RulesLibrary",
     "use_key_equivalents": true,
     "bindings": {

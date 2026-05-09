@@ -77,7 +77,8 @@ pub use thread_import::{
     channels_with_threads, import_threads_from_other_channels,
 };
 pub use threads_inbox_view::{
-    InboxAttentionItem, InboxAttentionKind, ThreadsInboxView, ThreadsInboxViewEvent,
+    InboxAttentionItem, InboxAttentionKind, InboxPermissionItem, ThreadsInboxView,
+    ThreadsInboxViewEvent,
 };
 use zed_actions;
 pub use zed_actions::{CreateWorktree, NewWorktreeBranchTarget, SwitchWorktree};
