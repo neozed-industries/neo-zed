@@ -1,17 +1,18 @@
-use std::cmp::Reverse;
+use std::{cmp::Reverse, collections::HashSet};
 
 use chrono::{DateTime, Utc};
 use editor::Editor;
 use gpui::{
-    AnyElement, App, Context, Entity, EventEmitter, FocusHandle, Focusable, ListState, Render,
-    SharedString, Subscription, Window, list, prelude::*, px,
+    AnyElement, App, Context, Entity, EventEmitter, FocusHandle, Focusable, ListState, MouseButton,
+    Render, SharedString, Subscription, Window, list, prelude::*, px,
 };
 use menu::{Confirm, SelectFirst, SelectLast, SelectNext, SelectPrevious};
 use settings::Settings as _;
 use theme::ActiveTheme;
 use ui::{
-    ContextMenu, Divider, KeyBinding, Label, LabelSize, PopoverMenu, PopoverMenuHandle, ScrollAxes,
-    Scrollbars, Tab, Tooltip, WithScrollbar, prelude::*, utils::platform_title_bar_height,
+    ContextMenu, Disclosure, Divider, KeyBinding, Label, LabelSize, PopoverMenu, PopoverMenuHandle,
+    ScrollAxes, Scrollbars, Tab, Tooltip, WithScrollbar, prelude::*,
+    utils::platform_title_bar_height,
 };
 use workspace::CloseWindow;
 use zed_actions::agents_sidebar::FocusSidebarFilter;
@@ -19,7 +20,7 @@ use zed_actions::editor::{MoveDown, MoveUp};
 
 use agent_settings::AgentSettings;
 
-use crate::thread_metadata_store::{ThreadAttentionKind, ThreadMetadata};
+use crate::thread_metadata_store::{ThreadAttentionKind, ThreadId, ThreadMetadata};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum InboxAttentionKind {
@@ -101,6 +102,7 @@ pub struct ThreadsInboxView {
     items: Vec<InboxAttentionItem>,
     selection: Option<usize>,
     hovered_index: Option<usize>,
+    expanded_thread_ids: HashSet<ThreadId>,
     filter_editor: Entity<Editor>,
     inbox_filter: InboxFilter,
     filter_menu_handle: PopoverMenuHandle<ContextMenu>,
@@ -149,6 +151,7 @@ impl ThreadsInboxView {
             items: Vec::new(),
             selection: None,
             hovered_index: None,
+            expanded_thread_ids: HashSet::default(),
             filter_editor,
             inbox_filter: InboxFilter::All,
             filter_menu_handle: PopoverMenuHandle::default(),
@@ -203,6 +206,11 @@ impl ThreadsInboxView {
         self.hovered_index = self
             .hovered_index
             .filter(|hovered_index| *hovered_index < self.items.len());
+        self.expanded_thread_ids.retain(|thread_id| {
+            self.items.iter().any(|item| {
+                item.kind == InboxAttentionKind::Permission && item.thread.thread_id == *thread_id
+            })
+        });
         self.list_state.reset(self.items.len());
         self.list_state.scroll_to(saved_scroll);
         cx.notify();
@@ -276,6 +284,16 @@ impl ThreadsInboxView {
             return;
         };
         self.activate_item_at(selection, cx);
+    }
+
+    fn toggle_permission_expanded(&mut self, index: usize, cx: &mut Context<Self>) {
+        let item = self
+            .items
+            .get(index)
+            .map(|item| (item.thread.thread_id, item.kind));
+        if toggle_expanded_permission_thread_id(&mut self.expanded_thread_ids, item) {
+            cx.notify();
+        }
     }
 
     fn activate_item_at(&mut self, index: usize, cx: &mut Context<Self>) {
@@ -468,6 +486,9 @@ impl ThreadsInboxView {
         };
         let is_selected = self.selection == Some(index);
         let is_hovered = self.hovered_index == Some(index);
+        let has_disclosure = item.kind == InboxAttentionKind::Permission;
+        let is_expanded =
+            has_disclosure && self.expanded_thread_ids.contains(&item.thread.thread_id);
 
         v_flex()
             .id(("inbox-entry", index))
@@ -506,9 +527,33 @@ impl ThreadsInboxView {
                             .color(Color::Muted),
                     )
                     .child(
-                        Label::new(format_inbox_timestamp(item.timestamp))
-                            .size(LabelSize::XSmall)
-                            .color(Color::Muted),
+                        h_flex()
+                            .items_center()
+                            .gap_1()
+                            .child(
+                                Label::new(format_inbox_timestamp(item.timestamp))
+                                    .size(LabelSize::XSmall)
+                                    .color(Color::Muted),
+                            )
+                            .when(has_disclosure, |this| {
+                                this.child(
+                                    div()
+                                        .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                                            cx.stop_propagation();
+                                        })
+                                        .child(
+                                            Disclosure::new(
+                                                ("inbox-entry-disclosure", index),
+                                                is_expanded,
+                                            )
+                                            .on_click(
+                                                cx.listener(move |this, _event, _window, cx| {
+                                                    this.toggle_permission_expanded(index, cx);
+                                                }),
+                                            ),
+                                        ),
+                                )
+                            }),
                     ),
             )
             .child(
@@ -606,6 +651,22 @@ fn inbox_search_text(item: &InboxAttentionItem) -> String {
     .to_lowercase()
 }
 
+fn toggle_expanded_permission_thread_id(
+    expanded_thread_ids: &mut HashSet<ThreadId>,
+    item: Option<(ThreadId, InboxAttentionKind)>,
+) -> bool {
+    let Some((thread_id, kind)) = item else {
+        return false;
+    };
+    if kind != InboxAttentionKind::Permission {
+        return false;
+    }
+    if !expanded_thread_ids.insert(thread_id) {
+        expanded_thread_ids.remove(&thread_id);
+    }
+    true
+}
+
 fn attention_reason(kind: InboxAttentionKind) -> &'static str {
     match kind {
         InboxAttentionKind::Permission => "Waiting for permission",
@@ -623,7 +684,12 @@ fn format_inbox_timestamp(timestamp: chrono::DateTime<chrono::Utc>) -> SharedStr
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
     use super::*;
+    use crate::thread_metadata_store::WorktreePaths;
+    use agent::ZED_AGENT_ID;
+    use workspace::PathList;
 
     #[test]
     fn inbox_filter_matches_expected_attention_kinds() {
@@ -634,5 +700,52 @@ mod tests {
         assert!(InboxFilter::Interrupted.matches(InboxAttentionKind::Interrupted));
         assert!(InboxFilter::Errors.matches(InboxAttentionKind::Error));
         assert!(!InboxFilter::Errors.matches(InboxAttentionKind::Interrupted));
+    }
+
+    #[test]
+    fn toggles_expansion_only_for_permission_items() {
+        let permission_item = inbox_item(InboxAttentionKind::Permission);
+        let completed_item = inbox_item(InboxAttentionKind::Completed);
+        let mut expanded_thread_ids = HashSet::default();
+
+        assert!(toggle_expanded_permission_thread_id(
+            &mut expanded_thread_ids,
+            Some((permission_item.thread.thread_id, permission_item.kind))
+        ));
+        assert!(expanded_thread_ids.contains(&permission_item.thread.thread_id));
+
+        assert!(toggle_expanded_permission_thread_id(
+            &mut expanded_thread_ids,
+            Some((permission_item.thread.thread_id, permission_item.kind))
+        ));
+        assert!(!expanded_thread_ids.contains(&permission_item.thread.thread_id));
+
+        assert!(!toggle_expanded_permission_thread_id(
+            &mut expanded_thread_ids,
+            Some((completed_item.thread.thread_id, completed_item.kind))
+        ));
+        assert!(expanded_thread_ids.is_empty());
+    }
+
+    fn inbox_item(kind: InboxAttentionKind) -> InboxAttentionItem {
+        InboxAttentionItem {
+            thread: ThreadMetadata {
+                thread_id: crate::thread_metadata_store::ThreadId::new(),
+                session_id: None,
+                agent_id: ZED_AGENT_ID.clone(),
+                title: Some("Test Thread".into()),
+                updated_at: Utc::now(),
+                created_at: None,
+                interacted_at: None,
+                worktree_paths: WorktreePaths::from_folder_paths(&PathList::default()),
+                remote_connection: None,
+                attention: None,
+                last_known_status: None,
+                archived: false,
+            },
+            kind,
+            summary: None,
+            timestamp: Utc::now(),
+        }
     }
 }
