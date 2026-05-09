@@ -668,6 +668,103 @@ async fn test_inbox_badge_counts_persisted_attention(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+async fn test_permission_attention_overrides_persisted_attention(cx: &mut TestAppContext) {
+    let project = init_test_project_with_agent_panel("/my-project", cx).await;
+    let (multi_workspace, cx) =
+        cx.add_window_view(|window, cx| MultiWorkspace::test_new(project.clone(), window, cx));
+    let (sidebar, _panel) = setup_sidebar_with_agent_panel(&multi_workspace, cx);
+    let workspace = multi_workspace.read_with(cx, |multi_workspace, _cx| {
+        multi_workspace.workspace().clone()
+    });
+    let session_id = acp::SessionId::new(Arc::from("session-permission-overrides"));
+    let thread_id = save_thread_metadata_for_inbox_badge(session_id, &project, cx);
+
+    cx.update(|_window, cx| {
+        ThreadMetadataStore::global(cx).update(cx, |store, cx| {
+            store.mark_attention(thread_id, ThreadAttentionKind::Completed, None, cx);
+        });
+    });
+
+    let metadata = cx.read(|cx| {
+        ThreadMetadataStore::global(cx)
+            .read(cx)
+            .entry(thread_id)
+            .cloned()
+            .expect("saved thread metadata should be present")
+    });
+    sidebar.update_in(cx, |sidebar, _window, _cx| {
+        sidebar.contents.entries = vec![ListEntry::Thread(ThreadEntry {
+            metadata,
+            icon: IconName::ZedAgent,
+            icon_from_external_svg: None,
+            status: AgentThreadStatus::WaitingForConfirmation,
+            workspace: ThreadEntryWorkspace::Open(workspace),
+            is_live: true,
+            is_background: false,
+            is_title_generating: false,
+            highlight_positions: Vec::new(),
+            worktrees: Vec::new(),
+            diff_stats: DiffStats::default(),
+        })];
+    });
+
+    let items = sidebar.read_with(cx, |sidebar, cx| sidebar.inbox_items_for_test(cx));
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].kind, InboxAttentionKind::Permission);
+}
+
+#[gpui::test]
+async fn test_permission_badge_includes_hidden_active_thread(cx: &mut TestAppContext) {
+    let project = init_test_project_with_agent_panel("/my-project", cx).await;
+    let (multi_workspace, cx) =
+        cx.add_window_view(|window, cx| MultiWorkspace::test_new(project.clone(), window, cx));
+    let (sidebar, _panel) = setup_sidebar_with_agent_panel(&multi_workspace, cx);
+    let workspace = multi_workspace.read_with(cx, |multi_workspace, _cx| {
+        multi_workspace.workspace().clone()
+    });
+    let session_id = acp::SessionId::new(Arc::from("session-hidden-permission"));
+    let thread_id = save_thread_metadata_for_inbox_badge(session_id.clone(), &project, cx);
+    let metadata = cx.read(|cx| {
+        ThreadMetadataStore::global(cx)
+            .read(cx)
+            .entry(thread_id)
+            .cloned()
+            .expect("saved thread metadata should be present")
+    });
+
+    sidebar.update_in(cx, |sidebar, _window, _cx| {
+        sidebar.active_entry = Some(ActiveEntry {
+            thread_id,
+            session_id: Some(session_id),
+            workspace: workspace.clone(),
+        });
+        sidebar.contents.entries = vec![ListEntry::Thread(ThreadEntry {
+            metadata,
+            icon: IconName::ZedAgent,
+            icon_from_external_svg: None,
+            status: AgentThreadStatus::WaitingForConfirmation,
+            workspace: ThreadEntryWorkspace::Open(workspace),
+            is_live: true,
+            is_background: false,
+            is_title_generating: false,
+            highlight_positions: Vec::new(),
+            worktrees: Vec::new(),
+            diff_stats: DiffStats::default(),
+        })];
+    });
+
+    assert_eq!(
+        sidebar.read_with(cx, |sidebar, cx| sidebar.inbox_badge_count(cx)),
+        1
+    );
+    assert!(
+        sidebar
+            .read_with(cx, |sidebar, cx| sidebar.visible_inbox_items_for_test(cx))
+            .is_empty()
+    );
+}
+
+#[gpui::test]
 async fn test_persisted_inbox_item_clears_after_successful_open(cx: &mut TestAppContext) {
     let project = init_test_project_with_agent_panel("/my-project", cx).await;
     let (multi_workspace, cx) =

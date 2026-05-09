@@ -1,5 +1,6 @@
 use std::cmp::Reverse;
 
+use chrono::{DateTime, Utc};
 use editor::Editor;
 use gpui::{
     AnyElement, App, Context, Entity, EventEmitter, FocusHandle, Focusable, ListState, Render,
@@ -10,11 +11,38 @@ use theme::ActiveTheme;
 use ui::{Label, LabelSize, ScrollAxes, Scrollbars, WithScrollbar, prelude::*};
 use zed_actions::editor::{MoveDown, MoveUp};
 
-use crate::thread_metadata_store::{ThreadAttentionKind, ThreadMetadata, ThreadMetadataStore};
+use crate::thread_metadata_store::{ThreadAttentionKind, ThreadMetadata};
 
 #[derive(Clone)]
 enum InboxListItem {
-    Entry { thread: ThreadMetadata },
+    Entry { item: InboxAttentionItem },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InboxAttentionKind {
+    Permission,
+    Completed,
+    Error,
+    Interrupted,
+}
+
+impl From<ThreadAttentionKind> for InboxAttentionKind {
+    fn from(kind: ThreadAttentionKind) -> Self {
+        match kind {
+            ThreadAttentionKind::Completed => Self::Completed,
+            ThreadAttentionKind::Error => Self::Error,
+            ThreadAttentionKind::Interrupted => Self::Interrupted,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct InboxAttentionItem {
+    pub thread: ThreadMetadata,
+    pub kind: InboxAttentionKind,
+    pub summary: Option<SharedString>,
+    pub timestamp: DateTime<Utc>,
+    pub hidden_because_active: bool,
 }
 
 pub enum ThreadsInboxViewEvent {
@@ -27,6 +55,7 @@ impl EventEmitter<ThreadsInboxViewEvent> for ThreadsInboxView {}
 pub struct ThreadsInboxView {
     focus_handle: FocusHandle,
     list_state: ListState,
+    source_items: Vec<InboxAttentionItem>,
     items: Vec<InboxListItem>,
     selection: Option<usize>,
     filter_editor: Entity<Editor>,
@@ -62,13 +91,6 @@ impl ThreadsInboxView {
         )
         .detach();
 
-        let thread_metadata_store_subscription = cx.observe(
-            &ThreadMetadataStore::global(cx),
-            |this: &mut Self, _, cx| {
-                this.update_items(cx);
-            },
-        );
-
         cx.on_focus_out(&focus_handle, window, |this: &mut Self, _, _window, cx| {
             this.selection = None;
             cx.notify();
@@ -78,13 +100,11 @@ impl ThreadsInboxView {
         let mut this = Self {
             focus_handle,
             list_state: ListState::new(0, gpui::ListAlignment::Top, px(1000.)),
+            source_items: Vec::new(),
             items: Vec::new(),
             selection: None,
             filter_editor,
-            _subscriptions: vec![
-                filter_editor_subscription,
-                thread_metadata_store_subscription,
-            ],
+            _subscriptions: vec![filter_editor_subscription],
         };
         this.update_items(cx);
         this
@@ -112,20 +132,20 @@ impl ThreadsInboxView {
             .is_focused(window)
     }
 
+    pub fn set_items(&mut self, items: Vec<InboxAttentionItem>, cx: &mut Context<Self>) {
+        self.source_items = items;
+        self.update_items(cx);
+    }
+
     fn update_items(&mut self, cx: &mut Context<Self>) {
         let query = self.filter_editor.read(cx).text(cx).to_lowercase();
-        let mut threads = ThreadMetadataStore::global(cx)
-            .read(cx)
-            .attention_entries()
-            .cloned()
-            .collect::<Vec<_>>();
-        threads
-            .sort_by_key(|thread| Reverse(thread.attention.as_ref().map(|attention| attention.at)));
+        let mut items = self.source_items.clone();
+        items.sort_by_key(|item| Reverse(item.timestamp));
 
-        self.items = threads
+        self.items = items
             .into_iter()
-            .filter(|thread| inbox_search_text(thread).contains(&query))
-            .map(|thread| InboxListItem::Entry { thread })
+            .filter(|item| inbox_search_text(item).contains(&query))
+            .map(|item| InboxListItem::Entry { item })
             .collect();
         self.selection = self
             .selection
@@ -185,19 +205,16 @@ impl ThreadsInboxView {
         let Some(selection) = self.selection else {
             return;
         };
-        let Some(InboxListItem::Entry { thread }) = self.items.get(selection) else {
+        let Some(InboxListItem::Entry { item }) = self.items.get(selection) else {
             return;
         };
         cx.emit(ThreadsInboxViewEvent::Activate {
-            thread: thread.clone(),
+            thread: item.thread.clone(),
         });
     }
 
     fn render_header(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let item_count = ThreadMetadataStore::global(cx)
-            .read(cx)
-            .attention_entries()
-            .count();
+        let item_count = self.source_items.len();
         let count_text = if item_count == 1 {
             "1 item".to_string()
         } else {
@@ -228,13 +245,10 @@ impl ThreadsInboxView {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let Some(InboxListItem::Entry { thread }) = self.items.get(index) else {
+        let Some(InboxListItem::Entry { item }) = self.items.get(index) else {
             return div().into_any_element();
         };
         let is_selected = self.selection == Some(index);
-        let Some(attention) = thread.attention.as_ref() else {
-            return div().into_any_element();
-        };
 
         v_flex()
             .id(("inbox-entry", index))
@@ -251,22 +265,22 @@ impl ThreadsInboxView {
                     .justify_between()
                     .gap_2()
                     .child(
-                        Label::new(attention_reason(attention.kind))
+                        Label::new(attention_reason(item.kind))
                             .size(LabelSize::Small)
                             .color(Color::Muted),
                     )
                     .child(
-                        Label::new(format_history_entry_timestamp(attention.at))
+                        Label::new(format_history_entry_timestamp(item.timestamp))
                             .size(LabelSize::XSmall)
                             .color(Color::Muted),
                     ),
             )
             .child(
-                Label::new(thread.display_title())
+                Label::new(item.thread.display_title())
                     .size(LabelSize::Small)
                     .truncate(),
             )
-            .when_some(attention.summary.clone(), |this, summary| {
+            .when_some(item.summary.clone(), |this, summary| {
                 this.child(
                     Label::new(summary)
                         .size(LabelSize::XSmall)
@@ -339,26 +353,26 @@ impl Render for ThreadsInboxView {
     }
 }
 
-fn inbox_search_text(thread: &ThreadMetadata) -> String {
-    let reason = thread
-        .attention
+fn inbox_search_text(item: &InboxAttentionItem) -> String {
+    let summary = item
+        .summary
         .as_ref()
-        .map(|attention| attention_reason(attention.kind))
-        .unwrap_or_default();
-    let summary = thread
-        .attention
-        .as_ref()
-        .and_then(|attention| attention.summary.as_ref())
         .map(|summary| summary.as_ref())
         .unwrap_or_default();
-    format!("{} {reason} {summary}", thread.display_title()).to_lowercase()
+    format!(
+        "{} {} {summary}",
+        item.thread.display_title(),
+        attention_reason(item.kind)
+    )
+    .to_lowercase()
 }
 
-fn attention_reason(kind: ThreadAttentionKind) -> &'static str {
+fn attention_reason(kind: InboxAttentionKind) -> &'static str {
     match kind {
-        ThreadAttentionKind::Completed => "Completed in background",
-        ThreadAttentionKind::Error => "Stopped with error",
-        ThreadAttentionKind::Interrupted => "Interrupted",
+        InboxAttentionKind::Permission => "Waiting for permission",
+        InboxAttentionKind::Completed => "Completed in background",
+        InboxAttentionKind::Error => "Stopped with error",
+        InboxAttentionKind::Interrupted => "Interrupted",
     }
 }
 

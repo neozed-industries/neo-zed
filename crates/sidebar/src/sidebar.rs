@@ -11,7 +11,9 @@ use agent_ui::thread_worktree_archive;
 use agent_ui::threads_archive_view::{
     ThreadsArchiveView, ThreadsArchiveViewEvent, format_history_entry_timestamp,
 };
-use agent_ui::threads_inbox_view::{ThreadsInboxView, ThreadsInboxViewEvent};
+use agent_ui::threads_inbox_view::{
+    InboxAttentionItem, InboxAttentionKind, ThreadsInboxView, ThreadsInboxViewEvent,
+};
 use agent_ui::{
     AcpThreadImportOnboarding, Agent, AgentPanel, AgentPanelEvent, ArchiveSelectedThread,
     CrossChannelImportOnboarding, DEFAULT_THREAD_TITLE, NewThread, ThreadId, ThreadImportModal,
@@ -159,6 +161,7 @@ impl ActiveEntry {
 
 #[derive(Clone, Debug)]
 struct ActiveThreadInfo {
+    thread_id: ThreadId,
     session_id: acp::SessionId,
     title: SharedString,
     status: AgentThreadStatus,
@@ -1427,6 +1430,7 @@ impl Sidebar {
 
         self.list_state.reset(self.contents.entries.len());
         self.list_state.scroll_to(scroll_position);
+        self.refresh_inbox_view(cx);
 
         if had_notifications != self.has_notifications(cx) {
             multi_workspace.update(cx, |_, cx| {
@@ -4664,10 +4668,145 @@ impl Sidebar {
     }
 
     fn inbox_badge_count(&self, cx: &App) -> usize {
-        ThreadMetadataStore::global(cx)
-            .read(cx)
-            .attention_entries()
-            .count()
+        self.build_inbox_items(true, cx).len()
+    }
+
+    fn build_inbox_items(&self, include_hidden: bool, cx: &App) -> Vec<InboxAttentionItem> {
+        let mut items_by_thread_id = HashMap::new();
+
+        {
+            let store = ThreadMetadataStore::global(cx).read(cx);
+            for thread in store.attention_entries() {
+                let Some(attention) = thread.attention.as_ref() else {
+                    continue;
+                };
+                items_by_thread_id.insert(
+                    thread.thread_id,
+                    InboxAttentionItem {
+                        thread: thread.clone(),
+                        kind: InboxAttentionKind::from(attention.kind),
+                        summary: attention.summary.clone(),
+                        timestamp: attention.at,
+                        hidden_because_active: false,
+                    },
+                );
+            }
+        }
+
+        let mut live_thread_ids: HashSet<ThreadId> = HashSet::new();
+        let live_infos = self
+            .multi_workspace
+            .upgrade()
+            .map(|multi_workspace| {
+                let workspaces = multi_workspace
+                    .read(cx)
+                    .workspaces()
+                    .cloned()
+                    .collect::<Vec<_>>();
+                workspaces
+                    .iter()
+                    .flat_map(|workspace| all_thread_infos_for_workspace(workspace, cx))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+
+        {
+            let store = ThreadMetadataStore::global(cx).read(cx);
+            for live_info in live_infos {
+                if live_info.status != AgentThreadStatus::WaitingForConfirmation {
+                    continue;
+                }
+                let Some(mut metadata) = store
+                    .entry(live_info.thread_id)
+                    .or_else(|| store.entry_by_session(&live_info.session_id))
+                    .cloned()
+                else {
+                    continue;
+                };
+                metadata.title = Some(live_info.title);
+                live_thread_ids.insert(metadata.thread_id);
+                self.insert_permission_inbox_item(
+                    metadata,
+                    include_hidden,
+                    &mut items_by_thread_id,
+                );
+            }
+        }
+
+        for entry in &self.contents.entries {
+            let ListEntry::Thread(thread) = entry else {
+                continue;
+            };
+            if thread.status != AgentThreadStatus::WaitingForConfirmation {
+                continue;
+            }
+            if live_thread_ids.contains(&thread.metadata.thread_id) {
+                continue;
+            }
+
+            self.insert_permission_inbox_item(
+                thread.metadata.clone(),
+                include_hidden,
+                &mut items_by_thread_id,
+            );
+        }
+
+        let mut items = items_by_thread_id.into_values().collect::<Vec<_>>();
+        items.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+        items
+    }
+
+    fn insert_permission_inbox_item(
+        &self,
+        metadata: ThreadMetadata,
+        include_hidden: bool,
+        items_by_thread_id: &mut HashMap<ThreadId, InboxAttentionItem>,
+    ) {
+        let hidden_because_active = self.active_entry.as_ref().is_some_and(|active| {
+            active.thread_id == metadata.thread_id
+                || active
+                    .session_id
+                    .as_ref()
+                    .zip(metadata.session_id.as_ref())
+                    .is_some_and(|(active_session, thread_session)| {
+                        active_session == thread_session
+                    })
+        });
+
+        if hidden_because_active && !include_hidden {
+            items_by_thread_id.remove(&metadata.thread_id);
+            return;
+        }
+
+        items_by_thread_id.insert(
+            metadata.thread_id,
+            InboxAttentionItem {
+                timestamp: metadata.updated_at,
+                thread: metadata,
+                kind: InboxAttentionKind::Permission,
+                summary: None,
+                hidden_because_active,
+            },
+        );
+    }
+
+    fn refresh_inbox_view(&mut self, cx: &mut Context<Self>) {
+        if let SidebarView::Inbox(inbox_view) = &self.view {
+            let items = self.build_inbox_items(false, cx);
+            inbox_view.update(cx, |view, cx| {
+                view.set_items(items, cx);
+            });
+        }
+    }
+
+    #[cfg(test)]
+    fn inbox_items_for_test(&self, cx: &App) -> Vec<InboxAttentionItem> {
+        self.build_inbox_items(true, cx)
+    }
+
+    #[cfg(test)]
+    fn visible_inbox_items_for_test(&self, cx: &App) -> Vec<InboxAttentionItem> {
+        self.build_inbox_items(false, cx)
     }
 
     fn active_workspace(&self, cx: &App) -> Option<Entity<Workspace>> {
@@ -4896,6 +5035,7 @@ impl Sidebar {
         self._subscriptions.clear();
         self._subscriptions.push(subscription);
         self.view = SidebarView::Inbox(inbox_view.clone());
+        self.refresh_inbox_view(cx);
         inbox_view.update(cx, |view, cx| view.focus_filter_editor(window, cx));
         self.serialize(cx);
         cx.notify();
@@ -5214,6 +5354,7 @@ fn all_thread_infos_for_workspace(
             let diff_stats = thread.action_log().read(cx).diff_stats(cx);
 
             Some(ActiveThreadInfo {
+                thread_id: conversation_thread_id,
                 session_id,
                 title,
                 status,
