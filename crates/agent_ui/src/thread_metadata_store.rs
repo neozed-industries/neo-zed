@@ -135,6 +135,8 @@ fn migrate_thread_metadata(cx: &mut App) -> Task<anyhow::Result<()>> {
                         interacted_at: None,
                         worktree_paths: WorktreePaths::from_folder_paths(&entry.folder_paths),
                         remote_connection: None,
+                        attention: None,
+                        last_known_status: None,
                         archived: true,
                     })
                 })
@@ -297,6 +299,30 @@ fn migrate_thread_ids(cx: &mut App) {
 struct GlobalThreadMetadataStore(Entity<ThreadMetadataStore>);
 impl Global for GlobalThreadMetadataStore {}
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ThreadAttentionKind {
+    Completed,
+    Error,
+    Interrupted,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LastKnownThreadStatus {
+    Running,
+    WaitingForConfirmation,
+    Completed,
+    Error,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ThreadAttention {
+    pub kind: ThreadAttentionKind,
+    pub at: DateTime<Utc>,
+    pub summary: Option<SharedString>,
+}
+
 /// Lightweight metadata for any thread (native or ACP), enough to populate
 /// the sidebar list and route to the correct load path when clicked.
 #[derive(Debug, Clone, PartialEq)]
@@ -312,6 +338,8 @@ pub struct ThreadMetadata {
     pub interacted_at: Option<DateTime<Utc>>,
     pub worktree_paths: WorktreePaths,
     pub remote_connection: Option<RemoteConnectionOptions>,
+    pub attention: Option<ThreadAttention>,
+    pub last_known_status: Option<LastKnownThreadStatus>,
     pub archived: bool,
 }
 
@@ -514,6 +542,15 @@ impl TestMetadataDbName {
     }
 }
 
+fn sanitize_attention_summary(summary: Option<SharedString>) -> Option<SharedString> {
+    let summary = summary?;
+    let mut collapsed = summary.split_whitespace().collect::<Vec<_>>().join(" ");
+    if collapsed.chars().count() > 160 {
+        collapsed = collapsed.chars().take(160).collect();
+    }
+    (!collapsed.is_empty()).then(|| collapsed.into())
+}
+
 impl ThreadMetadataStore {
     #[cfg(not(any(test, feature = "test-support")))]
     pub fn init_global(cx: &mut App) {
@@ -571,6 +608,12 @@ impl ThreadMetadataStore {
     /// Returns all archived threads.
     pub fn archived_entries(&self) -> impl Iterator<Item = &ThreadMetadata> + '_ {
         self.entries().filter(|t| t.archived)
+    }
+
+    /// Returns threads with persisted attention in arbitrary cache order.
+    /// Callers that display entries should sort the result.
+    pub fn attention_entries(&self) -> impl Iterator<Item = &ThreadMetadata> + '_ {
+        self.entries().filter(|thread| thread.attention.is_some())
     }
 
     /// Returns all threads for the given path list and remote connection,
@@ -661,6 +704,81 @@ impl ThreadMetadataStore {
     pub fn save(&mut self, metadata: ThreadMetadata, cx: &mut Context<Self>) {
         self.save_internal(metadata);
         cx.notify();
+    }
+
+    pub fn mark_attention(
+        &mut self,
+        thread_id: ThreadId,
+        kind: ThreadAttentionKind,
+        summary: Option<SharedString>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(mut metadata) = self.threads.get(&thread_id).cloned() else {
+            return;
+        };
+        metadata.attention = Some(ThreadAttention {
+            kind,
+            at: Utc::now(),
+            summary: sanitize_attention_summary(summary),
+        });
+        self.save_internal(metadata);
+        cx.notify();
+    }
+
+    pub fn clear_attention(&mut self, thread_id: ThreadId, cx: &mut Context<Self>) {
+        let Some(mut metadata) = self.threads.get(&thread_id).cloned() else {
+            return;
+        };
+        metadata.attention = None;
+        self.save_internal(metadata);
+        cx.notify();
+    }
+
+    pub fn update_last_known_status(
+        &mut self,
+        thread_id: ThreadId,
+        status: LastKnownThreadStatus,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(mut metadata) = self.threads.get(&thread_id).cloned() else {
+            return;
+        };
+        metadata.last_known_status = Some(status);
+        self.save_internal(metadata);
+        cx.notify();
+    }
+
+    pub fn mark_interrupted_threads_without_live_sessions(
+        &mut self,
+        live_sessions: impl IntoIterator<Item = acp::SessionId>,
+        cx: &mut Context<Self>,
+    ) {
+        let live_sessions = live_sessions.into_iter().collect::<HashSet<_>>();
+        let thread_ids = self
+            .threads
+            .values()
+            .filter(|thread| thread.attention.is_none())
+            .filter(|thread| {
+                matches!(
+                    thread.last_known_status,
+                    Some(
+                        LastKnownThreadStatus::Running
+                            | LastKnownThreadStatus::WaitingForConfirmation
+                    )
+                )
+            })
+            .filter(|thread| {
+                thread
+                    .session_id
+                    .as_ref()
+                    .is_none_or(|session_id| !live_sessions.contains(session_id))
+            })
+            .map(|thread| thread.thread_id)
+            .collect::<Vec<_>>();
+
+        for thread_id in thread_ids {
+            self.mark_attention(thread_id, ThreadAttentionKind::Interrupted, None, cx);
+        }
     }
 
     fn save_internal(&mut self, metadata: ThreadMetadata) {
@@ -1222,6 +1340,8 @@ impl ThreadMetadataStore {
         let archived = existing_thread
             .map(|t| t.archived)
             .unwrap_or(worktree_paths.is_empty());
+        let attention = existing_thread.and_then(|thread| thread.attention.clone());
+        let last_known_status = existing_thread.and_then(|thread| thread.last_known_status);
 
         let metadata = ThreadMetadata {
             thread_id,
@@ -1233,6 +1353,8 @@ impl ThreadMetadataStore {
             updated_at,
             worktree_paths,
             remote_connection,
+            attention,
+            last_known_status,
             archived,
         };
 
@@ -1343,6 +1465,12 @@ impl Domain for ThreadMetadataDb {
         sql!(
             ALTER TABLE sidebar_threads ADD COLUMN interacted_at TEXT;
         ),
+        sql!(
+            ALTER TABLE sidebar_threads ADD COLUMN attention_kind TEXT;
+            ALTER TABLE sidebar_threads ADD COLUMN attention_at TEXT;
+            ALTER TABLE sidebar_threads ADD COLUMN attention_summary TEXT;
+            ALTER TABLE sidebar_threads ADD COLUMN last_known_thread_status TEXT;
+        ),
     ];
 }
 
@@ -1360,7 +1488,8 @@ impl ThreadMetadataDb {
 
     const LIST_QUERY: &str = "SELECT thread_id, session_id, agent_id, title, updated_at, \
         created_at, interacted_at, folder_paths, folder_paths_order, archived, main_worktree_paths, \
-        main_worktree_paths_order, remote_connection \
+        main_worktree_paths_order, remote_connection, attention_kind, attention_at, \
+        attention_summary, last_known_thread_status \
         FROM sidebar_threads \
         WHERE session_id IS NOT NULL \
         ORDER BY updated_at DESC";
@@ -1412,12 +1541,39 @@ impl ThreadMetadataDb {
             .map(serde_json::to_string)
             .transpose()
             .context("serialize thread metadata remote connection")?;
+        let attention_kind = row.attention.as_ref().map(|attention| {
+            match attention.kind {
+                ThreadAttentionKind::Completed => "completed",
+                ThreadAttentionKind::Error => "error",
+                ThreadAttentionKind::Interrupted => "interrupted",
+            }
+            .to_string()
+        });
+        let attention_at = row
+            .attention
+            .as_ref()
+            .map(|attention| attention.at.to_rfc3339());
+        let attention_summary = row.attention.as_ref().and_then(|attention| {
+            attention
+                .summary
+                .as_ref()
+                .map(|summary| summary.to_string())
+        });
+        let last_known_thread_status = row
+            .last_known_status
+            .map(|status| match status {
+                LastKnownThreadStatus::Running => "running",
+                LastKnownThreadStatus::WaitingForConfirmation => "waiting_for_confirmation",
+                LastKnownThreadStatus::Completed => "completed",
+                LastKnownThreadStatus::Error => "error",
+            })
+            .map(str::to_string);
         let thread_id = row.thread_id;
         let archived = row.archived;
 
         self.write(move |conn| {
-            let sql = "INSERT INTO sidebar_threads(thread_id, session_id, agent_id, title, updated_at, created_at, interacted_at, folder_paths, folder_paths_order, archived, main_worktree_paths, main_worktree_paths_order, remote_connection) \
-                       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13) \
+            let sql = "INSERT INTO sidebar_threads(thread_id, session_id, agent_id, title, updated_at, created_at, interacted_at, folder_paths, folder_paths_order, archived, main_worktree_paths, main_worktree_paths_order, remote_connection, attention_kind, attention_at, attention_summary, last_known_thread_status) \
+                       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17) \
                        ON CONFLICT(thread_id) DO UPDATE SET \
                            session_id = excluded.session_id, \
                            agent_id = excluded.agent_id, \
@@ -1430,7 +1586,11 @@ impl ThreadMetadataDb {
                            archived = excluded.archived, \
                            main_worktree_paths = excluded.main_worktree_paths, \
                            main_worktree_paths_order = excluded.main_worktree_paths_order, \
-                           remote_connection = excluded.remote_connection";
+                           remote_connection = excluded.remote_connection, \
+                           attention_kind = excluded.attention_kind, \
+                           attention_at = excluded.attention_at, \
+                           attention_summary = excluded.attention_summary, \
+                           last_known_thread_status = excluded.last_known_thread_status";
             let mut stmt = Statement::prepare(conn, sql)?;
             let mut i = stmt.bind(&thread_id, 1)?;
             i = stmt.bind(&session_id, i)?;
@@ -1444,7 +1604,11 @@ impl ThreadMetadataDb {
             i = stmt.bind(&archived, i)?;
             i = stmt.bind(&main_worktree_paths, i)?;
             i = stmt.bind(&main_worktree_paths_order, i)?;
-            stmt.bind(&remote_connection, i)?;
+            i = stmt.bind(&remote_connection, i)?;
+            i = stmt.bind(&attention_kind, i)?;
+            i = stmt.bind(&attention_at, i)?;
+            i = stmt.bind(&attention_summary, i)?;
+            stmt.bind(&last_known_thread_status, i)?;
             stmt.exec()
         })
         .await
@@ -1601,6 +1765,11 @@ impl Column for ThreadMetadata {
             Column::column(statement, next)?;
         let (remote_connection_json, next): (Option<String>, i32) =
             Column::column(statement, next)?;
+        let (attention_kind, next): (Option<String>, i32) = Column::column(statement, next)?;
+        let (attention_at, next): (Option<String>, i32) = Column::column(statement, next)?;
+        let (attention_summary, next): (Option<String>, i32) = Column::column(statement, next)?;
+        let (last_known_thread_status, next): (Option<String>, i32) =
+            Column::column(statement, next)?;
 
         let agent_id = agent_id
             .map(|id| AgentId::new(id))
@@ -1642,11 +1811,50 @@ impl Column for ThreadMetadata {
             .map(serde_json::from_str::<RemoteConnectionOptions>)
             .transpose()
             .context("deserialize thread metadata remote connection")?;
+        let thread_id = ThreadId(thread_id_uuid);
+
+        let attention_kind = match attention_kind.as_deref() {
+            Some("completed") => Some(ThreadAttentionKind::Completed),
+            Some("error") => Some(ThreadAttentionKind::Error),
+            Some("interrupted") => Some(ThreadAttentionKind::Interrupted),
+            Some(other) => {
+                log::warn!("unknown thread attention kind: {other}");
+                None
+            }
+            None => None,
+        };
+        let attention_at = attention_at
+            .as_deref()
+            .map(DateTime::parse_from_rfc3339)
+            .transpose()?
+            .map(|datetime| datetime.with_timezone(&Utc));
+        if attention_kind.is_some() && attention_at.is_none() {
+            log::warn!(
+                "thread {:?} has attention_kind but missing attention_at; dropping attention",
+                thread_id
+            );
+        }
+        let attention = attention_kind
+            .zip(attention_at)
+            .map(|(kind, at)| ThreadAttention {
+                kind,
+                at,
+                summary: attention_summary.map(SharedString::from),
+            });
+        let last_known_status = match last_known_thread_status.as_deref() {
+            Some("running") => Some(LastKnownThreadStatus::Running),
+            Some("waiting_for_confirmation") => Some(LastKnownThreadStatus::WaitingForConfirmation),
+            Some("completed") => Some(LastKnownThreadStatus::Completed),
+            Some("error") => Some(LastKnownThreadStatus::Error),
+            Some(other) => {
+                log::warn!("unknown last known thread status: {other}");
+                None
+            }
+            None => None,
+        };
 
         let worktree_paths = WorktreePaths::from_path_lists(main_worktree_paths, folder_paths)
             .unwrap_or_else(|_| WorktreePaths::default());
-
-        let thread_id = ThreadId(thread_id_uuid);
 
         Ok((
             ThreadMetadata {
@@ -1663,6 +1871,8 @@ impl Column for ThreadMetadata {
                 interacted_at,
                 worktree_paths,
                 remote_connection,
+                attention,
+                last_known_status,
                 archived,
             },
             next,
@@ -1752,6 +1962,8 @@ mod tests {
             interacted_at: None,
             worktree_paths: WorktreePaths::from_folder_paths(&folder_paths),
             remote_connection: None,
+            attention: None,
+            last_known_status: None,
         }
     }
 
@@ -1801,6 +2013,207 @@ mod tests {
             migrate_thread_remote_connections(cx, migration_task);
         });
         cx.run_until_parked();
+    }
+
+    #[gpui::test]
+    async fn test_thread_attention_round_trips_and_clears(cx: &mut TestAppContext) {
+        cx.update(|cx| ThreadMetadataStore::init_global(cx));
+        cx.run_until_parked();
+        let thread_id = ThreadId::new();
+        let metadata = ThreadMetadata {
+            thread_id,
+            ..make_metadata(
+                "session-attention-round-trip",
+                "Attention Round Trip",
+                Utc::now(),
+                PathList::default(),
+            )
+        };
+
+        cx.update(|cx| {
+            ThreadMetadataStore::global(cx).update(cx, |store, cx| {
+                store.save(metadata, cx);
+                store.mark_attention(
+                    thread_id,
+                    ThreadAttentionKind::Error,
+                    Some(" first line \n second line ".into()),
+                    cx,
+                );
+                store.update_last_known_status(thread_id, LastKnownThreadStatus::Error, cx);
+            });
+        });
+        cx.run_until_parked();
+
+        cx.update(|cx| {
+            ThreadMetadataStore::global(cx).update(cx, |store, cx| {
+                let _ = store.reload(cx);
+            });
+        });
+        cx.run_until_parked();
+
+        let (attention, last_known_status, attention_thread_ids) = cx.read(|cx| {
+            let store = ThreadMetadataStore::global(cx);
+            let store = store.read(cx);
+            (
+                store
+                    .entry(thread_id)
+                    .and_then(|thread| thread.attention.as_ref())
+                    .cloned(),
+                store
+                    .entry(thread_id)
+                    .and_then(|thread| thread.last_known_status),
+                store
+                    .attention_entries()
+                    .map(|thread| thread.thread_id)
+                    .collect::<Vec<_>>(),
+            )
+        });
+        assert_eq!(
+            attention.as_ref().map(|attention| attention.kind),
+            Some(ThreadAttentionKind::Error)
+        );
+        assert_eq!(
+            attention.and_then(|attention| attention.summary),
+            Some("first line second line".into())
+        );
+        assert_eq!(last_known_status, Some(LastKnownThreadStatus::Error));
+        assert_eq!(attention_thread_ids, vec![thread_id]);
+
+        cx.update(|cx| {
+            ThreadMetadataStore::global(cx).update(cx, |store, cx| {
+                store.clear_attention(thread_id, cx);
+            });
+        });
+        cx.run_until_parked();
+
+        cx.update(|cx| {
+            ThreadMetadataStore::global(cx).update(cx, |store, cx| {
+                let _ = store.reload(cx);
+            });
+        });
+        cx.run_until_parked();
+
+        assert!(cx.read(|cx| {
+            ThreadMetadataStore::global(cx)
+                .read(cx)
+                .entry(thread_id)
+                .and_then(|thread| thread.attention.as_ref())
+                .is_none()
+        }));
+    }
+
+    #[gpui::test]
+    async fn test_latest_persisted_attention_replaces_previous_attention(cx: &mut TestAppContext) {
+        cx.update(|cx| ThreadMetadataStore::init_global(cx));
+        cx.run_until_parked();
+        let thread_id = ThreadId::new();
+        let metadata = ThreadMetadata {
+            thread_id,
+            ..make_metadata(
+                "session-attention-latest",
+                "Attention Latest",
+                Utc::now(),
+                PathList::default(),
+            )
+        };
+
+        cx.update(|cx| {
+            ThreadMetadataStore::global(cx).update(cx, |store, cx| {
+                store.save(metadata, cx);
+                store.mark_attention(thread_id, ThreadAttentionKind::Completed, None, cx);
+                store.mark_attention(thread_id, ThreadAttentionKind::Interrupted, None, cx);
+            });
+        });
+        cx.run_until_parked();
+
+        cx.update(|cx| {
+            ThreadMetadataStore::global(cx).update(cx, |store, cx| {
+                let _ = store.reload(cx);
+            });
+        });
+        cx.run_until_parked();
+
+        let attention = cx.read(|cx| {
+            ThreadMetadataStore::global(cx)
+                .read(cx)
+                .entry(thread_id)
+                .and_then(|thread| thread.attention.as_ref())
+                .cloned()
+                .expect("attention should exist")
+        });
+
+        assert_eq!(attention.kind, ThreadAttentionKind::Interrupted);
+        assert!(attention.summary.is_none());
+    }
+
+    #[gpui::test]
+    async fn test_orphaned_in_progress_thread_is_marked_interrupted(cx: &mut TestAppContext) {
+        cx.update(|cx| ThreadMetadataStore::init_global(cx));
+        cx.run_until_parked();
+        let thread_id = ThreadId::new();
+        let live_thread_id = ThreadId::new();
+        let session_id = acp::SessionId::new(Arc::from("session-orphaned-running"));
+        let live_session_id = acp::SessionId::new(Arc::from("session-live-running"));
+
+        cx.update(|cx| {
+            ThreadMetadataStore::global(cx).update(cx, |store, cx| {
+                store.save(
+                    ThreadMetadata {
+                        thread_id,
+                        session_id: Some(session_id.clone()),
+                        ..make_metadata(
+                            "session-orphaned-running",
+                            "Orphaned Running",
+                            Utc::now(),
+                            PathList::default(),
+                        )
+                    },
+                    cx,
+                );
+                store.save(
+                    ThreadMetadata {
+                        thread_id: live_thread_id,
+                        session_id: Some(live_session_id.clone()),
+                        ..make_metadata(
+                            "session-live-running",
+                            "Live Running",
+                            Utc::now(),
+                            PathList::default(),
+                        )
+                    },
+                    cx,
+                );
+                store.update_last_known_status(thread_id, LastKnownThreadStatus::Running, cx);
+                store.update_last_known_status(
+                    live_thread_id,
+                    LastKnownThreadStatus::WaitingForConfirmation,
+                    cx,
+                );
+                store.mark_interrupted_threads_without_live_sessions(
+                    HashSet::from_iter([live_session_id]),
+                    cx,
+                );
+            });
+        });
+        cx.run_until_parked();
+
+        cx.read(|cx| {
+            let store = ThreadMetadataStore::global(cx);
+            let store = store.read(cx);
+            assert_eq!(
+                store
+                    .entry(thread_id)
+                    .and_then(|thread| thread.attention.as_ref())
+                    .map(|attention| attention.kind),
+                Some(ThreadAttentionKind::Interrupted)
+            );
+            assert!(
+                store
+                    .entry(live_thread_id)
+                    .and_then(|thread| thread.attention.as_ref())
+                    .is_none()
+            );
+        });
     }
 
     #[gpui::test]
@@ -1934,6 +2347,8 @@ mod tests {
             interacted_at: None,
             worktree_paths: WorktreePaths::from_folder_paths(&second_paths),
             remote_connection: None,
+            attention: None,
+            last_known_status: None,
             archived: false,
         };
 
@@ -2018,6 +2433,8 @@ mod tests {
             interacted_at: None,
             worktree_paths: WorktreePaths::from_folder_paths(&project_a_paths),
             remote_connection: None,
+            attention: None,
+            last_known_status: None,
             archived: false,
         };
 
@@ -2143,6 +2560,8 @@ mod tests {
             interacted_at: None,
             worktree_paths: WorktreePaths::from_folder_paths(&project_paths),
             remote_connection: None,
+            attention: None,
+            last_known_status: None,
             archived: false,
         };
 
@@ -2882,6 +3301,8 @@ mod tests {
             interacted_at: None,
             worktree_paths: linked_worktree_paths.clone(),
             remote_connection: None,
+            attention: None,
+            last_known_status: None,
         };
 
         let remote_linked_thread = ThreadMetadata {
@@ -2895,6 +3316,8 @@ mod tests {
             interacted_at: None,
             worktree_paths: linked_worktree_paths,
             remote_connection: Some(remote_a.clone()),
+            attention: None,
+            last_known_status: None,
         };
 
         cx.update(|cx| {

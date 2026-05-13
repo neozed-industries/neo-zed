@@ -6,7 +6,7 @@ use agent_ui::{
     test_support::{
         active_session_id, active_thread_id, open_thread_with_connection, send_message,
     },
-    thread_metadata_store::{ThreadMetadata, WorktreePaths},
+    thread_metadata_store::{ThreadAttentionKind, ThreadMetadata, WorktreePaths},
 };
 use chrono::DateTime;
 use fs::{FakeFs, Fs};
@@ -17,6 +17,7 @@ use settings::SettingsStore;
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
+    time::Duration,
 };
 use util::{path_list::PathList, rel_path::rel_path};
 
@@ -364,10 +365,36 @@ fn save_thread_metadata(
             worktree_paths,
             archived: false,
             remote_connection,
+            attention: None,
+            last_known_status: None,
         };
         ThreadMetadataStore::global(cx).update(cx, |store, cx| store.save(metadata, cx));
     });
     cx.run_until_parked();
+}
+
+fn save_thread_metadata_for_inbox_badge(
+    session_id: acp::SessionId,
+    project: &Entity<project::Project>,
+    cx: &mut TestAppContext,
+) -> ThreadId {
+    save_thread_metadata(
+        session_id.clone(),
+        Some("Inbox badge thread".into()),
+        Utc::now(),
+        Some(Utc::now()),
+        None,
+        project,
+        cx,
+    );
+
+    cx.read(|cx| {
+        ThreadMetadataStore::global(cx)
+            .read(cx)
+            .entry_by_session(&session_id)
+            .map(|thread| thread.thread_id)
+            .expect("saved thread metadata should be present")
+    })
 }
 
 fn save_thread_metadata_with_main_paths(
@@ -399,6 +426,8 @@ fn save_thread_metadata_with_main_paths(
         worktree_paths: WorktreePaths::from_path_lists(main_worktree_paths, folder_paths).unwrap(),
         archived: false,
         remote_connection: None,
+        attention: None,
+        last_known_status: None,
     };
     cx.update(|cx| {
         ThreadMetadataStore::global(cx).update(cx, |store, cx| store.save(metadata, cx));
@@ -409,6 +438,16 @@ fn save_thread_metadata_with_main_paths(
 fn focus_sidebar(sidebar: &Entity<Sidebar>, cx: &mut gpui::VisualTestContext) {
     sidebar.update_in(cx, |_, window, cx| {
         cx.focus_self(window);
+    });
+    cx.run_until_parked();
+}
+
+fn focus_inbox(sidebar: &Entity<Sidebar>, cx: &mut gpui::VisualTestContext) {
+    sidebar.update_in(cx, |sidebar, window, cx| {
+        let SidebarView::Inbox(inbox) = &sidebar.view else {
+            panic!("expected inbox");
+        };
+        inbox.update(cx, |_, cx| cx.focus_self(window));
     });
     cx.run_until_parked();
 }
@@ -440,6 +479,34 @@ fn request_test_tool_authorization(
         })
     });
     cx.run_until_parked();
+}
+
+fn request_test_tool_authorization_task(
+    thread: &Entity<AcpThread>,
+    tool_call_id: &str,
+    option_id: &str,
+    cx: &mut gpui::VisualTestContext,
+) -> Task<acp_thread::RequestPermissionOutcome> {
+    let tool_call_id = acp::ToolCallId::new(tool_call_id);
+    let label = format!("Tool {tool_call_id}");
+    let option_id = acp::PermissionOptionId::new(option_id);
+    cx.update(|_, cx| {
+        thread.update(cx, |thread, cx| {
+            thread
+                .request_tool_call_authorization(
+                    acp::ToolCall::new(tool_call_id, label)
+                        .kind(acp::ToolKind::Edit)
+                        .into(),
+                    PermissionOptions::Flat(vec![acp::PermissionOption::new(
+                        option_id,
+                        "Allow",
+                        acp::PermissionOptionKind::AllowOnce,
+                    )]),
+                    cx,
+                )
+                .unwrap()
+        })
+    })
 }
 
 fn format_linked_worktree_chips(worktrees: &[ThreadItemWorktreeInfo]) -> String {
@@ -594,6 +661,445 @@ async fn test_restore_serialized_archive_view_does_not_panic(cx: &mut TestAppCon
             "expected sidebar view to be Archive after restore, got ThreadList"
         );
     });
+}
+
+#[gpui::test]
+async fn test_inbox_button_toggles_like_history(cx: &mut TestAppContext) {
+    let project = init_test_project_with_agent_panel("/my-project", cx).await;
+    let (multi_workspace, cx) =
+        cx.add_window_view(|window, cx| MultiWorkspace::test_new(project.clone(), window, cx));
+    let (sidebar, _panel) = setup_sidebar_with_agent_panel(&multi_workspace, cx);
+    cx.update(|_window, cx| {
+        AgentRegistryStore::init_test_global(cx, vec![]);
+    });
+
+    sidebar.update_in(cx, |sidebar, window, cx| {
+        sidebar.toggle_inbox(&ToggleThreadInbox, window, cx);
+        assert!(matches!(sidebar.view, SidebarView::Inbox(_)));
+        sidebar.toggle_inbox(&ToggleThreadInbox, window, cx);
+        assert!(matches!(sidebar.view, SidebarView::ThreadList));
+        sidebar.toggle_archive(&ToggleThreadHistory, window, cx);
+        assert!(matches!(sidebar.view, SidebarView::Archive(_)));
+        sidebar.toggle_inbox(&ToggleThreadInbox, window, cx);
+        assert!(matches!(sidebar.view, SidebarView::Inbox(_)));
+    });
+}
+
+#[gpui::test]
+async fn test_inbox_badge_counts_persisted_attention(cx: &mut TestAppContext) {
+    let project = init_test_project_with_agent_panel("/my-project", cx).await;
+    let (multi_workspace, cx) =
+        cx.add_window_view(|window, cx| MultiWorkspace::test_new(project.clone(), window, cx));
+    let (sidebar, _panel) = setup_sidebar_with_agent_panel(&multi_workspace, cx);
+    let session_id = acp::SessionId::new(Arc::from("session-inbox-badge"));
+    let thread_id = save_thread_metadata_for_inbox_badge(session_id, &project, cx);
+
+    cx.update(|_window, cx| {
+        ThreadMetadataStore::global(cx).update(cx, |store, cx| {
+            store.mark_attention(thread_id, ThreadAttentionKind::Completed, None, cx);
+        });
+    });
+    cx.run_until_parked();
+
+    assert_eq!(
+        sidebar.read_with(cx, |sidebar, _cx| sidebar.inbox_badge_count()),
+        1
+    );
+}
+
+#[test]
+fn test_inbox_attention_status_transition_rules() {
+    assert_eq!(
+        attention_kind_for_status_transition(
+            Some(&AgentThreadStatus::Running),
+            AgentThreadStatus::Completed,
+            false,
+        ),
+        Some(ThreadAttentionKind::Completed)
+    );
+    assert_eq!(
+        attention_kind_for_status_transition(
+            Some(&AgentThreadStatus::WaitingForConfirmation),
+            AgentThreadStatus::Error,
+            false,
+        ),
+        Some(ThreadAttentionKind::Error)
+    );
+    assert_eq!(
+        attention_kind_for_status_transition(
+            Some(&AgentThreadStatus::Running),
+            AgentThreadStatus::Completed,
+            true,
+        ),
+        None
+    );
+    assert_eq!(
+        attention_kind_for_status_transition(None, AgentThreadStatus::Completed, false),
+        None
+    );
+}
+
+#[gpui::test]
+async fn test_inbox_status_update_marks_persisted_attention(cx: &mut TestAppContext) {
+    let project = init_test_project_with_agent_panel("/my-project", cx).await;
+    let (multi_workspace, cx) =
+        cx.add_window_view(|window, cx| MultiWorkspace::test_new(project.clone(), window, cx));
+    let (sidebar, _panel) = setup_sidebar_with_agent_panel(&multi_workspace, cx);
+    let session_id = acp::SessionId::new(Arc::from("session-inbox-status-update"));
+    let thread_id = save_thread_metadata_for_inbox_badge(session_id, &project, cx);
+
+    sidebar.update(cx, |sidebar, cx| {
+        sidebar.record_thread_attention_status_updates(
+            vec![ThreadAttentionStatusUpdate {
+                thread_id,
+                last_known_status: LastKnownThreadStatus::Completed,
+                attention_kind: Some(ThreadAttentionKind::Completed),
+            }],
+            cx,
+        );
+    });
+
+    let (last_known_status, attention_kind) = cx.read(|cx| {
+        let store = ThreadMetadataStore::global(cx);
+        let thread = store
+            .read(cx)
+            .entry(thread_id)
+            .cloned()
+            .expect("saved thread metadata should be present");
+        (
+            thread.last_known_status,
+            thread.attention.map(|attention| attention.kind),
+        )
+    });
+    assert_eq!(last_known_status, Some(LastKnownThreadStatus::Completed));
+    assert_eq!(attention_kind, Some(ThreadAttentionKind::Completed));
+}
+
+#[gpui::test]
+async fn test_collapsed_group_status_update_marks_persisted_attention(cx: &mut TestAppContext) {
+    let project = init_test_project_with_agent_panel("/my-project", cx).await;
+    let (multi_workspace, cx) =
+        cx.add_window_view(|window, cx| MultiWorkspace::test_new(project.clone(), window, cx));
+    let (sidebar, panel) = setup_sidebar_with_agent_panel(&multi_workspace, cx);
+
+    let connection = StubAgentConnection::new();
+    open_thread_with_connection(&panel, connection.clone(), cx);
+    send_message(&panel, cx);
+    let session_id = active_session_id(&panel, cx);
+    save_test_thread_metadata(&session_id, &project, cx).await;
+
+    let thread_id = cx.read(|cx| {
+        ThreadMetadataStore::global(cx)
+            .read(cx)
+            .entry_by_session(&session_id)
+            .map(|thread| thread.thread_id)
+            .expect("saved thread metadata should be present")
+    });
+
+    cx.update(|_window, cx| {
+        ThreadMetadataStore::global(cx).update(cx, |store, cx| {
+            store.update_last_known_status(thread_id, LastKnownThreadStatus::Running, cx);
+        });
+    });
+
+    open_thread_with_connection(&panel, StubAgentConnection::new(), cx);
+
+    let project_group_key = project.read_with(cx, |project, cx| project.project_group_key(cx));
+    sidebar.update_in(cx, |sidebar, window, cx| {
+        sidebar.toggle_collapse(&project_group_key, window, cx);
+    });
+
+    connection.end_turn(session_id, acp::StopReason::EndTurn);
+    cx.run_until_parked();
+
+    sidebar.update_in(cx, |sidebar, _window, cx| {
+        sidebar.update_entries(cx);
+    });
+    cx.run_until_parked();
+
+    let (last_known_status, attention_kind) = cx.read(|cx| {
+        let store = ThreadMetadataStore::global(cx).read(cx);
+        let thread = store
+            .entry(thread_id)
+            .expect("saved thread metadata should be present");
+        (
+            thread.last_known_status,
+            thread.attention.as_ref().map(|attention| attention.kind),
+        )
+    });
+
+    assert_eq!(last_known_status, Some(LastKnownThreadStatus::Completed));
+    assert_eq!(attention_kind, Some(ThreadAttentionKind::Completed));
+}
+
+#[gpui::test]
+async fn test_permission_attention_overrides_persisted_attention(cx: &mut TestAppContext) {
+    let project = init_test_project_with_agent_panel("/my-project", cx).await;
+    let (multi_workspace, cx) =
+        cx.add_window_view(|window, cx| MultiWorkspace::test_new(project.clone(), window, cx));
+    let (sidebar, _panel) = setup_sidebar_with_agent_panel(&multi_workspace, cx);
+    let workspace = multi_workspace.read_with(cx, |multi_workspace, _cx| {
+        multi_workspace.workspace().clone()
+    });
+    let session_id = acp::SessionId::new(Arc::from("session-permission-overrides"));
+    let thread_id = save_thread_metadata_for_inbox_badge(session_id, &project, cx);
+
+    cx.update(|_window, cx| {
+        ThreadMetadataStore::global(cx).update(cx, |store, cx| {
+            store.mark_attention(thread_id, ThreadAttentionKind::Completed, None, cx);
+        });
+    });
+
+    let metadata = cx.read(|cx| {
+        ThreadMetadataStore::global(cx)
+            .read(cx)
+            .entry(thread_id)
+            .cloned()
+            .expect("saved thread metadata should be present")
+    });
+    sidebar.update_in(cx, |sidebar, _window, _cx| {
+        sidebar.contents.entries = vec![ListEntry::Thread(ThreadEntry {
+            metadata,
+            icon: IconName::ZedAgent,
+            icon_from_external_svg: None,
+            status: AgentThreadStatus::WaitingForConfirmation,
+            workspace: ThreadEntryWorkspace::Open(workspace),
+            is_live: true,
+            is_background: false,
+            is_title_generating: false,
+            highlight_positions: Vec::new(),
+            worktrees: Vec::new(),
+            diff_stats: DiffStats::default(),
+        })];
+    });
+
+    let items = sidebar.read_with(cx, |sidebar, cx| sidebar.inbox_items_for_test(cx));
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].kind, InboxAttentionKind::Permission);
+}
+
+#[gpui::test]
+async fn test_permission_badge_includes_hidden_active_thread(cx: &mut TestAppContext) {
+    let project = init_test_project_with_agent_panel("/my-project", cx).await;
+    let (multi_workspace, cx) =
+        cx.add_window_view(|window, cx| MultiWorkspace::test_new(project.clone(), window, cx));
+    let (sidebar, _panel) = setup_sidebar_with_agent_panel(&multi_workspace, cx);
+    let workspace = multi_workspace.read_with(cx, |multi_workspace, _cx| {
+        multi_workspace.workspace().clone()
+    });
+    let session_id = acp::SessionId::new(Arc::from("session-hidden-permission"));
+    let thread_id = save_thread_metadata_for_inbox_badge(session_id.clone(), &project, cx);
+    let metadata = cx.read(|cx| {
+        ThreadMetadataStore::global(cx)
+            .read(cx)
+            .entry(thread_id)
+            .cloned()
+            .expect("saved thread metadata should be present")
+    });
+
+    sidebar.update_in(cx, |sidebar, _window, cx| {
+        sidebar.active_entry = Some(ActiveEntry {
+            thread_id,
+            session_id: Some(session_id),
+            workspace: workspace.clone(),
+        });
+        sidebar.contents.entries = vec![ListEntry::Thread(ThreadEntry {
+            metadata,
+            icon: IconName::ZedAgent,
+            icon_from_external_svg: None,
+            status: AgentThreadStatus::WaitingForConfirmation,
+            workspace: ThreadEntryWorkspace::Open(workspace),
+            is_live: true,
+            is_background: false,
+            is_title_generating: false,
+            highlight_positions: Vec::new(),
+            worktrees: Vec::new(),
+            diff_stats: DiffStats::default(),
+        })];
+        sidebar.refresh_inbox_state(cx);
+    });
+
+    assert_eq!(
+        sidebar.read_with(cx, |sidebar, _cx| sidebar.inbox_badge_count()),
+        1
+    );
+    assert!(
+        sidebar
+            .read_with(cx, |sidebar, cx| sidebar.visible_inbox_items_for_test(cx))
+            .is_empty()
+    );
+}
+
+#[gpui::test]
+async fn test_expanded_permission_row_sends_selected_outcome(cx: &mut TestAppContext) {
+    let project = init_test_project_with_agent_panel("/my-project", cx).await;
+    let (multi_workspace, cx) =
+        cx.add_window_view(|window, cx| MultiWorkspace::test_new(project.clone(), window, cx));
+    let (sidebar, panel) = setup_sidebar_with_agent_panel(&multi_workspace, cx);
+
+    open_thread_with_connection(&panel, StubAgentConnection::new(), cx);
+    send_message(&panel, cx);
+    let session_id = active_session_id(&panel, cx);
+    save_test_thread_metadata(&session_id, &project, cx).await;
+
+    let thread = panel
+        .read_with(cx, |panel, cx| panel.active_agent_thread(cx))
+        .expect("expected active ACP thread");
+    let authorization_task =
+        request_test_tool_authorization_task(&thread, "inbox-tool-call", "allow-inbox", cx);
+    cx.run_until_parked();
+
+    sidebar.update_in(cx, |sidebar, window, cx| {
+        sidebar.active_entry = None;
+        sidebar.show_inbox(window, cx);
+        let SidebarView::Inbox(inbox) = &sidebar.view else {
+            panic!("expected inbox");
+        };
+        inbox.update(cx, |inbox, cx| {
+            inbox.expand_selected_permission_row_for_test(cx);
+            inbox.select_first_permission_option_for_test(window, cx);
+        });
+    });
+    cx.run_until_parked();
+
+    let acp_thread::RequestPermissionOutcome::Selected(outcome) = authorization_task.await else {
+        panic!("permission request should be authorized");
+    };
+    assert_eq!(
+        outcome.option_id,
+        acp::PermissionOptionId::new("allow-inbox")
+    );
+    assert_eq!(outcome.option_kind, acp::PermissionOptionKind::AllowOnce);
+}
+
+#[gpui::test]
+async fn test_persisted_inbox_item_clears_after_successful_open(cx: &mut TestAppContext) {
+    let project = init_test_project_with_agent_panel("/my-project", cx).await;
+    let (multi_workspace, cx) =
+        cx.add_window_view(|window, cx| MultiWorkspace::test_new(project.clone(), window, cx));
+    let (sidebar, _panel) = setup_sidebar_with_agent_panel(&multi_workspace, cx);
+    let session_id = acp::SessionId::new(Arc::from("session-inbox-clear"));
+    let thread_id = save_thread_metadata_for_inbox_badge(session_id, &project, cx);
+
+    cx.update(|_window, cx| {
+        ThreadMetadataStore::global(cx).update(cx, |store, cx| {
+            store.mark_attention(thread_id, ThreadAttentionKind::Completed, None, cx);
+        });
+    });
+
+    sidebar.update_in(cx, |sidebar, window, cx| {
+        sidebar.show_inbox(window, cx);
+    });
+    focus_inbox(&sidebar, cx);
+    cx.dispatch_action(SelectNext);
+    cx.dispatch_action(Confirm);
+    cx.run_until_parked();
+
+    assert!(cx.read(|cx| {
+        ThreadMetadataStore::global(cx)
+            .read(cx)
+            .entry(thread_id)
+            .and_then(|thread| thread.attention.as_ref())
+            .is_none()
+    }));
+}
+
+#[gpui::test]
+async fn test_open_inbox_refreshes_when_metadata_store_attention_changes(cx: &mut TestAppContext) {
+    let project = init_test_project_with_agent_panel("/my-project", cx).await;
+    let (multi_workspace, cx) =
+        cx.add_window_view(|window, cx| MultiWorkspace::test_new(project.clone(), window, cx));
+    let (sidebar, _panel) = setup_sidebar_with_agent_panel(&multi_workspace, cx);
+    let session_id = acp::SessionId::new(Arc::from("session-inbox-observe"));
+    let thread_id = save_thread_metadata_for_inbox_badge(session_id, &project, cx);
+
+    sidebar.update_in(cx, |sidebar, window, cx| {
+        sidebar.show_inbox(window, cx);
+    });
+
+    cx.update(|_window, cx| {
+        ThreadMetadataStore::global(cx).update(cx, |store, cx| {
+            store.mark_attention(thread_id, ThreadAttentionKind::Completed, None, cx);
+        });
+    });
+    cx.run_until_parked();
+
+    focus_inbox(&sidebar, cx);
+    cx.dispatch_action(SelectNext);
+    cx.dispatch_action(Confirm);
+    cx.run_until_parked();
+
+    assert!(cx.read(|cx| {
+        ThreadMetadataStore::global(cx)
+            .read(cx)
+            .entry(thread_id)
+            .and_then(|thread| thread.attention.as_ref())
+            .is_none()
+    }));
+}
+
+#[gpui::test]
+async fn test_inbox_select_first_and_last_actions(cx: &mut TestAppContext) {
+    let project = init_test_project_with_agent_panel("/my-project", cx).await;
+    let (multi_workspace, cx) =
+        cx.add_window_view(|window, cx| MultiWorkspace::test_new(project.clone(), window, cx));
+    let (sidebar, _panel) = setup_sidebar_with_agent_panel(&multi_workspace, cx);
+    let older_session_id = acp::SessionId::new(Arc::from("session-inbox-older"));
+    let newer_session_id = acp::SessionId::new(Arc::from("session-inbox-newer"));
+    let older_thread_id = save_thread_metadata_for_inbox_badge(older_session_id, &project, cx);
+    let newer_thread_id = save_thread_metadata_for_inbox_badge(newer_session_id, &project, cx);
+
+    cx.update(|_window, cx| {
+        ThreadMetadataStore::global(cx).update(cx, |store, cx| {
+            store.mark_attention(older_thread_id, ThreadAttentionKind::Completed, None, cx);
+        });
+    });
+    cx.background_executor.timer(Duration::from_millis(1)).await;
+    cx.update(|_window, cx| {
+        ThreadMetadataStore::global(cx).update(cx, |store, cx| {
+            store.mark_attention(newer_thread_id, ThreadAttentionKind::Error, None, cx);
+        });
+    });
+
+    sidebar.update_in(cx, |sidebar, window, cx| {
+        sidebar.show_inbox(window, cx);
+    });
+    focus_inbox(&sidebar, cx);
+    cx.dispatch_action(SelectLast);
+    cx.dispatch_action(Confirm);
+    cx.run_until_parked();
+
+    cx.read(|cx| {
+        let store = ThreadMetadataStore::global(cx).read(cx);
+        assert!(
+            store
+                .entry(older_thread_id)
+                .and_then(|thread| thread.attention.as_ref())
+                .is_none()
+        );
+        assert!(
+            store
+                .entry(newer_thread_id)
+                .and_then(|thread| thread.attention.as_ref())
+                .is_some()
+        );
+    });
+
+    sidebar.update_in(cx, |sidebar, window, cx| {
+        sidebar.show_inbox(window, cx);
+    });
+    focus_inbox(&sidebar, cx);
+    cx.dispatch_action(SelectFirst);
+    cx.dispatch_action(Confirm);
+    cx.run_until_parked();
+
+    assert!(cx.read(|cx| {
+        ThreadMetadataStore::global(cx)
+            .read(cx)
+            .entry(newer_thread_id)
+            .and_then(|thread| thread.attention.as_ref())
+            .is_none()
+    }));
 }
 
 #[gpui::test]
@@ -871,6 +1377,8 @@ async fn test_visible_entries_as_strings(cx: &mut TestAppContext) {
                     interacted_at: None,
                     archived: false,
                     remote_connection: None,
+                    attention: None,
+                    last_known_status: None,
                 },
                 icon: IconName::ZedAgent,
                 icon_from_external_svg: None,
@@ -896,6 +1404,8 @@ async fn test_visible_entries_as_strings(cx: &mut TestAppContext) {
                     interacted_at: None,
                     archived: false,
                     remote_connection: None,
+                    attention: None,
+                    last_known_status: None,
                 },
                 icon: IconName::ZedAgent,
                 icon_from_external_svg: None,
@@ -921,6 +1431,8 @@ async fn test_visible_entries_as_strings(cx: &mut TestAppContext) {
                     interacted_at: None,
                     archived: false,
                     remote_connection: None,
+                    attention: None,
+                    last_known_status: None,
                 },
                 icon: IconName::ZedAgent,
                 icon_from_external_svg: None,
@@ -947,6 +1459,8 @@ async fn test_visible_entries_as_strings(cx: &mut TestAppContext) {
                     interacted_at: None,
                     archived: false,
                     remote_connection: None,
+                    attention: None,
+                    last_known_status: None,
                 },
                 icon: IconName::ZedAgent,
                 icon_from_external_svg: None,
@@ -973,6 +1487,8 @@ async fn test_visible_entries_as_strings(cx: &mut TestAppContext) {
                     interacted_at: None,
                     archived: false,
                     remote_connection: None,
+                    attention: None,
+                    last_known_status: None,
                 },
                 icon: IconName::ZedAgent,
                 icon_from_external_svg: None,
@@ -4158,6 +4674,8 @@ async fn test_sidebar_keeps_multi_root_thread_with_stale_main_paths(cx: &mut Tes
                     worktree_paths: WorktreePaths::from_folder_paths(&folder_paths),
                     archived: false,
                     remote_connection: None,
+                    attention: None,
+                    last_known_status: None,
                 },
                 cx,
             )
@@ -4240,6 +4758,8 @@ async fn test_activate_archived_thread_with_saved_paths_activates_matching_works
                 )])),
                 archived: false,
                 remote_connection: None,
+                attention: None,
+                last_known_status: None,
             },
             window,
             cx,
@@ -4309,6 +4829,8 @@ async fn test_activate_archived_thread_cwd_fallback_with_matching_workspace(
                 ])),
                 archived: false,
                 remote_connection: None,
+                attention: None,
+                last_known_status: None,
             },
             window,
             cx,
@@ -4374,6 +4896,8 @@ async fn test_activate_archived_thread_no_paths_no_cwd_uses_active_workspace(
                 worktree_paths: WorktreePaths::default(),
                 archived: false,
                 remote_connection: None,
+                attention: None,
+                last_known_status: None,
             },
             window,
             cx,
@@ -4431,6 +4955,8 @@ async fn test_activate_archived_thread_saved_paths_opens_new_workspace(cx: &mut 
                 worktree_paths: WorktreePaths::from_folder_paths(&path_list_b),
                 archived: false,
                 remote_connection: None,
+                attention: None,
+                last_known_status: None,
             },
             window,
             cx,
@@ -4489,6 +5015,8 @@ async fn test_activate_archived_thread_reuses_workspace_in_another_window(cx: &m
                 )])),
                 archived: false,
                 remote_connection: None,
+                attention: None,
+                last_known_status: None,
             },
             window,
             cx,
@@ -4570,6 +5098,8 @@ async fn test_activate_archived_thread_reuses_workspace_in_another_window_with_t
                 )])),
                 archived: false,
                 remote_connection: None,
+                attention: None,
+                last_known_status: None,
             },
             window,
             cx,
@@ -4654,6 +5184,8 @@ async fn test_activate_archived_thread_prefers_current_window_for_matching_paths
                 )])),
                 archived: false,
                 remote_connection: None,
+                attention: None,
+                last_known_status: None,
             },
             window,
             cx,
@@ -5590,6 +6122,8 @@ async fn test_archive_last_worktree_thread_not_blocked_by_remote_thread_at_same_
             )])),
             archived: false,
             remote_connection: Some(remote_host),
+            attention: None,
+            last_known_status: None,
         };
         ThreadMetadataStore::global(cx).update(cx, |store, cx| {
             store.save(metadata, cx);
@@ -6398,6 +6932,8 @@ async fn test_unarchive_first_thread_in_group_does_not_create_spurious_draft(
                     worktree_paths: WorktreePaths::from_folder_paths(&path_list_b),
                     archived: true,
                     remote_connection: None,
+                    attention: None,
+                    last_known_status: None,
                 },
                 cx,
             )
@@ -6491,6 +7027,8 @@ async fn test_unarchive_into_new_workspace_does_not_create_duplicate_real_thread
                     worktree_paths: WorktreePaths::from_folder_paths(&path_list_b),
                     archived: true,
                     remote_connection: None,
+                    attention: None,
+                    last_known_status: None,
                 },
                 cx,
             )
@@ -6719,6 +7257,8 @@ async fn test_unarchive_into_inactive_existing_workspace_does_not_leave_active_d
                     ])),
                     archived: true,
                     remote_connection: None,
+                    attention: None,
+                    last_known_status: None,
                 },
                 cx,
             )
@@ -7569,6 +8109,8 @@ async fn test_unarchive_linked_worktree_thread_into_project_group_shows_only_res
                     .expect("main and folder paths should be well-formed"),
                     archived: true,
                     remote_connection: None,
+                    attention: None,
+                    last_known_status: None,
                 },
                 cx,
             )
@@ -8233,6 +8775,8 @@ async fn test_legacy_thread_with_canonical_path_opens_main_repo_workspace(cx: &m
             )])),
             archived: false,
             remote_connection: None,
+            attention: None,
+            last_known_status: None,
         };
         ThreadMetadataStore::global(cx).update(cx, |store, cx| store.save(metadata, cx));
     });
@@ -9220,6 +9764,8 @@ mod property_test {
             worktree_paths: WorktreePaths::from_path_lists(main_worktree_paths, path_list).unwrap(),
             archived: false,
             remote_connection: None,
+            attention: None,
+            last_known_status: None,
         };
         cx.update(|_, cx| {
             ThreadMetadataStore::global(cx).update(cx, |store, cx| store.save(metadata, cx))
@@ -10134,6 +10680,8 @@ async fn test_remote_project_integration_does_not_briefly_render_as_separate_pro
             .unwrap(),
             archived: false,
             remote_connection,
+            attention: None,
+            last_known_status: None,
         };
         ThreadMetadataStore::global(cx).update(cx, |store, cx| store.save(metadata, cx));
     });
@@ -10856,6 +11404,8 @@ async fn test_remote_archive_thread_with_active_connection(
             .unwrap(),
             archived: false,
             remote_connection,
+            attention: None,
+            last_known_status: None,
         };
         ThreadMetadataStore::global(cx).update(cx, |store, cx| store.save(metadata, cx));
     });

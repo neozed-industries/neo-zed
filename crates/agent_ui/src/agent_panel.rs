@@ -4151,6 +4151,8 @@ mod tests {
                         interacted_at: None,
                         worktree_paths: WorktreePaths::from_folder_paths(&PathList::default()),
                         remote_connection: None,
+                        attention: None,
+                        last_known_status: None,
                         archived: false,
                     },
                     cx,

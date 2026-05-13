@@ -595,6 +595,8 @@ fn collect_importable_threads(
                 interacted_at: None,
                 worktree_paths: WorktreePaths::from_folder_paths(&folder_paths),
                 remote_connection: remote_connection.clone(),
+                attention: None,
+                last_known_status: None,
                 archived: true,
             });
         }
