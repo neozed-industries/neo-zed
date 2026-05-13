@@ -29,7 +29,7 @@ On your local machine, Neo Zed runs its UI, talks to language models, uses Tree-
 1. Once the Neo Zed server is running, you will be prompted to choose a path to open on the remote server.
    > **Note:** Neo Zed does not currently handle opening very large directories (for example, `/` or `~` that may have >100,000 files) very well. We are working on improving this, but suggest in the meantime opening only specific projects, or subfolders of very large mono-repos.
 
-For simple cases where you don't need any SSH arguments, you can run `neozed ssh://[<user>@]<host>[:<port>]/<path>` to open a remote folder/file directly. If you'd like to hotlink into an SSH project, use a link of the format: `neozed://ssh/[<user>@]<host>[:<port>]/<path>`.
+For simple cases where you don't need any SSH arguments, you can run `neozed ssh://[<user>@]<host>[:<port>]/<path>` to open a remote folder/file directly. The CLI also accepts the scp style `neozed ssh://[<user>@]<host>:~/project` or `neozed ssh://[<user>@]<host>:/absolute/path`. If you'd like to hotlink into an SSH project, use a link of the format: `neozed://ssh/[<user>@]<host>[:<port>]/<path>`.
 
 ## Supported platforms
 
