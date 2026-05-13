@@ -6340,6 +6340,7 @@ dependencies = [
  "fuzzy",
  "fuzzy_nucleo",
  "gpui",
+ "language",
  "menu",
  "open_path_prompt",
  "picker",
