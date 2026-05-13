@@ -30,8 +30,8 @@ concurrency:
 jobs:
   assign-contributor:
     if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.repository == 'zed-industries/zed' &&
+      github.repository == 'zed-industries/zed' &&
+      (github.event_name == 'workflow_dispatch' ||
       github.event.issue.state == 'open' &&
       (startsWith(github.event.label.name, '.contrib/good ') || startsWith(github.event.label.name, 'area:')))
     runs-on: namespace-profile-2x4-ubuntu-2404

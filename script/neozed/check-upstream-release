@@ -145,6 +145,7 @@ $candidate_commits
 - Do not merge upstream branches directly; cherry-pick the range onto the target branches.
 - Leave upstream commit messages unchanged.
 - On \`main\`, resolve conflicts in favor of keeping NeoZed customizations while taking upstream functional changes.
+- Review the resulting diff before opening PRs for accidental upstream identity regressions, duplicated/conflicting code, stale \`.zed\` paths, and lost NeoZed customizations.
 - NeoZed maintains exactly one active stable branch. On a minor upgrade, the old stable branch is marked inactive; deletion requires explicit human approval.
 
 ## Required Verification
@@ -152,6 +153,7 @@ $candidate_commits
 - [ ] All commits applied to \`${new_stable_branch}\`
 - [ ] All commits applied to \`main\`
 - [ ] Conflicts on \`main\` resolved, NeoZed customizations preserved
+- [ ] Resulting \`main\` diff reviewed for identity regressions, code duplication, and stale upstream-only paths
 - [ ] \`cargo check --workspace --all-targets\` passes before any PR is opened
 - [ ] \`script/neozed/upstream-reviewed-tag\` updated to \`$latest_stable_tag\` and merged
 - [ ] (Minor only) \`${old_stable_branch}\` deleted
@@ -200,9 +202,10 @@ if [[ "$upgrade_type" == "patch" ]]; then
 
 1. **Cherry-pick all commits** from \`${LAST_REVIEWED_UPSTREAM_TAG}\` to \`${latest_stable_tag}\` onto \`${new_stable_branch}\` in a PR titled \`Sync upstream Zed ${latest_stable_tag} to ${new_stable_branch}\`. Take all commits — they are already upstream-vetted stable commits. Leave commit messages unchanged.
 2. **Cherry-pick the same commits onto \`main\`** in a separate PR titled \`Merge upstream Zed ${latest_stable_tag}\`. Resolve any conflicts in favor of keeping NeoZed customizations while taking upstream functional changes.
-3. **Run verification before opening PRs** — run \`cargo check --workspace --all-targets\` before raising each PR.
-4. **Update baseline** — include a one-line change to \`script/neozed/upstream-reviewed-tag\` setting its content to \`${latest_stable_tag}\` in the \`main\` PR.
-5. **Close this issue** once both PRs are merged.
+3. **Review the final \`main\` diff before opening PRs** — check identity-sensitive areas for accidental upstream regressions, duplicated/conflicting code, stale \`.zed\` paths, and lost NeoZed customizations. At minimum inspect branding/product names, URL schemes, settings paths, packaging metadata, release/update scripts, docs paths, and generated config defaults.
+4. **Run verification before opening PRs** — run \`cargo check --workspace --all-targets\` before raising each PR. Do not open the PR if this fails; fix the issue or explicitly document the environmental blocker.
+5. **Update baseline** — include a one-line change to \`script/neozed/upstream-reviewed-tag\` setting its content to \`${latest_stable_tag}\` in the \`main\` PR.
+6. **Close this issue** once both PRs are merged.
 EOF
 else
     cat > "$comment_file" <<EOF
@@ -226,13 +229,15 @@ else
 
 2. **Cherry-pick all commits** from \`${LAST_REVIEWED_UPSTREAM_TAG}\` to \`${latest_stable_tag}\` onto \`main\` in a PR titled \`Merge upstream Zed ${latest_stable_tag}\`. Same process as a patch cherry-pick but over a larger range. Take all commits. Resolve any conflicts in favor of keeping NeoZed customizations (identity, branding, \`assets/settings/default.json\`, \`script/neozed/\`) while taking upstream functional changes.
 
-3. **Run verification before opening the PR** — run \`cargo check --workspace --all-targets\` before raising the \`main\` PR.
+3. **Review the final \`main\` diff before opening the PR** — check identity-sensitive areas for accidental upstream regressions, duplicated/conflicting code, stale \`.zed\` paths, and lost NeoZed customizations. At minimum inspect branding/product names, URL schemes, settings paths, packaging metadata, release/update scripts, docs paths, and generated config defaults.
 
-4. **Update baseline** — include a one-line change to \`script/neozed/upstream-reviewed-tag\` setting its content to \`${latest_stable_tag}\` in the \`main\` PR.
+4. **Run verification before opening the PR** — run \`cargo check --workspace --all-targets\` before raising the \`main\` PR. Do not open the PR if this fails; fix the issue or explicitly document the environmental blocker.
 
-5. **Delete \`${old_stable_branch}\`** — upstream never patches an old minor once a new one ships, so this branch is a permanent dead end. Run: \`git push origin --delete ${old_stable_branch}\`
+5. **Update baseline** — include a one-line change to \`script/neozed/upstream-reviewed-tag\` setting its content to \`${latest_stable_tag}\` in the \`main\` PR.
 
-6. **Close this issue** once the \`main\` PR is merged.
+6. **Delete \`${old_stable_branch}\`** — upstream never patches an old minor once a new one ships, so this branch is a permanent dead end. Run: \`git push origin --delete ${old_stable_branch}\`
+
+7. **Close this issue** once the \`main\` PR is merged.
 
 If the conflict surface is too large to resolve in one pass, open a draft PR and leave a comment describing the blockers.
 EOF

@@ -475,7 +475,6 @@ struct MacWindowState {
     background_appearance: WindowBackgroundAppearance,
     cursor_style: CursorStyle,
     cursor_visible: Arc<AtomicBool>,
-    cursor_hidden: Arc<AtomicBool>,
     display_link: Option<DisplayLink>,
     renderer: renderer::Renderer,
     request_frame_callback: Option<Box<dyn FnMut(RequestFrameOptions)>>,
@@ -678,7 +677,6 @@ impl MacWindow {
             ..
         }: WindowParams,
         cursor_visible: Arc<AtomicBool>,
-        cursor_hidden: Arc<AtomicBool>,
         foreground_executor: ForegroundExecutor,
         background_executor: BackgroundExecutor,
         renderer_context: renderer::Context,
@@ -797,7 +795,6 @@ impl MacWindow {
                 background_appearance: WindowBackgroundAppearance::Opaque,
                 cursor_style: CursorStyle::Arrow,
                 cursor_visible,
-                cursor_hidden,
                 display_link: None,
                 renderer: renderer::new_renderer(
                     renderer_context,

@@ -184,7 +184,6 @@ pub(crate) struct MacPlatformState {
     keyboard_mapper: Rc<MacKeyboardMapper>,
     /// Mirrors `[NSCursor setHiddenUntilMouseMoves:]` state, which AppKit doesn't expose.
     cursor_visible: Arc<AtomicBool>,
-    cursor_hidden: Arc<AtomicBool>,
 }
 
 impl MacPlatform {
@@ -222,7 +221,6 @@ impl MacPlatform {
             menus: None,
             keyboard_mapper,
             cursor_visible: Arc::new(AtomicBool::new(true)),
-            cursor_hidden: Arc::new(AtomicBool::new(false)),
         }))
     }
 
@@ -629,17 +627,10 @@ impl Platform for MacPlatform {
         handle: AnyWindowHandle,
         options: WindowParams,
     ) -> Result<Box<dyn PlatformWindow>> {
-        let (
-            cursor_visible,
-            cursor_hidden,
-            foreground_executor,
-            background_executor,
-            renderer_context,
-        ) = {
+        let (cursor_visible, foreground_executor, background_executor, renderer_context) = {
             let guard = self.0.lock();
             (
                 guard.cursor_visible.clone(),
-                guard.cursor_hidden.clone(),
                 guard.foreground_executor.clone(),
                 guard.background_executor.clone(),
                 guard.renderer_context.clone(),
@@ -650,7 +641,6 @@ impl Platform for MacPlatform {
             handle,
             options,
             cursor_visible,
-            cursor_hidden,
             foreground_executor,
             background_executor,
             renderer_context,
