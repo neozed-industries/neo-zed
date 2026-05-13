@@ -7828,9 +7828,6 @@ mod tests {
             );
         });
 
-        cx.update(|_, cx| {
-            cx.update_flags(true, vec!["agent-panel-terminal".to_string()]);
-        });
         panel.update_in(cx, |panel, window, cx| {
             panel.new_terminal(None, AgentThreadSource::AgentPanel, window, cx);
         });
@@ -7943,9 +7940,6 @@ mod tests {
     #[gpui::test]
     async fn test_terminal_external_image_drop_writes_path(cx: &mut TestAppContext) {
         let (panel, mut cx) = setup_panel(cx).await;
-        cx.update(|_, cx| {
-            cx.update_flags(true, vec!["agent-panel-terminal".to_string()]);
-        });
 
         let terminal_id = panel
             .update_in(&mut cx, |panel, window, cx| {
@@ -7985,9 +7979,6 @@ mod tests {
     #[gpui::test]
     async fn test_terminal_external_paths_drop_handler_writes_image_path(cx: &mut TestAppContext) {
         let (panel, mut cx) = setup_panel(cx).await;
-        cx.update(|_, cx| {
-            cx.update_flags(true, vec!["agent-panel-terminal".to_string()]);
-        });
 
         let terminal_id = panel
             .update_in(&mut cx, |panel, window, cx| {
@@ -8032,7 +8023,6 @@ mod tests {
         cx.update(|cx| {
             agent::ThreadStore::init_global(cx);
             language_model::LanguageModelRegistry::test(cx);
-            cx.update_flags(true, vec!["agent-panel-terminal".to_string()]);
         });
 
         let fs = FakeFs::new(cx.executor());
@@ -9144,7 +9134,6 @@ mod tests {
         cx.update(|cx| {
             agent::ThreadStore::init_global(cx);
             language_model::LanguageModelRegistry::test(cx);
-            cx.update_flags(true, vec!["agent-panel-terminal".to_string()]);
             AgentSettings::override_global(
                 AgentSettings {
                     notify_when_agent_waiting: NotifyWhenAgentWaiting::PrimaryScreen,
