@@ -316,10 +316,10 @@ mod server {
                         log::error!("OAuth callback error: {}", err);
                         (
                             400,
-                            oauth_callback_page(
-                                "Authorization Failed",
-                                "Something went wrong. Please try again from Neo Zed.",
-                                true,
+                             oauth_callback_page(
+                                 "Authorization Failed",
+                                 "Something went wrong. Please try again from Neo Zed.",
+                                 true,
                             ),
                         )
                     }
