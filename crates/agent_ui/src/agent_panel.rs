@@ -45,7 +45,7 @@ use crate::{
     ui::{AgentNotification, AgentNotificationEvent, EndTrialUpsell},
 };
 use crate::{
-    Agent, AgentInitialContent, ExternalSourcePrompt, NewExternalAgentThread,
+    Agent, AgentInitialContent, AgentThreadSource, ExternalSourcePrompt, NewExternalAgentThread,
     NewNativeAgentThreadFromSummary,
 };
 use agent_settings::AgentSettings;
@@ -92,6 +92,7 @@ use workspace::{
 const AGENT_PANEL_KEY: &str = "agent_panel";
 const MIN_PANEL_WIDTH: Pixels = px(300.);
 const LAST_USED_AGENT_KEY: &str = "agent_panel__last_used_external_agent";
+const TERMINAL_AGENT_TELEMETRY_ID: &str = "terminal";
 
 /// Maximum number of idle threads kept in the agent panel's retained list.
 /// Set as a GPUI global to override; otherwise defaults to 5.
@@ -393,7 +394,7 @@ pub fn init(cx: &mut App) {
                                 auto_submit: true,
                             }),
                             true,
-                            "git_panel",
+                            AgentThreadSource::GitPanel,
                             window,
                             cx,
                         );
@@ -420,7 +421,7 @@ pub fn init(cx: &mut App) {
                                     auto_submit: true,
                                 }),
                                 true,
-                                "git_panel",
+                                AgentThreadSource::GitPanel,
                                 window,
                                 cx,
                             );
@@ -449,7 +450,7 @@ pub fn init(cx: &mut App) {
                                     auto_submit: true,
                                 }),
                                 true,
-                                "git_panel",
+                                AgentThreadSource::GitPanel,
                                 window,
                                 cx,
                             );
@@ -1023,7 +1024,7 @@ impl AgentPanel {
                             info.work_dirs.as_ref().map(PathList::deserialize),
                             info.title.clone().map(Into::into),
                             false,
-                            "agent_panel",
+                            AgentThreadSource::AgentPanel,
                             window,
                             cx,
                         );
@@ -1255,7 +1256,7 @@ impl AgentPanel {
                 work_dirs,
                 title,
                 true,
-                "agent_panel",
+                AgentThreadSource::AgentPanel,
                 window,
                 cx,
             );
@@ -1266,7 +1267,7 @@ impl AgentPanel {
                 work_dirs,
                 title,
                 true,
-                "agent_panel",
+                AgentThreadSource::AgentPanel,
                 window,
                 cx,
             );
@@ -1280,12 +1281,12 @@ impl AgentPanel {
         work_dirs: Option<PathList>,
         title: Option<SharedString>,
         focus: bool,
-        _source: &'static str,
+        source: AgentThreadSource,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let thread = self.create_agent_thread_with_server_for_external_session(
-            agent, None, session_id, work_dirs, title, None, window, cx,
+            agent, None, session_id, work_dirs, title, None, source, window, cx,
         );
         self.set_base_view(thread.into(), focus, window, cx);
     }
@@ -1316,7 +1317,7 @@ impl AgentPanel {
         let old_view = std::mem::replace(&mut self.base_view, BaseView::Uninitialized);
         self.retain_running_thread(old_view, cx);
         self.clear_overlay_state();
-        self.activate_draft(false, "agent_panel", window, cx);
+        self.activate_draft(false, AgentThreadSource::AgentPanel, window, cx);
         self.serialize(cx);
         cx.emit(AgentPanelEvent::ActiveViewChanged);
         cx.notify();
@@ -1337,16 +1338,16 @@ impl AgentPanel {
         cx: &mut Context<Self>,
     ) {
         if self.should_create_terminal_for_new_entry(cx) {
-            self.new_terminal(workspace, window, cx);
+            self.new_terminal(workspace, AgentThreadSource::AgentPanel, window, cx);
         } else {
-            self.activate_new_thread(true, "agent_panel", window, cx);
+            self.activate_new_thread(true, AgentThreadSource::AgentPanel, window, cx);
         }
     }
 
     pub fn activate_new_thread(
         &mut self,
         focus: bool,
-        trigger: &'static str,
+        source: AgentThreadSource,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -1393,7 +1394,7 @@ impl AgentPanel {
                 self._draft_editor_observation = None;
             }
         }
-        self.activate_draft(focus, trigger, window, cx);
+        self.activate_draft(focus, source, window, cx);
     }
 
     fn draft_has_content(&self, draft: &Entity<ConversationView>, cx: &App) -> bool {
@@ -1475,7 +1476,7 @@ impl AgentPanel {
             Some(metadata.folder_paths().clone()),
             metadata.title.clone(),
             initial_content,
-            "agent_panel",
+            AgentThreadSource::AgentPanel,
             window,
             cx,
         );
@@ -1494,12 +1495,13 @@ impl AgentPanel {
         }
 
         self.selected_agent = action.agent.clone().into();
-        self.activate_new_thread(true, "agent_panel", window, cx);
+        self.activate_new_thread(true, AgentThreadSource::AgentPanel, window, cx);
     }
 
     pub fn new_terminal(
         &mut self,
         workspace: Option<&Workspace>,
+        source: AgentThreadSource,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -1507,7 +1509,14 @@ impl AgentPanel {
             return;
         }
         let working_directory = self.terminal_working_directory(workspace, cx);
-        self.spawn_terminal(TerminalId::new(), working_directory, true, window, cx);
+        self.spawn_terminal(
+            TerminalId::new(),
+            working_directory,
+            true,
+            source,
+            window,
+            cx,
+        );
     }
 
     fn terminal_working_directory(
@@ -1545,6 +1554,7 @@ impl AgentPanel {
         terminal_id: TerminalId,
         working_directory: Option<PathBuf>,
         focus: bool,
+        source: AgentThreadSource,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -1570,7 +1580,7 @@ impl AgentPanel {
                 let terminal_view = cx.new(|cx| {
                     TerminalView::new(terminal, workspace, workspace_id, project, window, cx)
                 });
-                this.insert_terminal(terminal_id, terminal_view, focus, window, cx);
+                this.insert_terminal(terminal_id, terminal_view, focus, source, window, cx);
             })?;
             anyhow::Ok(())
         })
@@ -1582,6 +1592,7 @@ impl AgentPanel {
         terminal_id: TerminalId,
         terminal_view: Entity<TerminalView>,
         focus: bool,
+        source: AgentThreadSource,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -1632,6 +1643,7 @@ impl AgentPanel {
         self.set_last_created_entry_kind(AgentPanelEntryKind::Terminal, cx);
         terminal.refresh_title(cx);
         self.terminals.insert(terminal_id, terminal);
+        self.emit_terminal_thread_started(source, cx);
         if focus {
             self.set_base_view(BaseView::Terminal { terminal_id }, true, window, cx);
         }
@@ -1676,11 +1688,21 @@ impl AgentPanel {
         if was_active {
             self.base_view = BaseView::Uninitialized;
             self.refresh_base_view_subscriptions(window, cx);
-            self.activate_draft(false, "agent_panel", window, cx);
+            self.activate_draft(false, AgentThreadSource::AgentPanel, window, cx);
         }
 
         cx.emit(AgentPanelEvent::EntryChanged);
         cx.notify();
+    }
+
+    fn emit_terminal_thread_started(&self, source: AgentThreadSource, cx: &App) {
+        telemetry::event!(
+            "Agent Thread Started",
+            agent = TERMINAL_AGENT_TELEMETRY_ID,
+            source = source.as_str(),
+            side = crate::agent_sidebar_side(cx),
+            thread_location = "current_worktree",
+        );
     }
 
     fn refresh_terminal_title(&mut self, terminal_id: TerminalId, cx: &mut Context<Self>) {
@@ -2061,7 +2083,7 @@ impl AgentPanel {
     pub fn activate_draft(
         &mut self,
         focus: bool,
-        source: &'static str,
+        source: AgentThreadSource,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -2098,7 +2120,7 @@ impl AgentPanel {
 
     fn ensure_draft(
         &mut self,
-        source: &'static str,
+        source: AgentThreadSource,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Entity<ConversationView> {
@@ -2372,7 +2394,7 @@ impl AgentPanel {
 
         if self.active_thread_id(cx) == Some(id) {
             self.clear_overlay_state();
-            self.activate_draft(false, "agent_panel", window, cx);
+            self.activate_draft(false, AgentThreadSource::AgentPanel, window, cx);
             self.serialize(cx);
             cx.emit(AgentPanelEvent::ActiveViewChanged);
             cx.notify();
@@ -2463,7 +2485,7 @@ impl AgentPanel {
                     None,
                     Some(content),
                     true,
-                    "agent_panel",
+                    AgentThreadSource::AgentPanel,
                     window,
                     cx,
                 );
@@ -2496,7 +2518,7 @@ impl AgentPanel {
         title: Option<SharedString>,
         initial_content: Option<AgentInitialContent>,
         focus: bool,
-        source: &'static str,
+        source: AgentThreadSource,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -3006,7 +3028,7 @@ impl AgentPanel {
                     });
                 }
 
-                self.activate_new_thread(true, "agent_panel", window, cx);
+                self.activate_new_thread(true, AgentThreadSource::AgentPanel, window, cx);
                 if let Some((thread, model)) = self
                     .active_native_agent_thread(cx)
                     .zip(provider.default_model(cx))
@@ -3392,7 +3414,7 @@ impl AgentPanel {
             None,
             external_source_prompt.map(AgentInitialContent::from),
             true,
-            "agent_panel",
+            AgentThreadSource::AgentPanel,
             window,
             cx,
         );
@@ -3405,7 +3427,7 @@ impl AgentPanel {
         work_dirs: Option<PathList>,
         title: Option<SharedString>,
         focus: bool,
-        source: &'static str,
+        source: AgentThreadSource,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -3487,7 +3509,7 @@ impl AgentPanel {
         work_dirs: Option<PathList>,
         title: Option<SharedString>,
         initial_content: Option<AgentInitialContent>,
-        source: &'static str,
+        source: AgentThreadSource,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AgentThread {
@@ -3525,6 +3547,7 @@ impl AgentPanel {
         work_dirs: Option<PathList>,
         title: Option<SharedString>,
         initial_content: Option<AgentInitialContent>,
+        source: AgentThreadSource,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AgentThread {
@@ -3536,7 +3559,7 @@ impl AgentPanel {
             work_dirs,
             title,
             initial_content,
-            "agent_panel",
+            source,
             window,
             cx,
         )
@@ -3551,7 +3574,7 @@ impl AgentPanel {
         work_dirs: Option<PathList>,
         title: Option<SharedString>,
         initial_content: Option<AgentInitialContent>,
-        source: &'static str,
+        source: AgentThreadSource,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AgentThread {
@@ -3792,7 +3815,7 @@ impl Panel for AgentPanel {
 impl AgentPanel {
     fn ensure_thread_initialized(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if matches!(self.base_view, BaseView::Uninitialized) {
-            self.activate_draft(false, "agent_panel", window, cx);
+            self.activate_draft(false, AgentThreadSource::AgentPanel, window, cx);
         }
     }
 
@@ -3904,7 +3927,7 @@ impl AgentPanel {
             None,
             None,
             Some(initial_content),
-            "agent_panel",
+            AgentThreadSource::AgentPanel,
             window,
             cx,
         );
@@ -4332,7 +4355,7 @@ impl AgentPanel {
                                                         panel.selected_agent = Agent::NativeAgent;
                                                         panel.activate_new_thread(
                                                             true,
-                                                            "agent_panel",
+                                                            AgentThreadSource::AgentPanel,
                                                             window,
                                                             cx,
                                                         );
@@ -4360,6 +4383,7 @@ impl AgentPanel {
                                                         panel.update(cx, |panel, cx| {
                                                             panel.new_terminal(
                                                                 Some(workspace),
+                                                                AgentThreadSource::AgentPanel,
                                                                 window,
                                                                 cx,
                                                             );
@@ -5080,7 +5104,7 @@ impl AgentPanel {
             None,
             None,
             None,
-            "agent_panel",
+            AgentThreadSource::AgentPanel,
             window,
             cx,
         );
@@ -5119,7 +5143,7 @@ impl AgentPanel {
             None,
             None,
             None,
-            "agent_panel",
+            AgentThreadSource::AgentPanel,
             window,
             cx,
         );
@@ -5152,7 +5176,7 @@ impl AgentPanel {
             None,
             None,
             None,
-            "agent_panel",
+            AgentThreadSource::AgentPanel,
             window,
             cx,
         );
@@ -5193,7 +5217,14 @@ impl AgentPanel {
         terminal_view.update(cx, |terminal_view, cx| {
             terminal_view.set_custom_title(Some(title.into()), cx);
         });
-        self.insert_terminal(terminal_id, terminal_view, focus, window, cx);
+        self.insert_terminal(
+            terminal_id,
+            terminal_view,
+            focus,
+            AgentThreadSource::AgentPanel,
+            window,
+            cx,
+        );
         Ok(terminal_id)
     }
 
@@ -6038,7 +6069,7 @@ mod tests {
         )]);
         panel.update_in(cx, |panel, window, cx| {
             panel.selected_agent = Agent::Stub;
-            panel.activate_draft(true, "agent_panel", window, cx);
+            panel.activate_draft(true, AgentThreadSource::AgentPanel, window, cx);
         });
         cx.run_until_parked();
 
@@ -6228,7 +6259,7 @@ mod tests {
         // 1. Create a real thread by sending a message.
         panel.update_in(cx, |panel, window, cx| {
             panel.selected_agent = Agent::Stub;
-            panel.activate_draft(true, "agent_panel", window, cx);
+            panel.activate_draft(true, AgentThreadSource::AgentPanel, window, cx);
         });
         cx.run_until_parked();
         crate::test_support::send_message(&panel, cx);
@@ -6239,7 +6270,7 @@ mod tests {
         // 2. Open a draft, type into it, then press Cmd-N again to
         //    park it into retained_threads as a *retained* draft.
         panel.update_in(cx, |panel, window, cx| {
-            panel.activate_draft(true, "agent_panel", window, cx);
+            panel.activate_draft(true, AgentThreadSource::AgentPanel, window, cx);
         });
         cx.run_until_parked();
         let retained_draft_id = crate::test_support::active_thread_id(&panel, cx);
@@ -6304,7 +6335,7 @@ mod tests {
                 None,
                 None,
                 false,
-                "agent_panel",
+                AgentThreadSource::AgentPanel,
                 window,
                 cx,
             );
@@ -6377,7 +6408,7 @@ mod tests {
                 None,
                 None,
                 false,
-                "agent_panel",
+                AgentThreadSource::AgentPanel,
                 window,
                 cx,
             );
@@ -6403,7 +6434,7 @@ mod tests {
                 None,
                 None,
                 false,
-                "agent_panel",
+                AgentThreadSource::AgentPanel,
                 window,
                 cx,
             );
@@ -6449,7 +6480,7 @@ mod tests {
             crate::test_support::set_stub_agent_connection(StubAgentConnection::new());
         panel.update_in(cx, |panel, window, cx| {
             panel.selected_agent = Agent::Stub;
-            panel.activate_draft(true, "agent_panel", window, cx);
+            panel.activate_draft(true, AgentThreadSource::AgentPanel, window, cx);
         });
         cx.run_until_parked();
 
@@ -6544,7 +6575,7 @@ mod tests {
 
         panel.update_in(cx, |panel, window, cx| {
             panel.new_thread(&NewThread, window, cx);
-            panel.activate_draft(true, "agent_panel", window, cx);
+            panel.activate_draft(true, AgentThreadSource::AgentPanel, window, cx);
             panel.new_external_agent_thread(
                 &NewExternalAgentThread {
                     agent: AgentId::new("external-agent"),
@@ -6574,7 +6605,7 @@ mod tests {
             cx.update_flags(true, vec!["agent-panel-terminal".to_string()]);
         });
         panel.update_in(cx, |panel, window, cx| {
-            panel.new_terminal(None, window, cx);
+            panel.new_terminal(None, AgentThreadSource::AgentPanel, window, cx);
         });
         cx.run_until_parked();
 
@@ -6690,7 +6721,7 @@ mod tests {
         });
 
         panel.update_in(&mut cx, |panel, window, cx| {
-            panel.activate_new_thread(false, "test", window, cx);
+            panel.activate_new_thread(false, AgentThreadSource::AgentPanel, window, cx);
         });
         cx.run_until_parked();
 
@@ -7126,7 +7157,7 @@ mod tests {
                 None,
                 None,
                 true,
-                "agent_panel",
+                AgentThreadSource::AgentPanel,
                 window,
                 cx,
             );
@@ -7175,7 +7206,7 @@ mod tests {
                 None,
                 None,
                 true,
-                "agent_panel",
+                AgentThreadSource::AgentPanel,
                 window,
                 cx,
             );
@@ -7929,7 +7960,7 @@ mod tests {
 
         // Create a draft with the default NativeAgent.
         panel.update_in(cx, |panel, window, cx| {
-            panel.activate_draft(true, "agent_panel", window, cx);
+            panel.activate_draft(true, AgentThreadSource::AgentPanel, window, cx);
         });
 
         let first_draft_id = panel.read_with(cx, |panel, cx| {
@@ -7947,7 +7978,7 @@ mod tests {
         };
         panel.update_in(cx, |panel, window, cx| {
             panel.selected_agent = custom_agent.clone();
-            panel.activate_draft(true, "agent_panel", window, cx);
+            panel.activate_draft(true, AgentThreadSource::AgentPanel, window, cx);
         });
 
         panel.read_with(cx, |panel, cx| {
@@ -7971,7 +8002,7 @@ mod tests {
         });
 
         panel.update_in(cx, |panel, window, cx| {
-            panel.activate_draft(true, "agent_panel", window, cx);
+            panel.activate_draft(true, AgentThreadSource::AgentPanel, window, cx);
         });
 
         panel.read_with(cx, |panel, _cx| {
@@ -8020,7 +8051,7 @@ mod tests {
         // Create a draft using the Stub agent, which connects synchronously.
         panel.update_in(cx, |panel, window, cx| {
             panel.selected_agent = Agent::Stub;
-            panel.activate_draft(true, "agent_panel", window, cx);
+            panel.activate_draft(true, AgentThreadSource::AgentPanel, window, cx);
         });
         cx.run_until_parked();
 
@@ -8110,7 +8141,7 @@ mod tests {
         // expect to refocus later.
         panel.update_in(cx, |panel, window, cx| {
             panel.selected_agent = Agent::Stub;
-            panel.activate_draft(true, "agent_panel", window, cx);
+            panel.activate_draft(true, AgentThreadSource::AgentPanel, window, cx);
         });
         cx.run_until_parked();
         let parked_thread_id = crate::test_support::active_thread_id(&panel, cx);
@@ -8137,7 +8168,7 @@ mod tests {
                 None,
                 None,
                 true,
-                "sidebar",
+                AgentThreadSource::Sidebar,
                 window,
                 cx,
             );
@@ -8219,7 +8250,7 @@ mod tests {
         // to park it — this also creates a fresh ephemeral draft (Stub).
         panel.update_in(cx, |panel, window, cx| {
             panel.selected_agent = Agent::Stub;
-            panel.activate_draft(true, "agent_panel", window, cx);
+            panel.activate_draft(true, AgentThreadSource::AgentPanel, window, cx);
         });
         cx.run_until_parked();
         let parked_thread_id = crate::test_support::active_thread_id(&panel, cx);
@@ -8247,7 +8278,7 @@ mod tests {
                 None,
                 None,
                 true,
-                "sidebar",
+                AgentThreadSource::Sidebar,
                 window,
                 cx,
             );
@@ -8264,7 +8295,7 @@ mod tests {
         // NativeAgent.
         panel.update_in(cx, |panel, window, cx| {
             panel.selected_agent = Agent::NativeAgent;
-            panel.activate_new_thread(true, "agent_panel", window, cx);
+            panel.activate_new_thread(true, AgentThreadSource::AgentPanel, window, cx);
         });
         cx.run_until_parked();
 
@@ -8740,7 +8771,7 @@ mod tests {
                 None,
                 None,
                 true,
-                "agent_panel",
+                AgentThreadSource::AgentPanel,
                 window,
                 cx,
             );
@@ -9176,7 +9207,7 @@ mod tests {
                 None,
                 None,
                 true,
-                "agent_panel",
+                AgentThreadSource::AgentPanel,
                 window,
                 cx,
             );
@@ -9196,7 +9227,7 @@ mod tests {
                 None,
                 None,
                 true,
-                "agent_panel",
+                AgentThreadSource::AgentPanel,
                 window,
                 cx,
             );
