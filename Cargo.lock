@@ -11897,6 +11897,7 @@ dependencies = [
  "gpui",
  "picker",
  "project",
+ "project_panel",
  "schemars 1.0.4",
  "serde",
  "serde_json",
