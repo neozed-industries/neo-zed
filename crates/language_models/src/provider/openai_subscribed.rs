@@ -1042,7 +1042,7 @@ impl Render for ConfigurationView {
                 this.child(Label::new(error).color(Color::Error))
             })
             .child(Label::new(
-                "Sign in with your ChatGPT Plus or Pro subscription to use OpenAI models in Zed's agent.",
+                "Sign in with your ChatGPT Plus or Pro subscription to use OpenAI models in Neo Zed's agent.",
             ))
             .child(
                 Button::new("sign-in", "Sign in with ChatGPT")

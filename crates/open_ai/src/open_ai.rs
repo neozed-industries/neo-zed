@@ -309,9 +309,7 @@ impl Model {
                 supports_chat_completions,
                 ..
             } => !*supports_chat_completions,
-            Self::FiveCodex
-            | Self::FivePointTwoCodex
-            | Self::FivePointThreeCodex
+            Self::FivePointThreeCodex
             | Self::FivePointFourPro
             | Self::FivePointFivePro => false,
             _ => true,
