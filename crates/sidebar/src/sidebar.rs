@@ -23,8 +23,8 @@ use feature_flags::{
 };
 use gpui::{
     Action as _, AnyElement, App, ClickEvent, Context, DismissEvent, Entity, EntityId, FocusHandle,
-    Focusable, KeyContext, ListState, Modifiers, Pixels, Render, SharedString, Task, WeakEntity,
-    Window, WindowHandle, linear_color_stop, linear_gradient, list, prelude::*, px,
+    Focusable, KeyContext, ListState, Modifiers, Pixels, Render, SharedString, Task, TaskExt,
+    WeakEntity, Window, WindowHandle, linear_color_stop, linear_gradient, list, prelude::*, px,
 };
 use menu::{
     Cancel, Confirm, SelectChild, SelectFirst, SelectLast, SelectNext, SelectParent, SelectPrevious,
@@ -4183,6 +4183,9 @@ impl Sidebar {
             .and_then(|mw| mw.read(cx).last_active_workspace_for_group(key, cx))
             .or_else(|| self.workspace_for_group(key, cx));
         if let Some(workspace) = workspace {
+            if self.is_active_workspace(&workspace, cx) {
+                return;
+            }
             self.activate_workspace(&workspace, window, cx);
         } else {
             self.open_workspace_for_group(key, window, cx);

@@ -20,7 +20,7 @@ use db::{
 };
 use fs::Fs;
 use futures::{FutureExt, future::Shared};
-use gpui::{AppContext as _, Entity, Global, Subscription, Task};
+use gpui::{AppContext as _, Entity, Global, Subscription, Task, TaskExt};
 pub use project::WorktreePaths;
 use project::{AgentId, linked_worktree_short_name};
 use remote::{RemoteConnectionOptions, same_remote_connection_identity};
@@ -162,7 +162,7 @@ fn migrate_thread_metadata(cx: &mut App) -> Task<anyhow::Result<()>> {
                 .push(entry);
         }
         for entries in per_project.values_mut() {
-            entries.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+            entries.sort_by_key(|entry| std::cmp::Reverse(entry.updated_at));
             for entry in entries.iter_mut().take(5) {
                 entry.archived = false;
             }
@@ -2324,7 +2324,7 @@ mod tests {
             .filter(|m| *m.folder_paths() == project_a_paths)
             .collect();
         assert_eq!(project_a_entries.len(), 7);
-        project_a_entries.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        project_a_entries.sort_by_key(|entry| std::cmp::Reverse(entry.updated_at));
 
         for entry in &project_a_entries[..5] {
             assert!(

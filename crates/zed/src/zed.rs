@@ -3,6 +3,8 @@ pub mod edit_prediction_registry;
 #[cfg(target_os = "macos")]
 pub(crate) mod mac_only_instance;
 mod migrate;
+#[cfg(target_os = "macos")]
+pub(crate) mod move_to_applications;
 mod open_listener;
 mod open_url_modal;
 mod quick_action_bar;
@@ -34,7 +36,7 @@ use git_ui::project_diff::{BranchDiffToolbar, ProjectDiffToolbar};
 use gpui::{
     Action, App, AppContext as _, AsyncWindowContext, ClipboardItem, Context, DismissEvent,
     Element, Entity, FocusHandle, Focusable, Image, ImageFormat, KeyBinding, ParentElement,
-    PathPromptOptions, PromptLevel, ReadGlobal, SharedString, Size, Task, TitlebarOptions,
+    PathPromptOptions, PromptLevel, ReadGlobal, SharedString, Size, Task, TaskExt, TitlebarOptions,
     UpdateGlobal, WeakEntity, Window, WindowBounds, WindowHandle, WindowKind, WindowOptions,
     actions, image_cache, img, point, px, retain_all,
 };
@@ -99,6 +101,10 @@ use zed_actions::{
     About, OpenAccountSettings, OpenBrowser, OpenDocs, OpenServerSettings, OpenSettingsFile,
     OpenZedUrl, Quit,
 };
+
+pub struct CrashHandler(pub Arc<crashes::Client>);
+
+impl gpui::Global for CrashHandler {}
 
 actions!(
     zed,
@@ -517,7 +523,9 @@ pub fn initialize_workspace(app_state: Arc<AppState>, cx: &mut App) {
         if let Some(specs) = window.gpu_specs() {
             log::info!("Using GPU: {:?}", specs);
             show_software_emulation_warning_if_needed(specs.clone(), window, cx);
-            crashes::set_gpu_info(specs);
+            if let Some(crash_client) = cx.try_global::<CrashHandler>() {
+                crashes::set_gpu_info(&crash_client.0, specs);
+            }
         }
 
         let edit_prediction_menu_handle = PopoverMenuHandle::default();

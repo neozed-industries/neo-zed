@@ -827,6 +827,9 @@ pub enum GoToDefinitionScrollStrategy {
     Minimum,
     /// Scroll so the target appears near the top of the viewport.
     Top,
+    /// Preserve the cursor's vertical position within the viewport, falling
+    /// back to centering when the cursor is offscreen.
+    Preserve,
 }
 
 /// Determines how snippets are sorted relative to other completion items.
