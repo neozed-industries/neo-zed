@@ -148,7 +148,7 @@ Unlike agent threads, terminal threads are closed rather than archived — they 
 
 ### Claude Code Notifications {#claude-code-notifications}
 
-Claude Code can notify you when it finishes a task or pauses for permission. To enable this, set `preferredNotifChannel` to `"terminal_bell"` in your Claude Code user settings:
+Claude Code can ring the terminal bell when it finishes a task or pauses for permission. To enable this, set `preferredNotifChannel` to `"terminal_bell"` in your Claude Code user settings:
 
 ```json
 {
