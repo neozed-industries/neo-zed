@@ -309,9 +309,6 @@ impl Model {
                 supports_chat_completions,
                 ..
             } => !*supports_chat_completions,
-            Self::FivePointThreeCodex
-            | Self::FivePointFourPro
-            | Self::FivePointFivePro => false,
             _ => true,
         }
     }
@@ -350,6 +347,13 @@ impl Model {
 #[cfg(test)]
 mod tests {
     use super::{Model, ReasoningEffort};
+
+    #[test]
+    fn built_in_models_use_responses_api() {
+        assert!(Model::FivePointThreeCodex.uses_responses_api());
+        assert!(Model::FivePointFourPro.uses_responses_api());
+        assert!(Model::FivePointFivePro.uses_responses_api());
+    }
 
     #[test]
     fn gpt_5_1_uses_none_reasoning_by_default() {
