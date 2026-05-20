@@ -169,7 +169,7 @@ jobs:
         "$GITHUB_WORKSPACE/ts_query_ls" format --check . || {
             echo "Found unformatted queries, please format them with ts_query_ls."
             echo "For easy use, install the Tree-sitter query extension:"
-            echo "zed://extension/tree-sitter-query"
+            echo "neozed://extension/tree-sitter-query"
             false
         }
     timeout-minutes: 60
@@ -640,6 +640,7 @@ jobs:
     runs-on: namespace-profile-16x32-ubuntu-2204
     env:
       DOCS_AMPLITUDE_API_KEY: ${{ secrets.DOCS_AMPLITUDE_API_KEY }}
+      DOCS_CONSENT_IO_INSTANCE: ${{ secrets.DOCS_CONSENT_IO_INSTANCE }}
       CC: clang
       CXX: clang++
     steps:
