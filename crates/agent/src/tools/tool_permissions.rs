@@ -177,7 +177,7 @@ pub async fn sensitive_settings_kind(
 
     // Fast path: scan the raw path components before any I/O. Covers the
     // common case where the agent passes a path that literally contains
-    // `.zed/` or `.agents/skills/`.
+    // `.neozed/` or `.agents/skills/`.
     if path.components().any(|component| {
         component_matches_ignore_ascii_case(component.as_os_str(), local_settings_folder)
     }) {

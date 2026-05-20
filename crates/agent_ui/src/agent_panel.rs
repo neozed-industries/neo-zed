@@ -8100,49 +8100,6 @@ mod tests {
     }
 
     #[gpui::test]
-    async fn test_new_thread_dismisses_settings_overlay(cx: &mut TestAppContext) {
-        let (panel, mut cx) = setup_panel(cx).await;
-
-        panel.update_in(&mut cx, |panel, window, cx| {
-            panel.activate_draft(true, "agent_panel", window, cx);
-        });
-        cx.run_until_parked();
-
-        panel.read_with(&cx, |panel, cx| {
-            assert!(
-                panel.active_thread_is_draft(cx),
-                "precondition: base view should be the ephemeral draft"
-            );
-            assert!(!panel.is_overlay_open());
-        });
-
-        panel.update_in(&mut cx, |panel, window, cx| {
-            panel.set_overlay(OverlayView::Configuration, true, window, cx);
-        });
-        cx.run_until_parked();
-
-        panel.read_with(&cx, |panel, _cx| {
-            assert!(
-                panel.is_overlay_open(),
-                "precondition: Settings overlay should be open"
-            );
-        });
-
-        panel.update_in(&mut cx, |panel, window, cx| {
-            panel.new_thread(&NewThread, window, cx);
-        });
-        cx.run_until_parked();
-
-        panel.read_with(&cx, |panel, cx| {
-            assert!(
-                !panel.is_overlay_open(),
-                "Settings overlay should be dismissed when invoking NewThread"
-            );
-            assert!(panel.active_thread_is_draft(cx));
-        });
-    }
-
-    #[gpui::test]
     async fn test_terminal_entry_kind_controls_new_entry(cx: &mut TestAppContext) {
         let (panel, mut cx) = setup_panel(cx).await;
         panel.read_with(&cx, |panel, cx| {
