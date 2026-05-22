@@ -4902,7 +4902,7 @@ impl AgentPanel {
         };
         let supports_logout = self
             .active_conversation_view()
-            .is_some_and(|conversation_view| conversation_view.read(cx).supports_logout(cx));
+            .is_some_and(|conversation_view| conversation_view.read(cx).supports_logout());
 
         let project_agents_md_path = project_agents_md_path(&self.project, true, cx);
 
