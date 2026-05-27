@@ -655,6 +655,15 @@ enum ToolCallLayout {
     Embedded,
 }
 
+fn full_path_for_empty_project_path(file: &dyn language::File, cx: &App) -> Option<String> {
+    if file.path().file_name().is_some() {
+        return None;
+    }
+
+    let full_path = file.full_path(cx).display().to_string();
+    (!full_path.is_empty()).then_some(full_path)
+}
+
 impl ThreadView {
     pub(crate) fn new(
         root_thread_id: ThreadId,
