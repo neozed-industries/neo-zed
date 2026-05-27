@@ -1143,7 +1143,7 @@ impl Render for SkillCreator {
                 .bg(theme.colors().panel_background)
                 .children(self.title_bar.clone())
                 .child(self.render_header(window, cx))
-                 .child(
+                .child(
                     div()
                         .flex_1()
                         .min_h_0()
@@ -1164,7 +1164,7 @@ impl Render for SkillCreator {
                                 .child(Divider::horizontal())
                                 .child(self.render_form_fields(window, cx)),
                         ),
-                 )
+                )
                 .child(
                     h_flex()
                         .w_full()
