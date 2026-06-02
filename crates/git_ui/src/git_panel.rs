@@ -9,7 +9,7 @@ use crate::{branch_picker, picker_prompt, render_remote_button};
 use crate::{
     git_panel_settings::GitPanelSettings, git_status_icon, repository_selector::RepositorySelector,
 };
-use agent_settings::AgentSettings;
+use agent_settings::{AgentSettings, UserAgentsMd};
 use alacritty_terminal::vte::ansi;
 use anyhow::Context as _;
 use askpass::AskPassDelegate;
@@ -121,6 +121,10 @@ actions!(
         ExpandSelectedEntry,
         /// Collapses the selected entry to hide its children.
         CollapseSelectedEntry,
+        /// Activates the Changes tab.
+        ActivateChangesTab,
+        /// Activates the History tab.
+        ActivateHistoryTab,
     ]
 );
 
@@ -694,6 +698,7 @@ pub struct GitPanel {
     commit_history_scroll_handle: UniformListScrollHandle,
     commit_history_shas: Vec<Oid>,
     focused_history_entry: Option<usize>,
+    history_keyboard_nav: bool,
     _repo_subscriptions: Vec<Subscription>,
 
     _settings_subscription: Subscription,
@@ -890,6 +895,7 @@ impl GitPanel {
                 commit_history_scroll_handle: UniformListScrollHandle::new(),
                 commit_history_shas: Vec::new(),
                 focused_history_entry: None,
+                history_keyboard_nav: false,
                 _repo_subscriptions: Vec::new(),
                 _settings_subscription,
                 git_access: GitAccess::Yes,
@@ -1040,6 +1046,10 @@ impl GitPanel {
     fn focus_in(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !self.focus_handle.contains_focused(window, cx) {
             cx.emit(Event::Focus);
+        }
+        if self.active_tab == GitPanelTab::History && self.focused_history_entry.is_some() {
+            self.history_keyboard_nav = true;
+            cx.notify();
         }
     }
 
@@ -2688,6 +2698,40 @@ impl GitPanel {
             .unwrap_or_else(|| BuiltInPrompt::CommitMessage.default_content().to_string())
     }
 
+    fn build_commit_message_prompt(
+        prompt: &str,
+        user_agents_md: Option<&str>,
+        rules_content: Option<&str>,
+        subject: &str,
+        diff_text: &str,
+    ) -> String {
+        let user_agents_md_section = match user_agents_md {
+            Some(user_agents_md) => format!(
+                "\n\nThe user has provided the following rules that you should follow when writing the commit message. Project-specific rules may override these instructions when they conflict:\n\
+                <rules>\n{user_agents_md}\n</rules>\n"
+            ),
+            None => String::new(),
+        };
+
+        let rules_section = match rules_content {
+            Some(rules) => format!(
+                "\n\nThe user has provided the following rules specific to this project that you should follow when writing the commit message:\n\
+                <project_rules>\n{rules}\n</project_rules>\n"
+            ),
+            None => String::new(),
+        };
+
+        let subject_section = if subject.trim().is_empty() {
+            String::new()
+        } else {
+            format!("\nHere is the user's subject line:\n{subject}")
+        };
+
+        format!(
+            "{prompt}{user_agents_md_section}{rules_section}{subject_section}\nHere are the changes in this commit:\n{diff_text}"
+        )
+    }
+
     /// Generates a commit message using an LLM.
     pub fn generate_commit_message(&mut self, cx: &mut Context<Self>) {
         if !self.can_commit() || !AgentSettings::get_global(cx).enabled(cx) {
@@ -2719,7 +2763,7 @@ impl GitPanel {
         let repo_work_dir = repo.read(cx).work_directory_abs_path.clone();
 
         self.generate_commit_message_task = Some(cx.spawn(async move |this, mut cx| {
-             async move {
+            async move {
                 let _defer = cx.on_drop(&this, |this, _cx| {
                     this.generate_commit_message_task.take();
                 });
@@ -2751,32 +2795,33 @@ impl GitPanel {
                 const MAX_DIFF_BYTES: usize = 20_000;
                 diff_text = Self::compress_commit_diff(&diff_text, MAX_DIFF_BYTES);
 
-                let rules_content = Self::load_project_rules(&project, &repo_work_dir, &mut cx).await;
+                let rules_content =
+                    Self::load_project_rules(&project, &repo_work_dir, &mut cx).await;
+                let user_agents_md = cx.update(|cx| {
+                    UserAgentsMd::global(cx)
+                        .and_then(|user_agents_md| user_agents_md.content().cloned())
+                });
 
                 let prompt = Self::load_commit_message_prompt(&mut cx).await;
 
                 let subject = this.update(cx, |this, cx| {
-                    this.commit_editor.read(cx).text(cx).lines().next().map(ToOwned::to_owned).unwrap_or_default()
+                    this.commit_editor
+                        .read(cx)
+                        .text(cx)
+                        .lines()
+                        .next()
+                        .map(ToOwned::to_owned)
+                        .unwrap_or_default()
                 })?;
 
                 let text_empty = subject.trim().is_empty();
 
-                let rules_section = match &rules_content {
-                    Some(rules) => format!(
-                        "\n\nThe user has provided the following project rules that you should follow when writing the commit message:\n\
-                        <project_rules>\n{rules}\n</project_rules>\n"
-                    ),
-                    None => String::new(),
-                };
-
-                let subject_section = if text_empty {
-                    String::new()
-                } else {
-                    format!("\nHere is the user's subject line:\n{subject}")
-                };
-
-                let content = format!(
-                    "{prompt}{rules_section}{subject_section}\nHere are the changes in this commit:\n{diff_text}"
+                let content = Self::build_commit_message_prompt(
+                    &prompt,
+                    user_agents_md.as_deref(),
+                    rules_content.as_deref(),
+                    &subject,
+                    &diff_text,
                 );
 
                 let request = LanguageModelRequest {
@@ -2805,7 +2850,11 @@ impl GitPanel {
                             this.update(cx, |this, cx| {
                                 this.commit_message_buffer(cx).update(cx, |buffer, cx| {
                                     let insert_position = buffer.anchor_before(buffer.len());
-                                    buffer.edit([(insert_position..insert_position, "\n")], None, cx)
+                                    buffer.edit(
+                                        [(insert_position..insert_position, "\n")],
+                                        None,
+                                        cx,
+                                    )
                                 });
                             })?;
                         }
@@ -2815,8 +2864,13 @@ impl GitPanel {
                                 Ok(text) => {
                                     this.update(cx, |this, cx| {
                                         this.commit_message_buffer(cx).update(cx, |buffer, cx| {
-                                            let insert_position = buffer.anchor_before(buffer.len());
-                                            buffer.edit([(insert_position..insert_position, text)], None, cx);
+                                            let insert_position =
+                                                buffer.anchor_before(buffer.len());
+                                            buffer.edit(
+                                                [(insert_position..insert_position, text)],
+                                                None,
+                                                cx,
+                                            );
                                         });
                                     })?;
                                 }
@@ -2834,7 +2888,8 @@ impl GitPanel {
 
                 anyhow::Ok(())
             }
-            .log_err().await
+            .log_err()
+            .await
         }));
     }
 
@@ -4556,7 +4611,7 @@ impl GitPanel {
                 .text(cx)
                 .lines()
                 .next()
-                .is_some_and(|title| title.len() > max_title_length)
+                .is_some_and(|title| commit_title_exceeds_limit(title, max_title_length))
         } else {
             false
         };
@@ -4927,11 +4982,15 @@ impl GitPanel {
     fn render_tab_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let active_tab = self.active_tab;
 
+        let focus_handle = self.focus_handle.clone();
         let tab = |id: ElementId,
                    active: bool,
                    show_changes: bool,
                    label: SharedString,
-                   set_active_tab: GitPanelTab| {
+                   set_active_tab: GitPanelTab,
+                   tooltip_action: Box<dyn Action>| {
+            let focus_handle = focus_handle.clone();
+
             h_flex()
                 .cursor_pointer()
                 .id(id)
@@ -4946,7 +5005,7 @@ impl GitPanel {
                     s.bg(cx.theme().colors().editor_background.opacity(0.6))
                         .border_color(cx.theme().colors().border.opacity(0.6))
                 })
-                .child(Label::new(label).when(!active, |this| this.color(Color::Muted)))
+                .child(Label::new(label.clone()).when(!active, |this| this.color(Color::Muted)))
                 .when(show_changes && self.changes_count > 0, |this| {
                     this.child(
                         Label::new(format!("({})", self.changes_count))
@@ -4954,9 +5013,14 @@ impl GitPanel {
                             .color(Color::Muted),
                     )
                 })
-                .on_click(
-                    cx.listener(move |this, _, _, cx| this.set_active_tab(set_active_tab, cx)),
-                )
+                .tooltip(Tooltip::for_action_title_in(
+                    format!("Toggle {} Tab", label),
+                    tooltip_action.as_ref(),
+                    &focus_handle,
+                ))
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    this.set_active_tab(set_active_tab, window, cx)
+                }))
         };
 
         h_flex()
@@ -4969,6 +5033,7 @@ impl GitPanel {
                 true,
                 "Changes".into(),
                 GitPanelTab::Changes,
+                ActivateChangesTab.boxed_clone(),
             ))
             .child(Divider::vertical().color(ui::DividerColor::BorderFaded))
             .child(tab(
@@ -4977,6 +5042,7 @@ impl GitPanel {
                 false,
                 "History".into(),
                 GitPanelTab::History,
+                ActivateHistoryTab.boxed_clone(),
             ))
     }
 
@@ -5005,6 +5071,7 @@ impl GitPanel {
             Some(i) => (i + 1).min(count - 1),
         };
         self.focused_history_entry = Some(new_index);
+        self.history_keyboard_nav = true;
         self.commit_history_scroll_handle
             .scroll_to_item(new_index, ScrollStrategy::Top);
         cx.notify();
@@ -5020,6 +5087,7 @@ impl GitPanel {
             Some(i) => i.saturating_sub(1),
         };
         self.focused_history_entry = Some(new_index);
+        self.history_keyboard_nav = true;
         self.commit_history_scroll_handle
             .scroll_to_item(new_index, ScrollStrategy::Top);
         cx.notify();
@@ -5046,17 +5114,37 @@ impl GitPanel {
         );
     }
 
-    fn set_active_tab(&mut self, tab: GitPanelTab, cx: &mut Context<Self>) {
+    fn activate_changes_tab(
+        &mut self,
+        _: &ActivateChangesTab,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.set_active_tab(GitPanelTab::Changes, window, cx);
+    }
+
+    fn activate_history_tab(
+        &mut self,
+        _: &ActivateHistoryTab,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.set_active_tab(GitPanelTab::History, window, cx);
+    }
+
+    fn set_active_tab(&mut self, tab: GitPanelTab, window: &mut Window, cx: &mut Context<Self>) {
         if self.active_tab == tab {
             return;
         }
         self.active_tab = tab;
         match tab {
             GitPanelTab::History => {
+                self.focus_handle.focus(window, cx);
                 self.load_commit_history(cx);
                 self.focused_history_entry = Some(0);
             }
             GitPanelTab::Changes => {
+                self.focus_handle.focus(window, cx);
                 self.commit_history_shas.clear();
                 self.focused_history_entry = None;
                 self._repo_subscriptions.clear();
@@ -5160,6 +5248,7 @@ impl GitPanel {
 
         let focused_history_entry = self.focused_history_entry;
         let is_panel_focused = self.focus_handle.is_focused(window);
+        let show_focus_border = self.history_keyboard_nav;
 
         let ahead_count = active_repository
             .read(cx)
@@ -5179,6 +5268,7 @@ impl GitPanel {
                     uniform_list("commit_history_list", item_count, {
                         let workspace = workspace;
                         let repo_weak = repo_weak;
+                        let git_panel = cx.weak_entity();
                         move |range, window, cx| {
                             let local_offset = time::UtcOffset::current_local_offset()
                                 .unwrap_or(time::UtcOffset::UTC);
@@ -5269,11 +5359,14 @@ impl GitPanel {
                                         .gap_0p5()
                                         .border_1()
                                         .border_color(gpui::transparent_black())
-                                        .when(is_focused && is_panel_focused, |this| {
-                                            this.border_color(
-                                                cx.theme().colors().panel_focused_border,
-                                            )
-                                        })
+                                        .when(
+                                            is_focused && is_panel_focused && show_focus_border,
+                                            |this| {
+                                                this.border_color(
+                                                    cx.theme().colors().panel_focused_border,
+                                                )
+                                            },
+                                        )
                                         .hover(|s| s.bg(cx.theme().colors().element_hover))
                                         .child(
                                             h_flex()
@@ -5320,6 +5413,18 @@ impl GitPanel {
                                                 short_sha.clone(),
                                                 cx,
                                             )
+                                        })
+                                        .on_mouse_down(gpui::MouseButton::Left, {
+                                            let git_panel = git_panel.clone();
+                                            move |_, _, cx| {
+                                                git_panel
+                                                    .update(cx, |panel, cx| {
+                                                        panel.focused_history_entry = Some(index);
+                                                        panel.history_keyboard_nav = false;
+                                                        cx.notify();
+                                                    })
+                                                    .ok();
+                                            }
                                         })
                                         .on_click(move |_, window, cx| {
                                             CommitView::open(
@@ -6545,6 +6650,8 @@ impl Render for GitPanel {
             })
             .on_action(cx.listener(Self::toggle_sort_by_path))
             .on_action(cx.listener(Self::toggle_tree_view))
+            .on_action(cx.listener(Self::activate_changes_tab))
+            .on_action(cx.listener(Self::activate_history_tab))
             .size_full()
             .overflow_hidden()
             .bg(cx.theme().colors().panel_background)
@@ -7374,6 +7481,10 @@ fn format_git_error_toast_message(error: &anyhow::Error) -> String {
     } else {
         error.to_string().trim().to_string()
     }
+}
+
+pub(crate) fn commit_title_exceeds_limit(title: &str, max_length: usize) -> bool {
+    max_length > 0 && title.chars().count() > max_length
 }
 
 #[cfg(test)]
@@ -8639,6 +8750,26 @@ mod tests {
         assert_eq!(result, expected);
     }
 
+    #[test]
+    fn test_commit_message_prompt_includes_user_agents_md_before_project_rules() {
+        let prompt = GitPanel::build_commit_message_prompt(
+            "Write a commit message.",
+            Some("Use terse commit messages."),
+            Some("Use the git_ui prefix."),
+            "Update generated message",
+            "diff --git a/file b/file",
+        );
+
+        assert!(prompt.contains("Use terse commit messages."));
+        assert!(prompt.contains("Use the git_ui prefix."));
+        assert!(prompt.contains("Update generated message"));
+        assert!(prompt.contains("diff --git a/file b/file"));
+
+        let user_agents_md_index = prompt.find("<rules>").unwrap();
+        let project_rules_index = prompt.find("<project_rules>").unwrap();
+        assert!(user_agents_md_index < project_rules_index);
+    }
+
     #[gpui::test]
     async fn test_suggest_commit_message(cx: &mut TestAppContext) {
         init_test(cx);
@@ -8852,6 +8983,43 @@ mod tests {
             processor.advance(&mut handler, input.as_bytes());
             assert_eq!(handler.output, expected);
         }
+    }
+
+    #[test]
+    fn test_commit_title_exceeds_limit() {
+        // ASCII only
+        let within_ascii = "abcde";
+        let exceeds_ascii = "abcdef";
+        assert!(!commit_title_exceeds_limit(within_ascii, 5));
+        assert!(commit_title_exceeds_limit(exceeds_ascii, 5));
+
+        // Multi-byte characters are counted as grapheme clusters
+        let within_japanese = "あいうえお"; // 5 chars, 15 bytes
+        let exceeds_japanese = "あいうえおか"; // 6 chars, 18 bytes
+        assert!(!commit_title_exceeds_limit(within_japanese, 5));
+        assert!(commit_title_exceeds_limit(exceeds_japanese, 5));
+
+        // Mixed ASCII + multi-byte
+        let within_mixed = "abcあ";
+        let exceeds_mixed = "abcああ";
+        assert!(!commit_title_exceeds_limit(within_mixed, 4));
+        assert!(commit_title_exceeds_limit(exceeds_mixed, 4));
+
+        // Emoji counts as one character each
+        let within_emoji = "🚀";
+        let exceeds_emoji = "🚀🚀";
+        assert!(!commit_title_exceeds_limit(within_emoji, 1));
+        assert!(commit_title_exceeds_limit(exceeds_emoji, 1));
+
+        // A max_length of 0 disables the limit check
+        assert!(!commit_title_exceeds_limit(
+            "anything goes when disabled",
+            0
+        ));
+        assert!(!commit_title_exceeds_limit("", 0));
+
+        // Empty title never exceeds a positive limit
+        assert!(!commit_title_exceeds_limit("", 72));
     }
 
     #[gpui::test]
