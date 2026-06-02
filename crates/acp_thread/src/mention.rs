@@ -540,7 +540,7 @@ impl MentionUri {
                 source,
                 skill_file_path,
             } => {
-                let mut url = Url::parse("zed:///").unwrap();
+                let mut url = Url::parse("neozed:///").unwrap();
                 url.set_path("/agent/skill");
                 url.query_pairs_mut()
                     .append_pair("name", name)
