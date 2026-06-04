@@ -1,13 +1,13 @@
 ---
-title: Billing - Neo Zed AI
-description: Manage Neo Zed AI billing, payment methods, invoices, threshold billing, and sales tax information for individual and organization accounts.
+title: Billing
+description: Manage billing for your Zed subscription, including payment methods, invoices, and sales tax information for individual and organization accounts.
 ---
 
 # Billing
 
 Zed uses Stripe for payment processing. All plans that require payment do so via credit card or other supported payment methods. Individual Pro subscriptions also use Orb for invoicing and metering.
 
-For details on what's included in each plan and how token usage works, see [Plans & Pricing](./plans-and-usage.md).
+For details on what's included in each plan and how token usage works, see [Plans & Pricing](./plans-and-pricing.md).
 
 ## Individual billing {#individual}
 
@@ -18,17 +18,17 @@ This page embeds data from Orb, our invoicing and metering partner.
 
 ### Billing cycles {#billing-cycles}
 
-Neo Zed is billed on a monthly basis based on the date you initially subscribe. You'll receive _at least_ one invoice from Neo Zed each month you're subscribed to Neo Zed Pro, and may receive more than one invoice if you use hosted models beyond your included monthly token credit.
+Zed is billed on a monthly basis based on the date you initially subscribe. You'll receive _at least_ one invoice from Zed each month you're subscribed to Zed Pro, and may receive more than one invoice if you use hosted models beyond your included monthly token credit.
 
-### Neo Zed Pro threshold billing {#threshold-billing}
+### Zed Pro threshold billing {#threshold-billing}
 
-For individual Neo Zed Pro subscriptions, Neo Zed uses threshold billing to ensure timely payment collection. Threshold billing controls when already-allowed token usage is invoiced during the month; your [monthly spend limit](./plans-and-usage.md#usage-spend-limits) still controls when hosted model usage stops.
+For individual Zed Pro subscriptions, Zed uses threshold billing to ensure timely payment collection. Threshold billing controls when already-allowed token usage is invoiced during the month; your [monthly spend limit](./plans-and-pricing.md#usage-spend-limits) still controls when hosted model usage stops.
 
 Threshold invoices start at $10 of pre-tax incremental token spend. For higher token usage, Zed may automatically raise your pre-tax invoicing threshold in $10 increments, up to $100, so you receive fewer mid-cycle invoices. Once raised, the invoicing threshold is not automatically lowered during the same subscription.
 
 For Zed Business billing, see [Organization billing](#organization).
 
-For example:
+For example,
 
 - You subscribe on February 1. Your first invoice is $10.
 - You use $12 of incremental tokens in the month of February, with the first $10 spent on February 15. You'll receive an invoice for $10 on February 15.
@@ -56,7 +56,7 @@ Use the Billing Manager role for someone who needs billing access but does not n
 
 ### AI usage {#ai-usage}
 
-AI usage across the organization is metered on a token basis at the same rates as individual Pro subscriptions. See [Plans & Pricing](./plans-and-usage.md#usage) for rate details.
+AI usage across the organization is metered on a token basis at the same rates as individual Pro subscriptions. See [Plans & Pricing](./plans-and-pricing.md#usage) for rate details.
 
 Administrators can set an org-wide AI spend limit from the Data & Privacy page in the organization dashboard. The limit starts at $0, so it must be increased before members can use any hosted models. Once the limit is reached, members will see an error when attempting to use hosted models.
 
