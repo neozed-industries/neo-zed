@@ -12,7 +12,7 @@ use collections::HashSet;
 use futures::{FutureExt, channel::oneshot};
 use gpui::{App, AppContext, AsyncApp, Entity, Task, WeakEntity};
 use language::language_settings::{self, FormatOnSave};
-use language::{Buffer, BufferEvent, LanguageRegistry};
+use language::{Buffer, BufferEditSource, BufferEvent, LanguageRegistry};
 use language_model::LanguageModelToolResultContent;
 use project::lsp_store::{FormatTrigger, LspFormatTarget};
 use project::{AgentLocation, Project, ProjectPath};
@@ -278,6 +278,7 @@ pub(crate) enum EditSessionResult {
 
 pub(crate) async fn run_session(
     result: EditSessionResult,
+    event_stream: &ToolCallEventStream,
     cx: &mut AsyncApp,
 ) -> Result<EditSessionOutput, EditSessionOutput> {
     match result {
@@ -303,6 +304,11 @@ pub(crate) async fn run_session(
                 .ensure_buffer_saved(&session.buffer, cx)
                 .await;
             let (_new_text, diff) = session.compute_new_text_and_diff(cx).await;
+            if diff.is_empty() {
+                event_stream.update_fields(acp::ToolCallUpdateFields::new().content(vec![
+                    acp::ToolCallContent::Content(acp::Content::new(error.clone())),
+                ]));
+            }
             Err(EditSessionOutput::Error {
                 error,
                 input_path: Some(session.input_path),
@@ -312,11 +318,16 @@ pub(crate) async fn run_session(
         EditSessionResult::Failed {
             error,
             session: None,
-        } => Err(EditSessionOutput::Error {
-            error,
-            input_path: None,
-            diff: String::new(),
-        }),
+        } => {
+            event_stream.update_fields(acp::ToolCallUpdateFields::new().content(vec![
+                acp::ToolCallContent::Content(acp::Content::new(error.clone())),
+            ]));
+            Err(EditSessionOutput::Error {
+                error,
+                input_path: None,
+                diff: String::new(),
+            })
+        }
     }
 }
 
@@ -964,7 +975,9 @@ fn agent_edit_buffer<I, S, T>(
 {
     cx.update(|cx| {
         buffer.update(cx, |buffer, cx| {
+            buffer.start_transaction();
             buffer.edit(edits, None, cx);
+            buffer.end_transaction_with_source(BufferEditSource::Agent, cx);
         });
         action_log.update(cx, |log, cx| log.buffer_edited(buffer.clone(), cx));
     });

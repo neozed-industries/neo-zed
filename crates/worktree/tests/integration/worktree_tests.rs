@@ -1,4 +1,4 @@
-mod worktree_settings;
+mod worktree_settings_tests;
 
 use anyhow::Result;
 use encoding_rs;
@@ -708,6 +708,41 @@ async fn test_root_rescan_reconciles_stale_state(cx: &mut TestAppContext) {
             vec![rel_path(""), rel_path("new.txt")]
         );
     });
+}
+
+#[gpui::test]
+async fn test_root_rescan_does_not_miss_event_before_readding_root_watcher(
+    cx: &mut TestAppContext,
+) {
+    init_test(cx);
+    let fs = FakeFs::new(cx.background_executor.clone());
+    fs.insert_tree("/root", json!({})).await;
+
+    let tree = Worktree::local(
+        Path::new("/root"),
+        true,
+        fs.clone(),
+        Default::default(),
+        true,
+        WorktreeId::from_proto(0),
+        &mut cx.to_async(),
+    )
+    .await
+    .unwrap();
+
+    cx.read(|cx| tree.read(cx).as_local().unwrap().scan_complete())
+        .await;
+
+    fs.create_file_before_next_watch_add("/root", "/root/created-before-root-readd.txt");
+    fs.emit_fs_event("/root", Some(PathEventKind::Rescan));
+
+    wait_for_condition(cx, |cx| {
+        tree.read_with(cx, |tree, _| {
+            tree.entry_for_path(rel_path("created-before-root-readd.txt"))
+                .is_some()
+        })
+    })
+    .await;
 }
 
 #[gpui::test]
@@ -3402,6 +3437,89 @@ async fn test_linked_worktree_git_file_event_does_not_panic(
             Some(Path::new(path!("/main_repo/.git"))),
         );
     });
+}
+
+#[gpui::test]
+async fn test_linked_worktree_index_lock_event_does_not_emit_git_repo_update(
+    executor: BackgroundExecutor,
+    cx: &mut TestAppContext,
+) {
+    // Regression test: in a linked worktree, git operations like `git status`
+    // can touch the worktree-specific `index.lock` under the main repo's
+    // `.git/worktrees/<name>/`. We intend to ignore those events so they do not
+    // spuriously emit `UpdatedGitRepositories`.
+    init_test(cx);
+
+    use git::repository::Worktree as GitWorktree;
+
+    let fs = FakeFs::new(executor);
+
+    fs.insert_tree(
+        path!("/main_repo"),
+        json!({
+            ".git": {},
+            "file.txt": "content",
+        }),
+    )
+    .await;
+    fs.add_linked_worktree_for_repo(
+        Path::new(path!("/main_repo/.git")),
+        false,
+        GitWorktree {
+            path: PathBuf::from(path!("/linked_worktree")),
+            ref_name: Some("refs/heads/feature".into()),
+            sha: "abc123".into(),
+            is_main: false,
+            is_bare: false,
+        },
+    )
+    .await;
+    fs.write(
+        path!("/linked_worktree/file.txt").as_ref(),
+        "content".as_bytes(),
+    )
+    .await
+    .unwrap();
+
+    let tree = Worktree::local(
+        path!("/linked_worktree").as_ref(),
+        true,
+        fs.clone(),
+        Arc::default(),
+        true,
+        WorktreeId::from_proto(0),
+        &mut cx.to_async(),
+    )
+    .await
+    .unwrap();
+    tree.update(cx, |tree, _| tree.as_local().unwrap().scan_complete())
+        .await;
+    cx.run_until_parked();
+
+    let repo_update_count: Rc<Cell<usize>> = Rc::new(Cell::new(0));
+    tree.update(cx, {
+        let repo_update_count = repo_update_count.clone();
+        |_, cx| {
+            cx.subscribe(&cx.entity(), move |_, _, event, _| {
+                if matches!(event, Event::UpdatedGitRepositories(_)) {
+                    repo_update_count.set(repo_update_count.get() + 1);
+                }
+            })
+            .detach();
+        }
+    });
+
+    fs.emit_fs_event(
+        path!("/main_repo/.git/worktrees/feature/index.lock"),
+        Some(PathEventKind::Changed),
+    );
+    cx.run_until_parked();
+
+    assert_eq!(
+        repo_update_count.get(),
+        0,
+        "linked-worktree index.lock events should not emit UpdatedGitRepositories"
+    );
 }
 
 #[gpui::test]
